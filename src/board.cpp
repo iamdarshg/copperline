@@ -202,6 +202,19 @@ ImportResult JsonBoardImporter::import_value(const JsonValue& root, const std::s
             layer.name = l.get_string("name", "L" + std::to_string(layer.id));
             layer.preferred_horizontal = l.get_bool("preferred_horizontal", false);
             layer.cost_multiplier = l.get_number("cost_multiplier", 1.0);
+            if (l.has("copper_weight_oz")) {
+                double oz = l.get_number("copper_weight_oz", -1);
+                if (oz <= 0)
+                    throw BoardError(InputKind::kRule, "copper_weight_oz must be positive");
+                layer.copper_weight_oz = oz;
+            }
+            if (l.has("is_internal")) {
+                layer.has_internal_flag = true;
+                layer.is_internal = l.get_bool("is_internal", false);
+            } else if (l.has("internal")) {
+                layer.has_internal_flag = true;
+                layer.is_internal = l.get_bool("internal", false);
+            }
             board.layers.push_back(layer);
         }
     }
@@ -229,6 +242,16 @@ ImportResult JsonBoardImporter::import_value(const JsonValue& root, const std::s
             board.defaults.default_current_a = c;
         }
         if (def->has("default_voltage_v")) board.defaults.default_voltage_v = def->get_number("default_voltage_v", 0);
+        if (def->has("copper_weight_oz")) {
+            double oz = def->get_number("copper_weight_oz", -1);
+            if (oz <= 0) throw BoardError(InputKind::kRule, "copper_weight_oz must be positive");
+            board.defaults.copper_weight_oz = oz;
+        }
+        if (def->has("temp_rise_c")) {
+            double dt = def->get_number("temp_rise_c", -1);
+            if (dt <= 0) throw BoardError(InputKind::kRule, "temp_rise_c must be positive");
+            board.defaults.temp_rise_c = dt;
+        }
     }
 
     const JsonValue* nets = root.find("nets");

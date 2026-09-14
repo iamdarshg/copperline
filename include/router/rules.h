@@ -25,8 +25,10 @@ namespace copperline {
 
 struct ElectricalContext {
     double ambient_c = 25.0;
-    double temp_rise_c = 20.0;
-    double copper_weight_oz = 1.0;
+    // Thermal overrides for the ampacity model (issue #7). Values <= 0 mean
+    // "inherit": the resolver falls back to sidecar/board/layer metadata.
+    double temp_rise_c = -1.0;
+    double copper_weight_oz = -1.0;
 };
 
 struct TraceRule {
@@ -35,7 +37,8 @@ struct TraceRule {
     bool allow_neckdown = false;
     Coord neck_width_nm = 0;
     Coord neck_max_len_nm = 0;
-    std::string width_source;  // "explicit" | "width_class" | "ipc_estimate" | "board_default"
+    std::string width_source;  // "explicit" | "width_class" | "ampacity" |
+                               // "ipc_estimate" (legacy) | "board_default"
 };
 
 struct ViaStyle {
@@ -90,7 +93,10 @@ class WidthClassModel : public CurrentCapacityModel {
     std::map<std::string, WidthClass> classes_;
 };
 
-// 3. Configurable IPC-derived width estimation: width = I * k, clamped.
+// 3a. Legacy linear width heuristic (kept for backward compatibility):
+// width = I * k, clamped. Superseded by AmpacityModel as the default
+// inferred estimator (issue #7); still selected when a config explicitly
+// carries an "ipc" block without an "ampacity" block.
 class IpcEstimateModel : public CurrentCapacityModel {
   public:
     IpcEstimateModel(double mm_per_amp = 0.75, double min_mm = 0.15, double max_mm = 10.0);
@@ -105,21 +111,101 @@ class IpcEstimateModel : public CurrentCapacityModel {
     Coord max_nm_;
 };
 
-// Composite: explicit -> width class -> IPC estimate -> board default.
+// 3b. Physically parameterized ampacity model (issue #7, the DEFAULT
+// inferred estimator): IPC-2221 section 6.2 external/internal trace
+// current-carrying approximation, inverted to solve for width:
+//
+//   I = k * dT^0.44 * A^0.725,  A = w_mils * t_mils  (A in square mils)
+//
+// with k = 0.048 for external (outer) layers and k = 0.024 for internal
+// layers, dT the allowed temperature rise in C, and copper thickness
+// t_mils = weight_oz * 1.37 (1 oz Cu ~= 1.37 mil ~= 34.8 um).
+// Inverted: A = (I / (k * dT^0.44))^(1/0.725), w = A / t, clamped to
+// [min_mm, max_mm]. This is an IPC-2221-style estimate, NOT an IPC-2152
+// qualified rating: no electrothermal simulation, no plane solving, no
+// regulatory claim. Like the legacy model it only scales *stated* net
+// current and returns -1 when the net carries no current metadata.
+class AmpacityModel : public CurrentCapacityModel {
+  public:
+    AmpacityModel(double min_mm = 0.15, double max_mm = 10.0);
+    Coord evaluate(const NetInfo& net, const BoardDefaults&,
+                   const ElectricalContext& ctx) const override;
+    // Layer-aware entry: resolves thickness/rise with the helpers below.
+    Coord evaluate_for(double current_a, double copper_oz, double temp_rise_c,
+                       bool internal) const;
+    const char* name() const override { return "ampacity"; }
+    bool enabled = true;
+    // Unit helpers (public for tests/diagnostics).
+    static double copper_mils(double weight_oz) { return weight_oz * 1.37; }
+    static double width_mm_for(double current_a, double copper_oz, double temp_rise_c,
+                               bool internal);
+
+  private:
+    Coord min_nm_;
+    Coord max_nm_;
+};
+
+// Transparent per-net width accounting for analyze/route JSON (issue #7).
+struct WidthDetails {
+    std::string model;  // "explicit" | "width_class" | "ampacity" |
+                        // "ipc_estimate" | "board_default"
+    double current_a = 0.0;
+    bool default_current_used = false;
+    double copper_weight_oz = 1.0;
+    double temp_rise_c = 20.0;
+    bool internal_layer = false;
+    Coord width_nm = 0;
+};
+
+// Composite: explicit -> width class -> ampacity (default) or legacy IPC
+// estimate -> board default.
 // Records which tier answered so reports can show inferred-vs-explicit.
 class CurrentCapacitySystem {
   public:
     CurrentCapacitySystem();
     void set_classes(std::map<std::string, WidthClass> classes);
-    void set_ipc(const IpcEstimateModel& ipc) { ipc_ = ipc; }
+    void set_ipc(const IpcEstimateModel& ipc) {
+        ipc_ = ipc;
+        has_ipc_config_ = true;
+    }
+    void set_ampacity(const AmpacityModel& m) {
+        ampacity_ = m;
+        has_ampacity_config_ = true;
+    }
+    // Sidecar thermal overrides (<= 0 = inherit board defaults).
+    void set_thermal(double temp_rise_c, double copper_weight_oz) {
+        thermal_temp_c_ = temp_rise_c;
+        thermal_copper_oz_ = copper_weight_oz;
+    }
 
     // Effective design current: peak > continuous > board default.
     double effective_current(const NetInfo& net, const BoardDefaults& def,
                              bool& default_used) const;
 
     Coord required_min_width(const NetInfo& net, const BoardDefaults& def,
-                             const ElectricalContext& ctx, std::string& source) const;
+                              const ElectricalContext& ctx, std::string& source) const;
+    // Layer-aware entry: resolves copper weight / temperature rise /
+    // internal-vs-external from (layer override > ctx > sidecar > board).
+    Coord required_min_width(const NetInfo& net, const Board& board, LayerId layer,
+                              const ElectricalContext& ctx, std::string& source) const;
+    // Full accounting for machine-readable reports.
+    WidthDetails width_details(const NetInfo& net, const Board& board, LayerId layer,
+                               const ElectricalContext& ctx) const;
+    // Merged thermal context: explicit ctx values win, then sidecar, then
+    // board defaults. Used by the CLI so --config thermal metadata reaches
+    // analysis/routing instead of being silently ignored.
+    ElectricalContext default_context(const Board& board) const;
 
+    // Thermal resolution helpers (public for tests).
+    double effective_temp_rise(const Board& board, const ElectricalContext& ctx) const;
+    double effective_copper_oz(const Board& board, LayerId layer,
+                               const ElectricalContext& ctx) const;
+    bool effective_internal(const Board& board, LayerId layer) const;
+    bool uses_ampacity() const { return ampacity_enabled(); }
+
+    bool ampacity_enabled() const;
+
+  public:
     // Neckdown is legal only with explicit permission and a wide-enough neck,
     // unless the neck still meets the full required width (then it is not a
     // neckdown at all and always legal).
@@ -136,6 +222,11 @@ class CurrentCapacitySystem {
     ExplicitWidthModel explicit_;
     WidthClassModel classes_;
     IpcEstimateModel ipc_;
+    AmpacityModel ampacity_;
+    bool has_ipc_config_ = false;
+    bool has_ampacity_config_ = false;
+    double thermal_temp_c_ = -1.0;    // sidecar temp_rise_c override (<=0 = inherit)
+    double thermal_copper_oz_ = -1.0;  // sidecar copper_weight_oz override (<=0 = inherit)
 };
 
 // ---- Voltage clearance model ----
@@ -207,6 +298,11 @@ class RuleResolver {
     TraceRule traceRule(NetId net, LayerId layer, RegionId region) const;
     Coord requiredTraceWidth(NetId net, LayerId layer, const ElectricalContext& ctx,
                              std::string* source_out = nullptr) const;
+    // Transparent width accounting (model/current/copper/rise/layer).
+    WidthDetails widthDetails(NetId net, LayerId layer,
+                              const ElectricalContext& ctx) const;
+    // Merged thermal context for this board (ctx override > sidecar > board).
+    ElectricalContext defaultContext() const;
     Coord requiredClearance(NetId a, NetId b, LayerId layer, const ElectricalContext& ctx,
                             std::string* source_out = nullptr) const;
     // Full two-stage resolution: candidate source + floor info alongside the

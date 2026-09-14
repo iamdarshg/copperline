@@ -22,7 +22,7 @@ given `(board, rules, seed)`.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# Run the full test suite (123 cases, 11 binaries, ~21 s)
+# Run the full test suite (156 cases, 12 binaries, ~21 s)
 ctest --test-dir build --output-on-failure
 
 # Route a board, machine-readable
@@ -94,8 +94,21 @@ Width resolution (first hit wins, i.e. explicit always beats inference):
 
 1. `explicit` — net `min_width_mm`
 2. `width_class` — user width/current class
-3. `ipc_estimate` — configurable `width = I · k` clamped to `[min_mm, max_mm]`
+3. `ampacity` — IPC-2221 §6.2 external/internal inversion
+   (`I = k·dT^0.44·A^0.725`, `k = 0.048` external / `0.024` internal,
+   `A = w·t`, `t = weight_oz·1.37 mil`), clamped to `[min_mm, max_mm]`
 4. `board_default` — `defaults.trace_width_mm`
+
+The legacy linear `ipc_estimate` (`width = I · k`) is kept for backward
+compatibility and is selected only when a sidecar config carries an `"ipc"`
+block without an `"ampacity"` block. The ampacity model only scales *stated*
+net current; nets without current metadata fall back to the board default
+and are reported (`default_current_used`). Thermal inputs resolve per layer
+as `layer copper_weight_oz` > `--config ampacity` > `defaults`, and
+temperature rise as `--config ampacity` > `defaults`; middle layers of a
+3+-layer stackup use the internal (derated) constant unless `is_internal`
+is set explicitly. This is an IPC-2221-style estimate, not an IPC-2152
+qualified rating.
 
 Clearance between two nets resolves from **both** nets (pair rule >
 class pair > voltage-difference table > board default), plus conservative
@@ -107,7 +120,8 @@ Sidecar `--config` (JSON) example — see `fixtures/rules_demo.json`:
 
 ```json
 {
-  "ipc": {"enabled": true, "mm_per_amp": 0.75, "min_mm": 0.15, "max_mm": 10.0},
+  "ampacity": {"model": "ipc2221", "temp_rise_c": 20.0, "copper_weight_oz": 1.0,
+               "min_mm": 0.15, "max_mm": 10.0},
   "voltage_table": [
     {"delta_v_min": 0, "clearance_mm": 0.15},
     {"delta_v_min": 50, "clearance_mm": 1.0}
@@ -151,7 +165,7 @@ include/router  geometry.h  json.h  sexpr.h  board.h  rules.h
 src             json/sexpr/board/kicad/rules/spatial_index/density/...
                 route_tree/sparse_graph/astar/escape/parallel/recovery/...
                 engine/verifier/analyze/main(CLI)
-tests           11 binaries, 123 cases (no third-party framework)
+tests           12 binaries, 156 cases (no third-party framework)
 fixtures        6 Prompt-1/3 JSON boards (open_2layer, obstacle_detour,
                 high_current, voltage_clearance, narrow_channel, ...)
                 + 9 fine-pitch golden boards

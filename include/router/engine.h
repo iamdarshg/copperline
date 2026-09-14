@@ -45,6 +45,10 @@ struct RouteFailure {
     std::int64_t expansions = 0;
     double required_width_mm = 0;
     std::string width_source;
+    // Ampacity accounting (issue #7, mirrors analyze nets[]).
+    std::string width_model;
+    double copper_weight_oz = 1.0;
+    double temp_rise_c = 20.0;
     int ripup_attempts = 0;
     std::vector<std::string> modes_attempted;
     FrontierDiag frontier;

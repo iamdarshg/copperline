@@ -36,6 +36,52 @@ Coord IpcEstimateModel::evaluate(const NetInfo& net, const BoardDefaults& def,
     return std::clamp(w, min_nm_, max_nm_);
 }
 
+// ---- IPC-2221 ampacity model (issue #7) ----
+
+namespace {
+
+// IPC-2221 section 6.2 constants: I = k * dT^0.44 * A^0.725.
+constexpr double kAmpacityKExternal = 0.048;
+constexpr double kAmpacityKInternal = 0.024;
+constexpr double kAmpacityExpB = 0.44;
+constexpr double kAmpacityExpC = 0.725;
+constexpr double kMilsPerOz = 1.37;   // 1 oz Cu ~= 1.37 mil ~= 34.8 um
+constexpr double kMmPerMil = 0.0254;
+
+}  // namespace
+
+AmpacityModel::AmpacityModel(double min_mm, double max_mm)
+    : min_nm_(mm_to_nm(min_mm)), max_nm_(mm_to_nm(max_mm)) {}
+
+double AmpacityModel::width_mm_for(double current_a, double copper_oz, double temp_rise_c,
+                                   bool internal) {
+    if (current_a <= 0 || copper_oz <= 0 || temp_rise_c <= 0) return -1.0;
+    double k = internal ? kAmpacityKInternal : kAmpacityKExternal;
+    double area_sq_mils =
+        std::pow(current_a / (k * std::pow(temp_rise_c, kAmpacityExpB)), 1.0 / kAmpacityExpC);
+    double width_mils = area_sq_mils / copper_mils(copper_oz);
+    return width_mils * kMmPerMil;
+}
+
+Coord AmpacityModel::evaluate_for(double current_a, double copper_oz, double temp_rise_c,
+                                  bool internal) const {
+    double w_mm = width_mm_for(current_a, copper_oz, temp_rise_c, internal);
+    if (w_mm < 0) return -1;
+    return std::clamp(mm_to_nm(w_mm), min_nm_, max_nm_);
+}
+
+Coord AmpacityModel::evaluate(const NetInfo& net, const BoardDefaults& def,
+                              const ElectricalContext& ctx) const {
+    if (!enabled) return -1;
+    // Same honesty rule as the legacy model: only stated current is scaled.
+    if (!net.has_peak && !net.has_current) return -1;
+    double current = net.has_peak ? net.peak_a : net.current_a;
+    if (current <= 0) return -1;
+    double oz = ctx.copper_weight_oz > 0 ? ctx.copper_weight_oz : def.copper_weight_oz;
+    double dt = ctx.temp_rise_c > 0 ? ctx.temp_rise_c : def.temp_rise_c;
+    return evaluate_for(current, oz, dt, /*internal=*/false);
+}
+
 CurrentCapacitySystem::CurrentCapacitySystem() : classes_(std::map<std::string, WidthClass>()) {}
 
 void CurrentCapacitySystem::set_classes(std::map<std::string, WidthClass> classes) {
@@ -51,9 +97,108 @@ double CurrentCapacitySystem::effective_current(const NetInfo& net, const BoardD
     return def.default_current_a;
 }
 
+bool CurrentCapacitySystem::ampacity_enabled() const {
+    if (!ampacity_.enabled) return false;
+    // The ampacity model is the default inferred estimator. An explicit
+    // legacy "ipc" sidecar block (without a companion "ampacity" block)
+    // keeps selecting the legacy linear model for backward compatibility.
+    if (has_ipc_config_ && !has_ampacity_config_) return false;
+    return true;
+}
+
+double CurrentCapacitySystem::effective_temp_rise(const Board& board,
+                                                  const ElectricalContext& ctx) const {
+    if (ctx.temp_rise_c > 0) return ctx.temp_rise_c;
+    if (thermal_temp_c_ > 0) return thermal_temp_c_;
+    return board.defaults.temp_rise_c;
+}
+
+double CurrentCapacitySystem::effective_copper_oz(const Board& board, LayerId layer,
+                                                   const ElectricalContext& ctx) const {
+    for (const auto& l : board.layers) {
+        if (l.id == layer && l.copper_weight_oz > 0) return l.copper_weight_oz;
+    }
+    if (ctx.copper_weight_oz > 0) return ctx.copper_weight_oz;
+    if (thermal_copper_oz_ > 0) return thermal_copper_oz_;
+    return board.defaults.copper_weight_oz;
+}
+
+bool CurrentCapacitySystem::effective_internal(const Board& board, LayerId layer) const {
+    for (const auto& l : board.layers) {
+        if (l.id != layer) continue;
+        if (l.has_internal_flag) return l.is_internal;
+    }
+    if (board.layers.size() <= 2) return false;
+    // Stackup inference: the first/last entries are the outer (external)
+    // copper; anything sandwiched between them is internal.
+    if (!board.layers.empty() &&
+        (layer == board.layers.front().id || layer == board.layers.back().id))
+        return false;
+    for (const auto& l : board.layers) {
+        if (l.id == layer) return true;  // known middle layer
+    }
+    return false;  // unknown layer: conservative external assumption
+}
+
+ElectricalContext CurrentCapacitySystem::default_context(const Board& board) const {
+    ElectricalContext ctx;
+    ctx.temp_rise_c = effective_temp_rise(board, ctx);
+    // Copper is layer-dependent; report the board-level fallback here and
+    // let effective_copper_oz() refine per layer.
+    ctx.copper_weight_oz =
+        thermal_copper_oz_ > 0 ? thermal_copper_oz_ : board.defaults.copper_weight_oz;
+    return ctx;
+}
+
+WidthDetails CurrentCapacitySystem::width_details(const NetInfo& net, const Board& board,
+                                                  LayerId layer,
+                                                  const ElectricalContext& ctx) const {
+    WidthDetails d;
+    bool def_used = false;
+    d.current_a = effective_current(net, board.defaults, def_used);
+    d.default_current_used = def_used;
+    d.temp_rise_c = effective_temp_rise(board, ctx);
+    d.copper_weight_oz = effective_copper_oz(board, layer, ctx);
+    d.internal_layer = effective_internal(board, layer);
+
+    Coord w = explicit_.evaluate(net, board.defaults, ctx);
+    if (w >= 0) {
+        d.model = "explicit";
+        d.width_nm = w;
+        return d;
+    }
+    w = classes_.evaluate(net, board.defaults, ctx);
+    if (w >= 0) {
+        d.model = "width_class";
+        d.width_nm = w;
+        return d;
+    }
+    if (ampacity_enabled()) {
+        if (net.has_peak || net.has_current) {
+            double current = net.has_peak ? net.peak_a : net.current_a;
+            if (current > 0) {
+                d.model = "ampacity";
+                d.width_nm = ampacity_.evaluate_for(current, d.copper_weight_oz, d.temp_rise_c,
+                                                   d.internal_layer);
+                return d;
+            }
+        }
+    } else {
+        w = ipc_.evaluate(net, board.defaults, ctx);
+        if (w >= 0) {
+            d.model = "ipc_estimate";
+            d.width_nm = w;
+            return d;
+        }
+    }
+    d.model = "board_default";
+    d.width_nm = board.defaults.trace_width_nm;
+    return d;
+}
+
 Coord CurrentCapacitySystem::required_min_width(const NetInfo& net, const BoardDefaults& def,
-                                                const ElectricalContext& ctx,
-                                                std::string& source) const {
+                                                 const ElectricalContext& ctx,
+                                                 std::string& source) const {
     Coord w = explicit_.evaluate(net, def, ctx);
     if (w >= 0) {
         source = "explicit";
@@ -64,13 +209,29 @@ Coord CurrentCapacitySystem::required_min_width(const NetInfo& net, const BoardD
         source = "width_class";
         return w;
     }
-    w = ipc_.evaluate(net, def, ctx);
-    if (w >= 0) {
-        source = "ipc_estimate";
-        return w;
+    if (ampacity_enabled()) {
+        w = ampacity_.evaluate(net, def, ctx);
+        if (w >= 0) {
+            source = "ampacity";
+            return w;
+        }
+    } else {
+        w = ipc_.evaluate(net, def, ctx);
+        if (w >= 0) {
+            source = "ipc_estimate";
+            return w;
+        }
     }
     source = "board_default";
     return def.trace_width_nm;
+}
+
+Coord CurrentCapacitySystem::required_min_width(const NetInfo& net, const Board& board,
+                                                 LayerId layer, const ElectricalContext& ctx,
+                                                 std::string& source) const {
+    WidthDetails d = width_details(net, board, layer, ctx);
+    source = d.model;
+    return d.width_nm;
 }
 
 bool CurrentCapacitySystem::neckdown_legal(const NetInfo& net, Coord neck_width_nm,
@@ -241,6 +402,28 @@ RuleResolver RuleResolver::from_config(const Board& board, const JsonValue& conf
         model.enabled = ipc->get_bool("enabled", true);
         current.set_ipc(model);
     }
+    if (const JsonValue* amp = config.find("ampacity")) {
+        if (!amp->is_object()) throw BoardError(InputKind::kRule, "ampacity must be an object");
+        std::string model_name = amp->get_string("model", "ipc2221");
+        if (model_name != "ipc2221")
+            throw BoardError(InputKind::kRule,
+                             "unknown ampacity model '" + model_name + "' (supported: ipc2221)");
+        double lo = amp->get_number("min_mm", 0.15);
+        double hi = amp->get_number("max_mm", 10.0);
+        if (!(lo > 0) || !(hi >= lo))
+            throw BoardError(InputKind::kRule, "bad ampacity width clamps");
+        AmpacityModel model(lo, hi);
+        model.enabled = amp->get_bool("enabled", true);
+        current.set_ampacity(model);
+        double dt = amp->get_number("temp_rise_c", -1);
+        double oz = amp->get_number("copper_weight_oz", -1);
+        if (amp->has("temp_rise_c") && !(dt > 0))
+            throw BoardError(InputKind::kRule, "ampacity temp_rise_c must be positive");
+        if (amp->has("copper_weight_oz") && !(oz > 0))
+            throw BoardError(InputKind::kRule, "ampacity copper_weight_oz must be positive");
+        current.set_thermal(amp->has("temp_rise_c") ? dt : -1,
+                            amp->has("copper_weight_oz") ? oz : -1);
+    }
     if (const JsonValue* vt = config.find("voltage_table")) {
         if (!vt->is_array()) throw BoardError(InputKind::kRule, "voltage_table must be array");
         std::vector<VoltageTableEntry> table;
@@ -300,13 +483,12 @@ RuleResolver RuleResolver::from_config(const Board& board, const JsonValue& conf
 }
 
 TraceRule RuleResolver::traceRule(NetId net, LayerId layer, RegionId region) const {
-    (void)layer;
     (void)region;
     const NetInfo* n = board_->find_net(net);
     if (!n) throw std::runtime_error("traceRule: unknown net");
-    ElectricalContext ctx;
+    ElectricalContext ctx = current_.default_context(*board_);
     TraceRule rule;
-    rule.min_width_nm = current_.required_min_width(*n, board_->defaults, ctx, rule.width_source);
+    rule.min_width_nm = current_.required_min_width(*n, *board_, layer, ctx, rule.width_source);
     rule.pref_width_nm = n->has_pref_width ? std::max(n->pref_width_nm, rule.min_width_nm)
                                            : rule.min_width_nm;
     rule.allow_neckdown = n->allow_neckdown;
@@ -317,13 +499,23 @@ TraceRule RuleResolver::traceRule(NetId net, LayerId layer, RegionId region) con
 
 Coord RuleResolver::requiredTraceWidth(NetId net, LayerId layer, const ElectricalContext& ctx,
                                        std::string* source_out) const {
-    (void)layer;
     const NetInfo* n = board_->find_net(net);
     if (!n) throw std::runtime_error("requiredTraceWidth: unknown net");
     std::string source;
-    Coord w = current_.required_min_width(*n, board_->defaults, ctx, source);
+    Coord w = current_.required_min_width(*n, *board_, layer, ctx, source);
     if (source_out) *source_out = source;
     return w;
+}
+
+WidthDetails RuleResolver::widthDetails(NetId net, LayerId layer,
+                                        const ElectricalContext& ctx) const {
+    const NetInfo* n = board_->find_net(net);
+    if (!n) throw std::runtime_error("widthDetails: unknown net");
+    return current_.width_details(*n, *board_, layer, ctx);
+}
+
+ElectricalContext RuleResolver::defaultContext() const {
+    return current_.default_context(*board_);
 }
 
 ClearanceResolution RuleResolver::clearanceResolution(NetId a, NetId b, LayerId layer,

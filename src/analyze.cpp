@@ -54,10 +54,16 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         if (n.has_peak) o["peak_a"] = n.peak_a;
         if (n.has_voltage) o["voltage_v"] = n.voltage_v;
         if (!n.voltage_class.empty()) o["voltage_class"] = n.voltage_class;
-        std::string wsource;
-        Coord w = resolver.requiredTraceWidth(n.id, 0, ctx, &wsource);
-        o["required_width_mm"] = nm_to_mm(w);
-        o["width_source"] = wsource;
+        WidthDetails wd = resolver.widthDetails(n.id, 0, ctx);
+        o["required_width_mm"] = nm_to_mm(wd.width_nm);
+        o["width_source"] = wd.model;
+        // Ampacity accounting (issue #7): which physical model and inputs
+        // produced the required width, so agents can audit it.
+        o["width_model"] = wd.model;
+        o["copper_weight_oz"] = wd.copper_weight_oz;
+        o["copper_thickness_mm"] = wd.copper_weight_oz * 0.0348;
+        o["temp_rise_c"] = wd.temp_rise_c;
+        o["width_internal_layer"] = wd.internal_layer;
         double peak = 0;
         for (TermId tid : n.terminals) {
             auto it = term_dens.find(tid);
@@ -65,7 +71,7 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         }
         o["peak_local_density_per_mm2"] = peak;
         if (!n.width_class.empty()) current_classes.insert(n.width_class + "@" + std::to_string(eff));
-        else current_classes.insert(wsource + "@" + std::to_string(eff));
+        else current_classes.insert(wd.model + "@" + std::to_string(eff));
         voltage_classes.insert(n.voltage_class.empty() ? "(none)" : n.voltage_class);
         nets.as_array().push_back(o);
     }

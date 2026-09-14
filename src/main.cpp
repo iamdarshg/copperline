@@ -285,6 +285,7 @@ JsonValue capabilities_json() {
     JsonValue feat = JsonValue::object();
     feat["single_thread_astar"] = true;
     feat["current_aware"] = true;
+    feat["ampacity_model"] = true;
     feat["voltage_aware"] = true;
     feat["pin_density"] = true;
     feat["parallel_routing"] = true;
@@ -324,7 +325,7 @@ int cmd_analyze(const Flags& f) {
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
-    ElectricalContext ctx;
+    ElectricalContext ctx = resolver.defaultContext();
     AnalysisResult a = analyze_board(lb.board, resolver, ctx, lb.warnings);
     if (f.json) {
         emit_json(f, a.data);
@@ -350,7 +351,7 @@ int cmd_verify(const Flags& f) {
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
-    ElectricalContext ctx;
+    ElectricalContext ctx = resolver.defaultContext();
     BoardVerifier verifier;
     VerifyResult r = verifier.verify(lb.board, resolver, ctx);
     if (f.json) {
@@ -382,7 +383,7 @@ int cmd_escape(const Flags& f) {
                         "malformed_rules", msg);
     }
     for (const auto& w : lb.warnings) warn(f, "import: " + w);
-    ElectricalContext ctx;
+    ElectricalContext ctx = resolver.defaultContext();
     EscapePlanner planner;
     EscapeResult r = planner.plan(lb.board, resolver, ctx);
     JsonValue rj = r.to_json();
@@ -451,7 +452,7 @@ int cmd_route(const Flags& f) {
                 }
             }
         }
-        ElectricalContext verify_ctx;
+        ElectricalContext verify_ctx = verify_resolver.defaultContext();
         BoardVerifier verifier;
         VerifyResult independent = verifier.verify(engine.committed(), verify_resolver, verify_ctx);
         apply_verifier_gate(report, independent);

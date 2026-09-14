@@ -53,6 +53,7 @@ endfunction()
 
 copperline_test(test_geometry)
 copperline_test(test_current)
+copperline_test(test_ampacity)
 copperline_test(test_voltage)
 copperline_test(test_density)
 copperline_test(test_engine)

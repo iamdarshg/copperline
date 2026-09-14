@@ -135,7 +135,7 @@ DifficultyVector compute_difficulty(const Board& board, const RuleResolver& reso
     d.total = d.span_mm + 40.0 * d.width_mm + 30.0 * d.clearance_mm + 0.5 * d.endpoint_density +
               4.0 * (1.0 - d.free_space) + 2.0 * d.corridor_scarcity + d.layer_restriction +
               d.via_restriction + 3.0 * d.prev_failures + 5.0 * d.fine_pitch_depth;
-    if (wsource == "ipc_estimate") d.total += 0.5;
+    if (wsource == "ipc_estimate" || wsource == "ampacity") d.total += 0.5;
     if (net && net->terminals.size() > 2) d.total += 0.25 * net->terminals.size();
     return d;
 }

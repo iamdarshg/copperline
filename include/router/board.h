@@ -22,6 +22,14 @@ struct Layer {
     // Preferred routing direction / cost bias (phase 1: informational).
     bool preferred_horizontal = false;
     double cost_multiplier = 1.0;
+    // Copper weight in oz (< 0 = inherit board default). 1 oz ~ 35 um.
+    // Used by the ampacity width model (issue #7).
+    double copper_weight_oz = -1.0;
+    // Stackup position for the ampacity model: inner layers use the
+    // internal (derated) IPC-2221 constant. Explicit override wins;
+    // otherwise outer layers of the stackup count as external.
+    bool has_internal_flag = false;
+    bool is_internal = false;
 };
 
 struct Terminal {
@@ -101,6 +109,10 @@ struct BoardDefaults {
     Coord via_hole_nm = mm_to_nm(0.3);
     double default_current_a = 0.5;  // used only when a net has no current data
     double default_voltage_v = 0.0;
+    // Ampacity metadata (issue #7): board-level copper weight and allowed
+    // temperature rise used when no layer/sidecar/ctx override applies.
+    double copper_weight_oz = 1.0;
+    double temp_rise_c = 20.0;
 };
 
 struct Board {

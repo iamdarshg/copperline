@@ -89,7 +89,8 @@ double task_difficulty(const Board& board, const RuleResolver& resolver,
     difficulty += 40.0 * width_mm;                // wide traces consume channels
     difficulty += 30.0 * clear_mm;                // clearance burden
     difficulty += 0.5 * dens;                     // dense endpoints
-    if (wsource == "ipc_estimate") difficulty += 0.5;  // inferred electrics = risk
+    if (wsource == "ipc_estimate" || wsource == "ampacity")
+        difficulty += 0.5;  // inferred electrics = risk
     if (net && net->terminals.size() > 2) difficulty += 0.25 * net->terminals.size();
     return difficulty;
 }

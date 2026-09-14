@@ -64,6 +64,9 @@ JsonValue RouteReport::to_json() const {
         o["expansions"] = static_cast<double>(f.expansions);
         o["required_width_mm"] = f.required_width_mm;
         o["width_source"] = f.width_source;
+        o["width_model"] = f.width_model.empty() ? f.width_source : f.width_model;
+        o["copper_weight_oz"] = f.copper_weight_oz;
+        o["temp_rise_c"] = f.temp_rise_c;
         o["ripup_attempts"] = static_cast<double>(f.ripup_attempts);
         JsonValue ma = JsonValue::array();
         for (const auto& m : f.modes_attempted) ma.as_array().push_back(JsonValue(m));
@@ -722,6 +725,13 @@ RouteReport RouterEngine::run() {
             task.net, ta ? ta->layer : 0, kAnyRegion);
         f.required_width_mm = nm_to_mm(rule.pref_width_nm);
         f.width_source = rule.width_source;
+        f.width_model = rule.width_source;
+        {
+            WidthDetails wd = resolver_.widthDetails(task.net, ta ? ta->layer : 0, ctx);
+            f.width_model = wd.model;
+            f.copper_weight_oz = wd.copper_weight_oz;
+            f.temp_rise_c = wd.temp_rise_c;
+        }
         f.blockers = attribute_blockers(board_, task, rule.pref_width_nm, last);
         report.failures.push_back(f);
         int ni = net_index(task.net);
