@@ -26,6 +26,7 @@ add_library(router_core
   src/astar.cpp
   src/escape.cpp
   src/parallel.cpp
+  src/recovery.cpp
   src/engine.cpp
   src/verifier.cpp
   src/analyze.cpp
@@ -58,5 +59,6 @@ copperline_test(test_engine)
 copperline_test(test_verifier)
 copperline_test(test_escape)
 copperline_test(test_parallel)
+copperline_test(test_recovery)
 copperline_test(test_perf)
 copperline_test(test_cli)

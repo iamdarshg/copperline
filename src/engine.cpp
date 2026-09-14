@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <set>
 #include <thread>
 
 #include "router/density.h"
@@ -16,10 +17,12 @@ JsonValue RouteReport::to_json() const {
     JsonValue r = JsonValue::object();
     r["schema"] = "copperline/route-report/1";
     r["status"] = status;
+    r["result_category"] = result_category;
     r["connected_terminals"] = static_cast<double>(connected_terminals);
     r["total_terminals"] = static_cast<double>(total_terminals);
     r["remaining_terminals"] = static_cast<double>(total_terminals - connected_terminals);
     r["board_hash"] = board_hash;
+    r["state_hash"] = state_hash.to_hex();
     JsonValue st = JsonValue::object();
     st["nets_total"] = static_cast<double>(stats.nets_total);
     st["nets_routed"] = static_cast<double>(stats.nets_routed);
@@ -60,12 +63,20 @@ JsonValue RouteReport::to_json() const {
         o["expansions"] = static_cast<double>(f.expansions);
         o["required_width_mm"] = f.required_width_mm;
         o["width_source"] = f.width_source;
+        o["ripup_attempts"] = static_cast<double>(f.ripup_attempts);
+        JsonValue ma = JsonValue::array();
+        for (const auto& m : f.modes_attempted) ma.as_array().push_back(JsonValue(m));
+        o["modes_attempted"] = ma;
+        if (f.has_frontier) o["frontier"] = f.frontier.to_json();
         JsonValue bl = JsonValue::array();
         for (const auto& b : f.blockers) bl.as_array().push_back(JsonValue(b));
         o["blockers"] = bl;
         fails.as_array().push_back(o);
     }
     r["failures"] = fails;
+    r["recovery"] = recovery.to_json();
+    r["result_category"] = result_category;
+    r["state_hash"] = state_hash.to_hex();
     return r;
 }
 
@@ -82,46 +93,9 @@ namespace {
 // task corridor, largest area first, plus the A* frontier gap.
 std::vector<std::string> attribute_blockers(const Board& board, const ConnectionTask& task,
                                             Coord width, const CandidateRoute* last) {
-    const Terminal* ta = board.find_terminal(task.a);
-    const Terminal* tb = board.find_terminal(task.b);
     std::vector<std::string> out;
-    if (!ta || !tb) {
-        out.push_back("terminal id not found on board");
-        return out;
-    }
-    Rect corridor = Rect::from_points(ta->pos, tb->pos).expanded(width);
-    struct Hit {
-        std::string desc;
-        Coord area;
-    };
-    std::vector<Hit> hits;
-    for (const auto& ko : board.keepouts) {
-        if (!ko.rect.intersects(corridor)) continue;
-        Rect inter{std::max(ko.rect.x1, corridor.x1), std::max(ko.rect.y1, corridor.y1),
-                   std::min(ko.rect.x2, corridor.x2), std::min(ko.rect.y2, corridor.y2)};
-        __int128 area = (__int128)(inter.x2 - inter.x1) * (inter.y2 - inter.y1);
-        hits.push_back({"keepout:" + ko.reason, static_cast<Coord>(area)});
-    }
-    for (const auto& t : board.traces) {
-        if (t.net == task.net) continue;
-        if (!t.segment().bounds().expanded(t.width_nm).intersects(corridor)) continue;
-        const NetInfo* on = board.find_net(t.net);
-        hits.push_back({"trace:net=" + std::string(on ? on->name : "?"),
-                        t.width_nm * manhattan(t.a, t.b)});
-    }
-    for (const auto& t : board.terminals) {
-        if (t.net == task.net) continue;
-        if (!t.pad_rect().intersects(corridor)) continue;
-        const NetInfo* on = board.find_net(t.net);
-        hits.push_back({"pad:net=" + std::string(on ? on->name : "?") +
-                            (t.component.empty() ? "" : ":" + t.component + "." + t.pin),
-                        t.pad_w_nm * t.pad_h_nm});
-    }
-    std::sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.area > b.area; });
-    for (std::size_t i = 0; i < hits.size() && i < 5; ++i) out.push_back(hits[i].desc);
-    if (last && last->closest_node >= 0) {
-        out.push_back("frontier_gap_mm=" + std::to_string(nm_to_mm(last->closest_goal_dist_nm)));
-    }
+    for (const auto& h : attribute_blockers_detailed(board, task, width, last))
+        out.push_back(h.desc);
     return out;
 }
 
@@ -131,6 +105,11 @@ RouteReport RouterEngine::run() {
     auto t0 = std::chrono::steady_clock::now();
     RouteReport report;
     report.total_terminals = static_cast<int>(board_.terminals.size());
+
+    // Fixed user copper: everything committed before routing starts. It is
+    // the only copper that is absolutely protected (never ripped).
+    const std::vector<TraceSeg> fixed_traces = board_.traces;
+    const std::vector<Via> fixed_vias = board_.vias;
 
     DensityEstimator density_est;
     DensityResult density = density_est.analyze(board_);
@@ -152,6 +131,13 @@ RouteReport RouterEngine::run() {
             for (const auto& [tid, d] : cda.analyze(board_, fp)) depth_of[tid] = d;
         }
     }
+    auto is_escape_task = [&](const ConnectionTask& t) {
+        auto it = depth_of.find(t.a);
+        int da = it != depth_of.end() ? it->second : 0;
+        it = depth_of.find(t.b);
+        int db = it != depth_of.end() ? it->second : 0;
+        return std::max(da, db) > 0;
+    };
     std::vector<int> fail_count(tasks.size(), 0);
     std::vector<Corridor> corridors(tasks.size());
     auto refresh_difficulties = [&](const std::vector<int>& idx) {
@@ -196,9 +182,6 @@ RouteReport RouterEngine::run() {
     std::vector<char> task_done(tasks.size(), 0);
     std::vector<int> remaining = all_idx;
     // Last epoch in which each task was given a worker attempt (-1 = never).
-    // The scheduler always prefers tasks that sat out the previous epoch, so
-    // hard tasks that keep failing cannot starve easy ones: every remaining
-    // task is attempted at least once per coverage round. Deterministic.
     std::vector<int> last_epoch(tasks.size(), -1);
     std::map<std::pair<NetId, std::pair<TermId, TermId>>, CandidateRoute> last_attempt;
     auto attempt_key = [](const ConnectionTask& t) {
@@ -211,6 +194,10 @@ RouteReport RouterEngine::run() {
             if (board_.nets[i].id == id) return static_cast<int>(i);
         return -1;
     };
+
+    // Ownership: which greedy task owns which committed copper. Needed so
+    // rip-up can remove selective routes and rebuild deterministically.
+    std::vector<OwnedRoute> owned;
 
     int epoch = 0;
     int stalled = 0;
@@ -236,9 +223,6 @@ RouteReport RouterEngine::run() {
             break;
         }
         refresh_difficulties(remaining);
-        // Deterministic scheduler order over the remaining set: tasks that
-        // sat out the previous epoch come first (starvation-free coverage),
-        // then difficulty desc, then stable (net, a, b) tie-breaks.
         std::vector<ConnectionTask> ordered_tasks;
         std::vector<int> ordered_idx;
         {
@@ -262,7 +246,6 @@ RouteReport RouterEngine::run() {
         std::vector<int> batch_idx(ordered_idx.begin(), ordered_idx.begin() + batch_n);
         for (int ti : batch_idx) last_epoch[ti] = epoch;
 
-        // Present congestion + reservations from all remaining corridors.
         congestion.reset_present();
         for (int i : remaining) {
             double w = 1.0 + tasks[i].difficulty / 20.0;
@@ -270,7 +253,7 @@ RouteReport RouterEngine::run() {
         }
         std::vector<Corridor> rem_corr;
         std::vector<double> rem_diff;
-        std::map<int, std::size_t> rem_pos;  // task idx -> position in ordered set
+        std::map<int, std::size_t> rem_pos;
         for (std::size_t k = 0; k < ordered_idx.size(); ++k) {
             rem_pos[ordered_idx[k]] = k;
             rem_corr.push_back(corridors[ordered_idx[k]]);
@@ -278,12 +261,8 @@ RouteReport RouterEngine::run() {
         }
         reservations.build(ordered_tasks, rem_corr, rem_diff);
 
-        // ---- Worker pool: candidates only, snapshot is read-only ----
         auto epoch_t0 = std::chrono::steady_clock::now();
         std::vector<CandidateRoute> candidates(batch_n);
-        // Snapshot aliases: workers hold a const reference and only build
-        // thread-local graphs; committed copper is untouched until the
-        // arbiter commits (verified by test: sizes equal before/after).
         const Board& snapshot = board_;
         const std::size_t traces_before = snapshot.traces.size();
         const std::size_t vias_before = snapshot.vias.size();
@@ -305,8 +284,6 @@ RouteReport RouterEngine::run() {
             for (int w = 0; w < workers; ++w) pool.emplace_back(worker_fn, w);
             for (auto& th : pool) th.join();
         }
-        // Workers must not mutate committed state (paranoia check in debug;
-        // the type system already guarantees it: const Board&).
         if (snapshot.traces.size() != traces_before || snapshot.vias.size() != vias_before) {
             RouteFailure f;
             f.reason = "internal_worker_mutation";
@@ -315,16 +292,33 @@ RouteReport RouterEngine::run() {
             break;
         }
 
-        // ---- Deterministic central arbiter + atomic batch commit ----
         ArbiterResult arb = arbitrate(candidates, board_, resolver_, ctx);
         commit_candidates(board_, candidates, arb, report.stats);
+        // Record ownership for the accepted candidates (deterministic).
+        for (std::size_t k : arb.accepted) {
+            const CandidateRoute& c = candidates[k];
+            int ti = batch_idx[k];
+            OwnedRoute o;
+            o.task = tasks[ti];
+            o.task_pos = ti;
+            o.traces = c.traces;
+            o.vias = c.vias;
+            o.epoch_committed = epoch;
+            o.stable_epochs = 0;
+            o.is_escape_stub = is_escape_task(tasks[ti]);
+            o.protection =
+                route_protection_score(o.is_escape_stub, tasks[ti].difficulty, 0,
+                                       /*is_fixed=*/false, RecoveryMode::FAST);
+            owned.push_back(o);
+        }
+        for (auto& o : owned) o.stable_epochs++;
         report.stats.candidates_total += static_cast<int>(batch_n);
         report.stats.candidates_accepted += static_cast<int>(arb.accepted.size());
         report.stats.candidates_rejected += static_cast<int>(arb.rejected.size());
 
         std::vector<char> in_batch(tasks.size(), 0);
         for (int ti : batch_idx) in_batch[ti] = 1;
-        std::map<int, std::string> reject_reason;  // task idx -> reason
+        std::map<int, std::string> reject_reason;
         for (std::size_t k = 0; k < arb.rejected.size(); ++k) {
             int ti = batch_idx[arb.rejected[k]];
             reject_reason[ti] = arb.reject_reason[k];
@@ -332,9 +326,7 @@ RouteReport RouterEngine::run() {
         for (std::size_t k = 0; k < batch_n; ++k) {
             int ti = batch_idx[k];
             last_attempt[attempt_key(tasks[ti])] = candidates[k];
-            if (!in_batch[ti]) continue;
         }
-        // History: conflicts/failures make resources less attractive.
         for (std::size_t k = 0; k < arb.rejected.size(); ++k) {
             const CandidateRoute& c = candidates[arb.rejected[k]];
             if (c.found) {
@@ -365,7 +357,6 @@ RouteReport RouterEngine::run() {
                 next_remaining.push_back(ti);
             }
         }
-        // A task that was not in this batch keeps its failure count.
         remaining = std::move(next_remaining);
 
         auto epoch_t1 = std::chrono::steady_clock::now();
@@ -396,6 +387,222 @@ RouteReport RouterEngine::run() {
         ++epoch;
     }
 
+    // ---- Prompt 4: rip-up/reroute meta-search after greedy stalls ----
+    RecoveryInfo rec;
+    TranspositionTable transposition;
+    HistoryHeuristic history;
+    std::string pv_key;
+    std::map<std::pair<NetId, std::pair<TermId, TermId>>, int> ripup_attempts;
+    // Seed transposition with the post-greedy state.
+    transposition.record(state_hash128(board_, tasks, remaining), (int)remaining.size());
+    if (!remaining.empty() && options_.enable_ripup && !timed_out) {
+        StallDetector stall;
+        stall.stalled_epochs = stalled;
+        int max_gen = std::max(0, options_.max_ripup_generations);
+        for (int gen = 0; gen < max_gen && !remaining.empty(); ++gen) {
+            if (std::chrono::steady_clock::now() > deadline) {
+                timed_out = true;
+                break;
+            }
+            RecoveryMode mode = recovery_mode_for_generation(gen);
+            std::string mode_name = recovery_mode_name(mode);
+            if (std::find(rec.modes_attempted.begin(), rec.modes_attempted.end(), mode_name) ==
+                rec.modes_attempted.end())
+                rec.modes_attempted.push_back(mode_name);
+            AStarConfig mode_cfg = astar_config_for_mode(options_.astar, mode);
+
+            // Refresh difficulties so previous failures + congestion count.
+            refresh_difficulties(remaining);
+            DependencyGraph graph = build_dependency_graph(board_, resolver_, ctx, tasks,
+                                                           remaining, last_attempt);
+            rec.last_graph = graph;
+            if (graph.edges.empty()) break;  // keepout-only: nothing to rip
+
+            std::vector<ConnectionTask> failed_tasks = graph.failed;
+            int width = std::min(branch_width_for_generation(gen), options_.max_ripup_branches);
+            int breadth = max_rip_breadth_for_generation(gen);
+            std::vector<RipupMove> moves = generate_ripup_moves(
+                failed_tasks, graph, owned, history, pv_key, mode, width, breadth);
+            if (moves.empty()) break;
+
+            // Count rip-up attempts per failed task for the failure report.
+            for (const auto& m : moves) {
+                auto k = std::make_pair(m.failed_task.net, std::make_pair(std::min(m.failed_task.a, m.failed_task.b),
+                                                                          std::max(m.failed_task.a, m.failed_task.b)));
+                ripup_attempts[k]++;
+            }
+
+            // Parallel speculative branches: indexed slots, deterministic pick.
+            int branch_n = (int)moves.size();
+            int workers = std::max(1, std::min<int>(workers_cap, branch_n));
+            threads_used_max = std::max(threads_used_max, workers);
+            std::vector<BranchResult> results(branch_n);
+            auto branch_fn = [&](int w) {
+                for (int b = w; b < branch_n; b += workers) {
+                    const RipupMove& m = moves[b];
+                    // Surviving owned copper (rip set removed).
+                    std::set<int> rip(m.owned_idx.begin(), m.owned_idx.end());
+                    std::vector<OwnedRoute> surviving;
+                    for (std::size_t i = 0; i < owned.size(); ++i)
+                        if (!rip.count((int)i)) surviving.push_back(owned[i]);
+                    // Tasks to retry: the failed task + every ripped task.
+                    std::vector<int> to_route;
+                    to_route.push_back(remaining[m.failed_pos]);
+                    for (int oi : m.owned_idx) to_route.push_back(owned[oi].task_pos);
+                    std::sort(to_route.begin(), to_route.end());
+                    to_route.erase(std::unique(to_route.begin(), to_route.end()),
+                                   to_route.end());
+                    int failed_ti = remaining[m.failed_pos];
+                    BranchResult r = reroute_branch(
+                        board_, fixed_traces, fixed_vias, surviving, to_route, failed_ti,
+                        tasks, corridors, resolver_, ctx, layer_mult, mode_cfg, congestion,
+                        mode_name, m);
+                    // Transposition prune inside the slot (counted, deterministic:
+                    // pruned branches simply never win).
+                    int left_after = (int)remaining.size() - r.connected_tasks +
+                                     (int)m.owned_idx.size();
+                    // Remaining after = old remaining - newly connected (failed
+                    // tasks reconnect) ... approximate by tasks still undone:
+                    // total undone = remaining + ripped - done.
+                    int undone = (int)remaining.size() + (int)m.owned_idx.size() -
+                                 r.connected_tasks;
+                    if (transposition.should_prune(r.hash, undone)) {
+                        r.pruned = true;
+                    } else {
+                        transposition.record(r.hash, undone);
+                    }
+                    results[b] = r;
+                    (void)left_after;
+                }
+            };
+            if (workers == 1) {
+                branch_fn(0);
+            } else {
+                std::vector<std::thread> pool;
+                for (int w = 0; w < workers; ++w) pool.emplace_back(branch_fn, w);
+                for (auto& th : pool) th.join();
+            }
+            rec.branches_evaluated += branch_n;
+            int pruned = 0;
+            for (const auto& r : results)
+                if (r.pruned) ++pruned;
+            rec.branches_pruned += pruned;
+
+            // Deterministic selection in move order: first strictly-best wins.
+            int best = -1;
+            for (int b = 0; b < branch_n; ++b) {
+                if (!results[b].evaluated || results[b].pruned) continue;
+                if (best < 0 || branch_better(results[b], results[best])) best = b;
+            }
+            if (best < 0) {
+                rec.transposition_hits = transposition.hits();
+                break;  // everything pruned: give up deterministically
+            }
+            const BranchResult& win = results[best];
+            // Progress test: the failed task must be among newly_done AND
+            // every ripped task must have been rerouted (net remaining
+            // strictly decreases). Committing a branch that strands ripped
+            // copper would regress connectivity, violating the lexicographic
+            // objective.
+            int failed_ti = remaining[moves[best].failed_pos];
+            bool failed_done = std::find(win.newly_done.begin(), win.newly_done.end(),
+                                         failed_ti) != win.newly_done.end();
+            int need_total = (int)moves[best].owned_idx.size() + 1;  // ripped + failed
+            bool fully_rerouted = win.connected_tasks >= need_total;
+            if (!failed_done || !fully_rerouted) {
+                // No branch reconnected its failed task: escalate (stronger
+                // history pressure on the failed corridors) and widen next gen.
+                for (int ti : remaining) congestion.add_history_rect(corridors[ti].rect, 1.0);
+                if (mode == RecoveryMode::EXHAUSTIVE_LOCAL) {
+                    // Exhaustive still failed: record and stop (report budget).
+                    for (const auto& r : results) report.stats.expansions_total += r.expansions;
+                    budget_hit = true;
+                    break;
+                }
+                for (const auto& r : results) report.stats.expansions_total += r.expansions;
+                stall.note_epoch(0);
+                ++rec.generations;
+                continue;
+            }
+            // Commit the winning branch atomically: replace copper + ownership.
+            board_ = win.board;
+            resolver_.rebind(&board_);
+            owned = win.owned;
+            for (auto& o : owned) {
+                // Recompute protection under the winning mode; stable routes
+                // accumulate protection over generations.
+                o.stable_epochs++;
+                o.protection = route_protection_score(o.is_escape_stub, tasks[o.task_pos].difficulty,
+                                                      o.stable_epochs, false, mode);
+            }
+            // Update done/remaining deterministically.
+            for (int ti : win.newly_done) task_done[ti] = 1;
+            // Fail counts: only the tasks involved in this move that are
+            // still not done count another failure (avoids inflating every
+            // remaining task's difficulty each generation).
+            {
+                int failed_pos_ti = remaining[moves[best].failed_pos];
+                if (!task_done[failed_pos_ti]) fail_count[failed_pos_ti]++;
+            }
+            std::vector<int> next;
+            for (int ti : remaining)
+                if (!task_done[ti]) next.push_back(ti);
+            remaining = std::move(next);
+            // History reward + PV reuse for the next generation.
+            {
+                const RipupMove& m = moves[best];
+                history.reward(HistoryHeuristic::move_key(m.failed_task, m.blocker_net), 1.0);
+                pv_key = HistoryHeuristic::move_key(m.failed_task, m.blocker_net);
+            }
+            report.stats.tasks_routed += (int)win.newly_done.size();
+            report.stats.expansions_total += win.expansions;
+            // Count all branches' search work (not just the winner).
+            for (int b = 0; b < branch_n; ++b) {
+                if (b == best) continue;
+                report.stats.expansions_total += results[b].expansions;
+            }
+            // Recompute length/via stats from committed copper.
+            {
+                report.stats.length_nm = 0;
+                report.stats.via_count = 0;
+                for (const auto& o : owned) {
+                    for (const auto& t : o.traces) report.stats.length_nm += manhattan(t.a, t.b);
+                    report.stats.via_count += (int)o.vias.size();
+                }
+            }
+            // Epoch log entry for the generation (agents observe it).
+            // Continue numbering past the greedy epochs (no duplicates).
+            {
+                EpochInfo info;
+                info.epoch = static_cast<int>(report.epochs.size());
+                epoch = info.epoch + 1;
+                info.batch_size = (int)win.newly_done.size();
+                info.candidates = branch_n;
+                info.accepted = (int)win.newly_done.size();
+                info.rejected = branch_n - 1;
+                info.expansions = win.expansions;
+                info.workers = workers;
+                info.time_ms = 0;
+                report.epochs.push_back(info);
+                if (options_.progress) {
+                    JsonValue ev = info.to_json();
+                    ev["event"] = "epoch";
+                    ev["recovery_mode"] = mode_name;
+                    ev["remaining"] = static_cast<double>(remaining.size());
+                    options_.progress(ev);
+                }
+            }
+            rec.generations++;
+            rec.ripups += (int)moves[best].owned_idx.size();
+            stall.reset();
+            // Strengthen history around the repaired region so later
+            // generations avoid the same corridor fight.
+            for (int ti : win.newly_done) congestion.add_history_rect(corridors[ti].rect, 0.5);
+        }
+    }
+    rec.transposition_hits = transposition.hits();
+    report.recovery = rec;
+
     report.stats.epochs_count = static_cast<int>(report.epochs.size());
     report.stats.threads_used = threads_used_max;
 
@@ -403,7 +610,6 @@ RouteReport RouterEngine::run() {
     for (std::size_t i = 0; i < tasks.size(); ++i) {
         if (task_done[i]) continue;
         const ConnectionTask& task = tasks[i];
-        // Skip tasks already reported (timeout path).
         bool already = false;
         for (const auto& f : report.failures) {
             if (f.net == task.net && ((f.a == task.a && f.b == task.b) ||
@@ -427,11 +633,21 @@ RouteReport RouterEngine::run() {
             f.reason = last->fail_reason.empty() ? "unreachable" : last->fail_reason;
             if (f.reason == "budget_exhausted") budget_hit = true;
             f.expansions = last->expansions;
+            f.frontier = diagnose_task(task, *last);
+            f.has_frontier = true;
         } else if (last && last->found) {
             f.reason = "conflict";
+            f.frontier = diagnose_task(task, *last);
+            f.has_frontier = true;
         } else {
             f.reason = "unreachable";
         }
+        // If recovery ran but this task stayed unrouted, record attempts.
+        auto rk = std::make_pair(task.net, std::make_pair(std::min(task.a, task.b),
+                                                          std::max(task.a, task.b)));
+        auto rit = ripup_attempts.find(rk);
+        f.ripup_attempts = rit != ripup_attempts.end() ? rit->second : (rec.generations > 0 ? 1 : 0);
+        f.modes_attempted = rec.modes_attempted;
         const Terminal* ta = board_.find_terminal(task.a);
         TraceRule rule = resolver_.traceRule(
             task.net, ta ? ta->layer : 0, kAnyRegion);
@@ -446,8 +662,6 @@ RouteReport RouterEngine::run() {
     for (char ok : net_ok)
         if (ok) report.stats.nets_routed++;
 
-    // Connected terminals: single-terminal nets count as connected; others
-    // need all their tree tasks routed. (Verifier gives the independent word.)
     report.connected_terminals = 0;
     for (const auto& net : board_.nets) {
         if (net.terminals.size() < 2) {
@@ -468,6 +682,7 @@ RouteReport RouterEngine::run() {
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     report.hotspots = congestion.hotspots();
     report.board_hash = geometry_hash(board_);
+    report.state_hash = state_hash128(board_, tasks, remaining);
 
     if (report.failures.empty()) {
         report.status = "COMPLETE";
@@ -478,17 +693,20 @@ RouteReport RouterEngine::run() {
     } else {
         report.status = "INCOMPLETE";
     }
+    report.result_category = result_category(report.status);
     if (options_.progress) {
         JsonValue done = JsonValue::object();
         done["event"] = "done";
         done["status"] = report.status;
+        done["result_category"] = report.result_category;
         done["board_hash"] = report.board_hash;
+        done["state_hash"] = report.state_hash.to_hex();
         done["connected_terminals"] = static_cast<double>(report.connected_terminals);
         done["remaining_terminals"] =
             static_cast<double>(report.total_terminals - report.connected_terminals);
         options_.progress(done);
     }
-    (void)options_.seed;  // recorded in CLI output; ordering is by stable IDs.
+    (void)options_.seed;
     return report;
 }
 

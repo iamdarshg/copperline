@@ -1,4 +1,4 @@
-// Copperline: parallel global routing engine (Prompt 3).
+// Copperline: parallel global routing engine (Prompt 3 + Prompt 4 recovery).
 //
 // Epoch pipeline: connection tasks from RouteTrees are scored with difficulty
 // vectors, ordered by the deterministic batch scheduler, and routed in fixed
@@ -7,6 +7,14 @@
 // revalidates, builds conflicts, selects a compatible subset, and commits it
 // atomically as one epoch. Pathfinder-style present/history congestion plus
 // soft reservations bias planning pressure only — never final DRC legality.
+//
+// Prompt 4: when greedy epochs stall with unrouted tasks, the engine runs
+// rip-up/reroute generations driven by blocker attribution, a blocked-net
+// dependency graph, protection-weighted selective rip-up sets, 128-bit state
+// hashing, a transposition table, history heuristic, PV reuse, iterative
+// deepening/widening and parallel speculative branches across escalating
+// FAST -> RECOVERY -> EXHAUSTIVE_LOCAL_RECOVERY modes. Connectivity keeps
+// strict priority over length/vias/congestion in every comparison.
 #pragma once
 
 #include <chrono>
@@ -19,6 +27,7 @@
 #include "router/board.h"
 #include "router/json.h"
 #include "router/parallel.h"
+#include "router/recovery.h"
 #include "router/rules.h"
 
 namespace copperline {
@@ -35,11 +44,19 @@ struct RouteFailure {
     std::int64_t expansions = 0;
     double required_width_mm = 0;
     std::string width_source;
+    int ripup_attempts = 0;
+    std::vector<std::string> modes_attempted;
+    FrontierDiag frontier;
+    bool has_frontier = false;
 };
 
 struct RouteReport {
     // COMPLETE | INCOMPLETE | BUDGET_EXHAUSTED | TIMEOUT
     std::string status = "INCOMPLETE";
+    // Agent-stable category: COMPLETE |
+    // SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS |
+    // UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET | TIMEOUT
+    std::string result_category = "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET";
     int connected_terminals = 0;
     int total_terminals = 0;
     RouteStats stats;
@@ -47,6 +64,8 @@ struct RouteReport {
     std::vector<EpochInfo> epochs;
     std::vector<Hotspot> hotspots;
     std::string board_hash;  // geometry_hash() of committed copper
+    StateHash128 state_hash{};
+    RecoveryInfo recovery;
     JsonValue to_json() const;
 };
 
@@ -57,6 +76,9 @@ struct EngineOptions {
     double timeout_s = 0;  // 0 = none
     int max_epochs = 4096;
     ProgressCallback progress;  // optional per-epoch NDJSON events
+    bool enable_ripup = true;
+    int max_ripup_generations = 6;
+    int max_ripup_branches = 8;
 };
 
 class RouterEngine {

@@ -255,7 +255,7 @@ JsonValue capabilities_json() {
     r["schema"] = "copperline/capabilities/1";
     r["name"] = "copperline";
     r["version"] = COPPERLINE_VERSION;
-    r["phase"] = "prompt-3-parallel";
+    r["phase"] = "prompt-4-recovery";
     JsonValue cmds = JsonValue::array();
     for (const char* c : {"capabilities", "analyze", "verify", "route", "escape", "benchmark"})
         cmds.as_array().push_back(JsonValue(c));
@@ -291,7 +291,9 @@ JsonValue capabilities_json() {
     feat["deterministic_epochs"] = true;
     feat["congestion_negotiation"] = true;
     feat["fine_pitch_escape"] = true;
-    feat["ripup_reroute"] = false;
+    feat["ripup_reroute"] = true;
+    feat["meta_search"] = true;
+    feat["recovery_modes"] = true;
     feat["optimizer"] = false;
     r["features"] = feat;
     return r;
@@ -301,7 +303,7 @@ int cmd_capabilities(const Flags& f) {
     if (f.json) {
         emit_json(f, capabilities_json());
     } else if (!f.quiet) {
-        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-3 parallel)\n"
+        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-4 recovery)\n"
                   << "commands: capabilities, analyze, verify, route, escape, benchmark\n"
                   << "planned: explain-failure\n"
                   << "formats: json, kicad_pcb (.kicad_pcb)\n"

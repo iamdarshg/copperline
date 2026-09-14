@@ -1,0 +1,33 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [{"id": 0, "name": "Top"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "SEAL", "current_a": 0.1, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 0, "x_mm": 2, "y_mm": 9, "layer": 0},
+        {"id": 1, "x_mm": 18, "y_mm": 9, "layer": 0}
+      ]
+    },
+    {
+      "id": 1, "name": "TRAPPED", "current_a": 0.1, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 2, "x_mm": 10, "y_mm": 5, "layer": 0},
+        {"id": 3, "x_mm": 10, "y_mm": 15, "layer": 0}
+      ]
+    }
+  ],
+  "keepouts": [
+    {"x1_mm": 8, "y1_mm": 3, "x2_mm": 9, "y2_mm": 8.6, "reason": "u_left"},
+    {"x1_mm": 11, "y1_mm": 3, "x2_mm": 12, "y2_mm": 8.6, "reason": "u_right"},
+    {"x1_mm": 8, "y1_mm": 3, "x2_mm": 12, "y2_mm": 4, "reason": "u_bottom"}
+  ]
+}

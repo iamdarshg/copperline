@@ -84,12 +84,34 @@ CT_TEST(capabilities_parallel_phase) {
     std::string out = run_cli("capabilities --json", rc);
     CT_CHECK(rc == 0);
     JsonValue v = must_parse(out);
-    CT_CHECK(v.get_string("phase") == "prompt-3-parallel");
+    CT_CHECK(v.get_string("phase") == "prompt-4-recovery");
     CT_CHECK(v.find("features")->get_bool("parallel_routing", false));
+    CT_CHECK(v.find("features")->get_bool("ripup_reroute", false));
     bool has_benchmark = false;
     for (const auto& c : v.find("commands")->as_array())
         if (c.as_string() == "benchmark") has_benchmark = true;
     CT_CHECK(has_benchmark);
+}
+
+CT_TEST(route_forced_ripup_recovers_and_reports) {
+    int rc = 0;
+    std::string routed = temp_path("routed_ripup.json");
+    std::string out = run_cli("route " + fixture("forced_ripup.json") +
+                                  " --json --output \"" + routed + "\" --seed 42",
+                              rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    CT_CHECK(v.get_string("result_category") == "COMPLETE");
+    CT_CHECK(v.has("recovery"));
+    CT_CHECK(v.find("recovery")->get_number("generations", 0) >= 1);
+    CT_CHECK(v.find("recovery")->get_number("ripups", 0) >= 1);
+    CT_CHECK(v.has("state_hash"));
+    // The recovered board verifies independently.
+    std::string vout = run_cli("verify \"" + routed + "\" --json", rc);
+    CT_CHECK(rc == 0);
+    JsonValue vv = must_parse(vout);
+    CT_CHECK(vv.get_bool("ok", false));
 }
 
 CT_TEST(analyze_open_json) {

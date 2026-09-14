@@ -6,12 +6,13 @@ EDA pipelines: every important operation has a stable machine-readable JSON
 representation, documented nonzero exit codes, and deterministic output for a
 given `(board, rules, seed)`.
 
-> Status: **Prompt 3 parallel** (`0.3.0`) — multicore global routing with
-> deterministic epochs (`DifficultyVector`, probable corridors, interference
-> graph, batch scheduler, `CongestionMap`, soft reservations, worker pool,
-> central arbiter, atomic commit, `router benchmark`) on top of the
-> Prompt 1 foundation + Prompt 2 escape. Rip-up/meta-search (P4) and
-> adapters/optimizer/release (P5) are explicitly planned and reported as
+> Status: **Prompt 4 recovery** — rip-up/reroute + chess-engine-style
+> meta-search (stall detection, blocker attribution, dependency graph,
+> protection-weighted selective rip-up, 128-bit state hashing, transposition
+> table, history heuristic, PV reuse, iterative deepening/widening, parallel
+> speculative branches, `FAST → RECOVERY → EXHAUSTIVE_LOCAL_RECOVERY`) on top
+> of Prompt 1 foundation + Prompt 2 escape + Prompt 3 parallel epochs.
+> Adapters/optimizer/release (P5) are explicitly planned and reported as
 > such by `router capabilities`.
 
 ## Quick start (agents: copy/paste)
@@ -21,7 +22,7 @@ given `(board, rules, seed)`.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# Run the full test suite (106 cases, 10 binaries, ~21 s)
+# Run the full test suite (123 cases, 11 binaries, ~21 s)
 ctest --test-dir build --output-on-failure
 
 # Route a board, machine-readable
@@ -31,6 +32,10 @@ ctest --test-dir build --output-on-failure
 # Route with electrical sidecar rules (multicore: identical copper at any --threads)
 ./build/router route fixtures/high_current.json --config fixtures/rules_demo.json \
   --threads 16 --seed 42 --output routed.json --report report.json --json
+
+# Greedy dead end repaired by meta-search (see report "recovery")
+./build/router route fixtures/forced_ripup.json --json --seed 42 \
+  --output routed.json --report report.json
 
 # Watch epoch progress as NDJSON on stderr (stdout stays pure JSON)
 ./build/router route fixtures/narrow_channel.json --json --threads 8 --progress
@@ -141,18 +146,19 @@ order legal alternatives.
 ```
 include/router  geometry.h  json.h  sexpr.h  board.h  rules.h
                 spatial_index.h  density.h  route_tree.h
-                sparse_graph.h  astar.h  escape.h  parallel.h  engine.h
-                verifier.h  analyze.h
+                sparse_graph.h  astar.h  escape.h  parallel.h  recovery.h
+                engine.h  verifier.h  analyze.h
 src             json/sexpr/board/kicad/rules/spatial_index/density/...
-                route_tree/sparse_graph/astar/escape/parallel/engine/...
-                verifier/analyze/main(CLI)
-tests           10 binaries, 106 cases (no third-party framework)
+                route_tree/sparse_graph/astar/escape/parallel/recovery/...
+                engine/verifier/analyze/main(CLI)
+tests           11 binaries, 123 cases (no third-party framework)
 fixtures        6 Prompt-1/3 JSON boards (open_2layer, obstacle_detour,
                 high_current, voltage_clearance, narrow_channel, ...)
                 + 9 fine-pitch golden boards
                 (bga_4x4, bga_8x8, bga_8x8_via, irregular_array, dense_qfn,
                 high_current_bga, mixed_voltage_bga, greedy_outside_first,
-                impossible_escape) + rules sidecar + KiCad sample + violation board
+                impossible_escape) + forced_ripup (Prompt 4) + rules sidecar
+                + KiCad sample + violation board
 ```
 
 Global acceptance is lexicographic (connectivity > hard violations >
@@ -206,10 +212,39 @@ Reference throughput (Release, 16 cores): 32-task maze board COMPLETE in
 identical hash). `tests/test_perf.cpp` enforces generous floors
 (>5 tasks/s, >1.5x speedup) so regressions trip loudly.
 
-## Known limitations (Prompt 3)
+## Rip-up / meta-search recovery (Prompt 4)
 
-- No rip-up/reroute, no optimizer — greedy epoch A* + escape stubs;
-  impossible boards report `INCOMPLETE` with blocker hints.
+Greedy epochs stall when an early route seals the only corridor a later net
+needed (`fixtures/forced_ripup.json`: SEAL straight traps TRAPPED in a
+single-layer U-enclosure). Recovery repairs this without touching legality:
+
+- Stall detection (epoch acceptance accounting) + per-task A* frontier
+  diagnostics (`closest_node`, `closest_goal_dist_mm`, `expansions`).
+- Blocker attribution (`trace:net=SEAL …`) → blocked-net dependency graph
+  (`failed → blocker_net` edges, in `report.recovery.dependency_graph`).
+- Protection-weighted selective rip-up: escape stubs +5, stable routes +1/gen,
+  fixed user copper never ripped (infinite protection in every mode).
+- 128-bit incremental/Zobrist-style state hash (`report.state_hash`) +
+  transposition table (prunes revisited states) + history heuristic +
+  principal-variation reuse across generations.
+- Iterative deepening/widening over `FAST → RECOVERY → EXHAUSTIVE_LOCAL_RECOVERY`
+  (A* budgets ×1/×4/×16, branch widths 2/4/8, rip breadth 1/2/4).
+- Parallel speculative branches evaluated concurrently but committed
+  deterministically: `--threads 1/2/4` yield identical `board_hash`.
+- Strict connectivity priority: `branch_better` never prefers a shorter
+  board with an unconnected pad. Unexhausted dead ends report
+  `SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS`, otherwise
+  `UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET` (see
+  `report.result_category`; per-failure `ripup_attempts`, `modes_attempted`,
+  `frontier` included). No minimax/alpha-beta: the tree holds routing
+  decisions (escape bundle, channel owner, layer strategy, rip set, retry
+  order — failed task first), A* keeps detailed geometry.
+
+## Known limitations (Prompt 4)
+
+- No optimizer — cleanup passes (bend/via/length) are Prompt 5; recovery
+  targets connectivity, not polish.
+- Impossible boards report `INCOMPLETE`/`BUDGET_EXHAUSTED` with blocker hints.
 - Escape is complete on 4x4/QFN/irregular fixtures; ultra-dense 8x8
   (0.8 mm pitch, zero same-layer channels) escapes 48/64 with explicit
   infeasibility records for the rest — recovery is Prompt 4 work.
