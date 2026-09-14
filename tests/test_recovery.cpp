@@ -537,4 +537,417 @@ CT_TEST(speculative_branches_concurrent_no_race) {
         }
 }
 
+// ---- Issue #21: frontier-evidence blocker attribution ----
+
+CT_TEST(frontier_stats_record_real_blocker) {
+    Board b = trap_board();
+    b.traces.push_back(
+        {0, 0, {mm_to_nm(2.0), mm_to_nm(9.0)}, {mm_to_nm(18.0), mm_to_nm(9.0)}, mm_to_nm(0.2)});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    ConnectionTask trapped{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 2.0};
+    CongestionMap congestion;
+    congestion.init(b);
+    ReservationSet reservations;
+    CandidateRoute cand = route_candidate_task(b, r, trapped, 0, 2.0, ctx, {1.0},
+                                               AStarConfig{}, congestion, reservations);
+    CT_CHECK(!cand.found);  // SEAL seals the slot: TRAPPED must fail
+    CT_CHECK(!cand.frontier_blockers.empty());
+    // The real (rippable) blocker must be among the bounded evidence, even
+    // though static keepouts may legitimately outrank it by raw count.
+    {
+        bool found_seal = false;
+        for (const auto& f : cand.frontier_blockers)
+            if (f.blocker_net == 0) found_seal = true;
+        CT_CHECK(found_seal);
+    }
+    CT_CHECK((int)cand.frontier_blockers.size() <= kMaxFrontierStats);
+    FrontierDiag d = diagnose_task(trapped, cand);
+    CT_CHECK(!d.top_blockers.empty());
+    {
+        bool found_seal = false;
+        for (const auto& f : d.top_blockers)
+            if (f.blocker_net == 0) found_seal = true;
+        CT_CHECK(found_seal);
+    }
+    JsonValue j = d.to_json();
+    CT_CHECK(j["top_blockers"].as_array().size() > 0);
+}
+
+CT_TEST(frontier_outranks_irrelevant_bbox_copper) {
+    // Huge irrelevant trace inside the bbox must not outrank the real
+    // frontier blocker (net 0).
+    Board b = trap_board();
+    NetInfo irr = make_net(2, "IRRELEVANT");
+    irr.has_current = true;
+    irr.current_a = 0.1;
+    b.nets.push_back(irr);
+    b.traces.push_back(
+        {0, 0, {mm_to_nm(2.0), mm_to_nm(9.0)}, {mm_to_nm(18.0), mm_to_nm(9.0)}, mm_to_nm(0.2)});
+    // Wide irrelevant slab covering much of the TRAPPED corridor.
+    b.traces.push_back(
+        {2, 0, {mm_to_nm(9.0), mm_to_nm(5.0)}, {mm_to_nm(11.0), mm_to_nm(14.0)}, mm_to_nm(1.0)});
+    ConnectionTask trapped{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 2.0};
+    CandidateRoute last;
+    last.task = trapped;
+    last.fail_reason = "unreachable";
+    last.closest_node = 0;
+    FrontierBlockerStat f;
+    f.blocker_net = 0;
+    f.kind = "trace";
+    f.desc = "trace:net=SEAL";
+    f.layer = 0;
+    f.pos = {mm_to_nm(10.0), mm_to_nm(9.0)};
+    f.count = 50;
+    last.frontier_blockers.push_back(f);
+    std::vector<BlockerHit> hits =
+        attribute_blockers_detailed(b, trapped, mm_to_nm(0.2), &last);
+    CT_CHECK(!hits.empty());
+    CT_CHECK(hits[0].net == 0);  // real frontier evidence first
+}
+
+CT_TEST(keepout_only_failure_nonrippable) {
+    // Horizontal keepout wall seals the slot; no traces to rip.
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    NetInfo t = make_net(1, "TRAPPED");
+    t.has_current = true;
+    t.current_a = 0.1;
+    b.nets.push_back(t);
+    add_terminal(b, 1, 10.0, 5.0);
+    add_terminal(b, 1, 10.0, 15.0);
+    Keepout k;
+    k.rect = {mm_to_nm(0.0), mm_to_nm(9.0), mm_to_nm(20.0), mm_to_nm(9.5)};
+    k.layer = kAllLayers;
+    k.reason = "wall";
+    b.keepouts.push_back(k);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    ConnectionTask task{1, b.nets[0].terminals[0], b.nets[0].terminals[1], 0, 1.0};
+    CongestionMap congestion;
+    congestion.init(b);
+    ReservationSet reservations;
+    CandidateRoute cand = route_candidate_task(b, r, task, 0, 1.0, ctx, {1.0},
+                                               AStarConfig{}, congestion, reservations);
+    CT_CHECK(!cand.found);
+    CT_CHECK(!cand.frontier_blockers.empty());
+    // Top rejection must be the keepout (nothing to rip), not a net.
+    CT_CHECK(cand.frontier_blockers[0].blocker_net == -1);
+    std::vector<BlockerHit> hits =
+        attribute_blockers_detailed(b, task, mm_to_nm(0.2), &cand);
+    bool has_keepout = false;
+    for (const auto& h : hits)
+        if (h.kind == "keepout" && h.net == -1) has_keepout = true;
+    CT_CHECK(has_keepout);
+    // Dependency graph carries only non-rippable edges -> no rip moves.
+    std::vector<ConnectionTask> tasks = {task};
+    std::map<std::pair<NetId, std::pair<TermId, TermId>>, CandidateRoute> last;
+    last[{task.net, {std::min(task.a, task.b), std::max(task.a, task.b)}}] = cand;
+    DependencyGraph g = build_dependency_graph(b, r, ctx, tasks, {0}, last);
+    for (const auto& e : g.edges) CT_CHECK(e.blocker_net == -1);
+    HistoryHeuristic hh;
+    auto moves = generate_ripup_moves(g.failed, g, {}, hh, "", RecoveryMode::RECOVERY, 4, 2);
+    CT_CHECK(moves.empty());
+}
+
+CT_TEST(multilayer_frontier_reports_correct_layer) {
+    // Blocker lives on layer 1 (same as the task); the graph must report
+    // layer 1, not layer 0.
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    b.layers.push_back({1, "Bottom"});
+    NetInfo blk = make_net(0, "BLOCKER");
+    blk.has_current = true;
+    blk.current_a = 0.1;
+    NetInfo tgt = make_net(1, "TARGET");
+    tgt.has_current = true;
+    tgt.current_a = 0.1;
+    b.nets.push_back(blk);
+    b.nets.push_back(tgt);
+    TermId ta = add_terminal(b, 1, 2.0, 10.0, 1);
+    TermId tb = add_terminal(b, 1, 18.0, 10.0, 1);
+    (void)ta;
+    (void)tb;
+    TraceSeg wall{0, 1, {mm_to_nm(10.0), mm_to_nm(0.0)}, {mm_to_nm(10.0), mm_to_nm(20.0)},
+                  mm_to_nm(0.2)};
+    b.traces.push_back(wall);
+    // Full-height keepouts left/right force all detours through the wall.
+    auto wall_ko = [&](double x1, double x2) {
+        Keepout k;
+        k.rect = {mm_to_nm(x1), mm_to_nm(0.0), mm_to_nm(x2), mm_to_nm(20.0)};
+        k.layer = kAllLayers;
+        k.reason = "side";
+        b.keepouts.push_back(k);
+    };
+    wall_ko(0.0, 1.5);
+    wall_ko(18.5, 20.0);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    const Terminal* pa = b.find_terminal(b.nets[1].terminals[0]);
+    const Terminal* pb = b.find_terminal(b.nets[1].terminals[1]);
+    SparseRoutingGraph g = SparseRoutingGraph::build(
+        b, r, 1, pa->pos, pb->pos, 1, 1, mm_to_nm(0.2), ctx);
+    CT_CHECK(!g.frontier_stats().empty());
+    // The layer-1 trace blocker must be present with its correct layer, even
+    // if large static keepouts outrank it by raw rejection count.
+    {
+        bool found = false;
+        for (const auto& s : g.frontier_stats())
+            if (s.blocker_net == 0 && s.layer == 1) found = true;
+        CT_CHECK(found);
+    }
+    CT_CHECK((int)g.frontier_stats().size() <= kMaxFrontierStats);
+}
+
+CT_TEST(frontier_memory_bounded_top_n) {
+    // Even on a dense board the evidence stays bounded.
+    JsonBoardImporter importer;
+    ImportResult ir = importer.import_file(std::string(FIXTURE_DIR) + "/bga_4x4.json");
+    Board b = std::move(ir.board);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    const Terminal* pa = b.find_terminal(b.nets[0].terminals[0]);
+    const Terminal* pb = b.find_terminal(b.nets[0].terminals[1]);
+    if (!pa || !pb) return;  // fixture shape changed: nothing to assert
+    SparseRoutingGraph g = SparseRoutingGraph::build(b, r, b.nets[0].id, pa->pos, pb->pos,
+                                                     pa->layer, pb->layer, mm_to_nm(0.2), ctx);
+    CT_CHECK((int)g.frontier_stats().size() <= kMaxFrontierStats);
+}
+
+// ---- Issue #20: bounded multi-blocker rip-up sets ----
+
+namespace {
+DependencyGraph dual_blocker_graph() {
+    DependencyGraph g;
+    ConnectionTask failed{9, 100, 101, 0, 5.0};
+    g.failed.push_back(failed);
+    DependencyEdge e0, e1;
+    e0.failed_pos = 0;
+    e0.failed_net = 9;
+    e0.blocker_net = 0;
+    e0.blocker_desc = "trace:net=A";
+    e0.weight = 100.0;
+    e1.failed_pos = 0;
+    e1.failed_net = 9;
+    e1.blocker_net = 1;
+    e1.blocker_desc = "trace:net=B";
+    e1.weight = 90.0;
+    g.edges.push_back(e0);
+    g.edges.push_back(e1);
+    return g;
+}
+
+std::vector<OwnedRoute> dual_blocker_owned() {
+    std::vector<OwnedRoute> owned;
+    ConnectionTask ta{0, 10, 11, 0, 1.0};
+    ConnectionTask tb{1, 20, 21, 1, 1.0};
+    OwnedRoute oa, ob;
+    oa.task = ta;
+    oa.task_pos = 0;
+    oa.protection = 2.0;
+    ob.task = tb;
+    ob.task_pos = 1;
+    ob.protection = 2.0;
+    owned.push_back(oa);
+    owned.push_back(ob);
+    return owned;
+}
+}  // namespace
+
+CT_TEST(multiblocker_fast_stays_single) {
+    DependencyGraph g = dual_blocker_graph();
+    std::vector<OwnedRoute> owned = dual_blocker_owned();
+    HistoryHeuristic hh;
+    auto moves =
+        generate_ripup_moves(g.failed, g, owned, hh, "", RecoveryMode::FAST, 8, 2);
+    CT_CHECK(!moves.empty());
+    for (const auto& m : moves) CT_CHECK(m.owned_idx.size() == 1);
+}
+
+CT_TEST(multiblocker_recovery_generates_combo) {
+    DependencyGraph g = dual_blocker_graph();
+    std::vector<OwnedRoute> owned = dual_blocker_owned();
+    HistoryHeuristic hh;
+    auto m1 =
+        generate_ripup_moves(g.failed, g, owned, hh, "", RecoveryMode::RECOVERY, 8, 2);
+    auto m2 =
+        generate_ripup_moves(g.failed, g, owned, hh, "", RecoveryMode::RECOVERY, 8, 2);
+    CT_CHECK(!m1.empty());
+    CT_CHECK(m1.size() == m2.size());  // deterministic
+    bool found_combo = false;
+    std::set<std::string> keys;
+    for (std::size_t i = 0; i < m1.size(); ++i) {
+        CT_CHECK(m1[i].owned_idx == m2[i].owned_idx);
+        CT_CHECK(m1[i].score == m2[i].score);
+        std::string k;
+        for (int oi : m1[i].owned_idx) k += std::to_string(oi) + ",";
+        std::string dk = std::to_string(m1[i].failed_pos) + ":" + k;
+        CT_CHECK(keys.count(dk) == 0);  // deduplicated
+        keys.insert(dk);
+        if (m1[i].owned_idx.size() == 2) {
+            std::set<int> nets;
+            for (int oi : m1[i].owned_idx) nets.insert(owned[oi].task.net);
+            if (nets.count(0) && nets.count(1)) found_combo = true;
+        }
+    }
+    CT_CHECK(found_combo);  // A+B combined set exists
+}
+
+CT_TEST(multiblocker_exhaustive_widens_to_three) {
+    CT_CHECK(max_blocker_nets_for_mode(RecoveryMode::FAST) == 1);
+    CT_CHECK(max_blocker_nets_for_mode(RecoveryMode::RECOVERY) == 2);
+    CT_CHECK(max_blocker_nets_for_mode(RecoveryMode::EXHAUSTIVE_LOCAL) == 3);
+    DependencyGraph g;
+    ConnectionTask failed{9, 100, 101, 0, 5.0};
+    g.failed.push_back(failed);
+    for (int n = 0; n < 3; ++n) {
+        DependencyEdge e;
+        e.failed_pos = 0;
+        e.failed_net = 9;
+        e.blocker_net = n;
+        e.blocker_desc = "trace:net=" + std::to_string(n);
+        e.weight = 100.0 - n * 10.0;
+        g.edges.push_back(e);
+    }
+    std::vector<OwnedRoute> owned;
+    for (int n = 0; n < 3; ++n) {
+        OwnedRoute o;
+        o.task = ConnectionTask{n, 10 + n, 20 + n, n, 1.0};
+        o.task_pos = n;
+        o.protection = 1.0;
+        owned.push_back(o);
+    }
+    HistoryHeuristic hh;
+    auto rec = generate_ripup_moves(g.failed, g, owned, hh, "", RecoveryMode::RECOVERY,
+                                    16, 4);
+    auto exh = generate_ripup_moves(g.failed, g, owned, hh, "",
+                                    RecoveryMode::EXHAUSTIVE_LOCAL, 16, 4);
+    bool rec_has3 = false, exh_has3 = false;
+    for (const auto& m : rec)
+        if (m.owned_idx.size() == 3) rec_has3 = true;
+    for (const auto& m : exh)
+        if (m.owned_idx.size() == 3) exh_has3 = true;
+    CT_CHECK(!rec_has3);  // RECOVERY capped at 2 nets
+    CT_CHECK(exh_has3);   // EXHAUSTIVE reaches 3 nets
+}
+
+CT_TEST(multiblocker_never_rips_fixed) {
+    DependencyGraph g = dual_blocker_graph();
+    std::vector<OwnedRoute> owned = dual_blocker_owned();
+    owned[0].protection = kFixedProtection;  // fixed: must never be ripped
+    HistoryHeuristic hh;
+    for (auto mode : {RecoveryMode::FAST, RecoveryMode::RECOVERY,
+                      RecoveryMode::EXHAUSTIVE_LOCAL}) {
+        auto moves = generate_ripup_moves(g.failed, g, owned, hh, "", mode, 8, 4);
+        for (const auto& m : moves)
+            for (int oi : m.owned_idx) CT_CHECK(oi != 0);
+    }
+}
+
+CT_TEST(multiblocker_single_rip_insufficient_combo_succeeds) {
+    // Dual-seal board: TRAPPED vertical must cross two parallel SEAL lines.
+    // Ripping either seal alone still leaves the other crossing -> reroute
+    // fails; ripping both opens the straight corridor -> reroute succeeds.
+    // The move generator must propose that A+B set in RECOVERY.
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    NetInfo sa = make_net(0, "SEAL_A");
+    sa.has_current = true;
+    sa.current_a = 0.1;
+    NetInfo sb = make_net(1, "SEAL_B");
+    sb.has_current = true;
+    sb.current_a = 0.1;
+    NetInfo tr = make_net(2, "TRAPPED");
+    tr.has_current = true;
+    tr.current_a = 0.1;
+    b.nets.push_back(sa);
+    b.nets.push_back(sb);
+    b.nets.push_back(tr);
+    add_terminal(b, 0, 2.0, 8.0);
+    add_terminal(b, 0, 18.0, 8.0);
+    add_terminal(b, 1, 2.0, 10.0);
+    add_terminal(b, 1, 18.0, 10.0);
+    add_terminal(b, 2, 10.0, 5.0);
+    add_terminal(b, 2, 10.0, 15.0);
+    auto wall = [&](double x1, double y1, double x2, double y2, const char* reason) {
+        Keepout k;
+        k.rect = {mm_to_nm(x1), mm_to_nm(y1), mm_to_nm(x2), mm_to_nm(y2)};
+        k.layer = kAllLayers;
+        k.reason = reason;
+        b.keepouts.push_back(k);
+    };
+    wall(8, 3, 9, 7.6, "u_left");
+    wall(11, 3, 12, 7.6, "u_right");
+    wall(8, 3, 12, 4, "u_bottom");
+    // Side walls above the seals force every detour through y=8/10 lines.
+    wall(0, 7.0, 7.9, 11.0, "side_l");
+    wall(12.1, 7.0, 20.0, 11.0, "side_r");
+    // Commit both seals straight.
+    b.traces.push_back(
+        {0, 0, {mm_to_nm(2.0), mm_to_nm(8.0)}, {mm_to_nm(18.0), mm_to_nm(8.0)}, mm_to_nm(0.2)});
+    b.traces.push_back(
+        {1, 0, {mm_to_nm(2.0), mm_to_nm(10.0)}, {mm_to_nm(18.0), mm_to_nm(10.0)}, mm_to_nm(0.2)});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    ConnectionTask t_trapped{2, b.nets[2].terminals[0], b.nets[2].terminals[1], 2, 2.0};
+    CongestionMap congestion;
+    congestion.init(b);
+    ReservationSet reservations;
+    // Single-rip boards: remove one seal, keep the other -> still blocked.
+    for (int keep = 0; keep < 2; ++keep) {
+        Board single = b;
+        single.traces.erase(
+            std::remove_if(single.traces.begin(), single.traces.end(),
+                           [&](const TraceSeg& t) { return t.net == keep; }),
+            single.traces.end());
+        CandidateRoute c = route_candidate_task(single, r, t_trapped, 0, 2.0, ctx,
+                                                {1.0}, AStarConfig{}, congestion,
+                                                reservations);
+        CT_CHECK(!c.found);
+    }
+    // Double-rip board: both seals gone -> straight corridor opens.
+    {
+        Board none = b;
+        none.traces.clear();
+        CandidateRoute c = route_candidate_task(none, r, t_trapped, 0, 2.0, ctx,
+                                                {1.0}, AStarConfig{}, congestion,
+                                                reservations);
+        CT_CHECK(c.found);
+    }
+    // Move generator proposes the combined set in RECOVERY, not FAST.
+    ConnectionTask t_sa{0, b.nets[0].terminals[0], b.nets[0].terminals[1], 0, 1.0};
+    ConnectionTask t_sb{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 1.0};
+    std::vector<ConnectionTask> tasks = {t_sa, t_sb, t_trapped};
+    std::map<std::pair<NetId, std::pair<TermId, TermId>>, CandidateRoute> last;
+    DependencyGraph g = build_dependency_graph(b, r, ctx, tasks, {2}, last);
+    OwnedRoute oa, ob;
+    oa.task = t_sa;
+    oa.task_pos = 0;
+    oa.traces = {b.traces[0]};
+    oa.protection = 1.0;
+    ob.task = t_sb;
+    ob.task_pos = 1;
+    ob.traces = {b.traces[1]};
+    ob.protection = 1.0;
+    HistoryHeuristic hh;
+    auto fast = generate_ripup_moves(g.failed, g, {oa, ob}, hh, "",
+                                     RecoveryMode::FAST, 8, 2);
+    auto rec = generate_ripup_moves(g.failed, g, {oa, ob}, hh, "",
+                                    RecoveryMode::RECOVERY, 8, 2);
+    for (const auto& m : fast) CT_CHECK(m.owned_idx.size() == 1);
+    bool combo = false;
+    for (const auto& m : rec)
+        if (m.owned_idx.size() == 2) combo = true;
+    CT_CHECK(combo);
+}
+
 int main() { return copperline::test::run_all_tests(); }

@@ -358,6 +358,19 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     cand.expansions = res.expansions;
     cand.closest_node = res.closest_node;
     cand.closest_goal_dist_nm = res.closest_goal_dist_nm;
+    // Issue #21: forward bounded frontier-rejection evidence (both success
+    // and failure carry it; attribution uses it on failure).
+    cand.frontier_blockers.reserve(graph.frontier_stats().size());
+    for (const auto& s : graph.frontier_stats()) {
+        FrontierBlockerStat f;
+        f.blocker_net = s.blocker_net;
+        f.kind = s.kind;
+        f.desc = s.desc;
+        f.layer = s.layer;
+        f.pos = s.pos;
+        f.count = s.count;
+        cand.frontier_blockers.push_back(f);
+    }
     // Baseline via diagnostics from the ordered selection (no geometry).
     {
         const NetInfo* ninfo = snapshot.find_net(task.net);

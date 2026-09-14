@@ -135,6 +135,19 @@ class ReservationSet {
 
 // ---- Candidates (worker outputs; committed state is never touched) ----
 
+// Issue #21: bounded frontier-rejection evidence forwarded from the sparse
+// graph. Each entry aggregates rejected transitions for one
+// (blocker net, kind, layer): what actually stopped expansion, not a
+// rectangular corridor guess. Bounded to kMaxFrontierStats entries.
+struct FrontierBlockerStat {
+    NetId blocker_net = -1;
+    std::string kind;  // "trace" | "pad" | "via" | "keepout" | "bounds"
+    std::string desc;  // stable label, e.g. "trace:net=SEAL"
+    LayerId layer = 0;
+    Point pos{};
+    int count = 0;
+};
+
 struct CandidateRoute {
     ConnectionTask task;
     std::size_t task_index = 0;  // index into the epoch task vector
@@ -150,6 +163,8 @@ struct CandidateRoute {
     Point gate_b{};
     int closest_node = -1;
     Coord closest_goal_dist_nm = 0;
+    // Issue #21: actual frontier rejections from graph construction.
+    std::vector<FrontierBlockerStat> frontier_blockers;
     // Parallel-via diagnostics (issue #5): the current the transition must
     // carry, the style selected for it, the parallel count and the bundle
     // outcome ("ok" | "bundle_blocked" | "no_via_class"). Set for every

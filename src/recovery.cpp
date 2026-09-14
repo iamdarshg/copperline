@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -45,6 +46,15 @@ int max_rip_breadth_for_generation(int generation) {
     return 4;
 }
 
+int max_blocker_nets_for_mode(RecoveryMode mode) {
+    switch (mode) {
+        case RecoveryMode::FAST: return 1;
+        case RecoveryMode::RECOVERY: return 2;
+        case RecoveryMode::EXHAUSTIVE_LOCAL: return 3;
+    }
+    return 1;
+}
+
 void StallDetector::note_epoch(int accepted) {
     if (accepted == 0)
         ++stalled_epochs;
@@ -61,6 +71,20 @@ JsonValue FrontierDiag::to_json() const {
     o["expansions"] = static_cast<double>(expansions);
     o["closest_node"] = static_cast<double>(closest_node);
     o["closest_goal_dist_mm"] = nm_to_mm(closest_goal_dist_nm);
+    // Issue #21: top frontier blockers/reasons for agents.
+    JsonValue tb = JsonValue::array();
+    for (const auto& b : top_blockers) {
+        JsonValue e = JsonValue::object();
+        e["blocker_net"] = static_cast<double>(b.blocker_net);
+        e["kind"] = b.kind;
+        e["blocker"] = b.desc;
+        e["layer"] = static_cast<double>(b.layer);
+        e["x_mm"] = nm_to_mm(b.pos.x);
+        e["y_mm"] = nm_to_mm(b.pos.y);
+        e["count"] = static_cast<double>(b.count);
+        tb.as_array().push_back(e);
+    }
+    o["top_blockers"] = tb;
     return o;
 }
 
@@ -73,6 +97,7 @@ FrontierDiag diagnose_task(const ConnectionTask& task, const CandidateRoute& las
     d.expansions = last.expansions;
     d.closest_node = last.closest_node;
     d.closest_goal_dist_nm = last.closest_goal_dist_nm;
+    d.top_blockers = last.frontier_blockers;
     return d;
 }
 
@@ -80,7 +105,33 @@ std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
                                                      const ConnectionTask& task,
                                                      Coord width_nm,
                                                      const CandidateRoute* last) {
+    // Issue #21: rank actual frontier blockers first; the coarse
+    // corridor-overlap heuristic is fallback/supplement only. Frontier area
+    // proxies are set huge (2^60 base) so real evidence always outranks
+    // rectangular guesses, while preserving frontier count order among
+    // themselves.
+    std::vector<BlockerHit> frontier_hits;
+    if (last) {
+        int rank = 0;
+        for (const auto& f : last->frontier_blockers) {
+            BlockerHit h;
+            if (f.kind == "bounds" || f.kind == "frontier") {
+                h.desc = "off_board";
+                h.net = -1;
+                h.kind = "frontier";
+            } else {
+                h.desc = f.desc;
+                h.net = f.blocker_net;
+                h.kind = f.kind;  // "trace" | "pad" | "via" | "keepout"
+            }
+            h.area = static_cast<Coord>((1LL << 60) + (Coord)f.count * 1000000 - rank);
+            frontier_hits.push_back(h);
+            ++rank;
+            if (frontier_hits.size() >= 5) break;
+        }
+    }
     std::vector<BlockerHit> out;
+    for (auto& h : frontier_hits) out.push_back(h);
     const Terminal* ta = board.find_terminal(task.a);
     const Terminal* tb = board.find_terminal(task.b);
     if (!ta || !tb) return out;
@@ -126,12 +177,41 @@ std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
         h.area = a128 > (__int128)INT64_MAX ? INT64_MAX : static_cast<Coord>(a128);
         hits.push_back(h);
     }
+    for (const auto& v : board.vias) {
+        if (v.net == task.net) continue;
+        Rect vr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
+        if (!vr.intersects(corridor)) continue;
+        const NetInfo* on = board.find_net(v.net);
+        BlockerHit h;
+        h.desc = "via:net=" + std::string(on ? on->name : "?");
+        h.net = v.net;
+        h.kind = "via";
+        __int128 a128 = (__int128)v.outer_d_nm * v.outer_d_nm;
+        h.area = a128 > (__int128)INT64_MAX ? INT64_MAX : static_cast<Coord>(a128);
+        hits.push_back(h);
+    }
     std::sort(hits.begin(), hits.end(), [](const BlockerHit& a, const BlockerHit& b) {
         if (a.area != b.area) return a.area > b.area;
         return a.desc < b.desc;
     });
-    for (std::size_t i = 0; i < hits.size() && i < 5; ++i) out.push_back(hits[i]);
-    if (last && last->closest_node >= 0) {
+    // Supplement: corridor guesses for blocker nets not already covered by
+    // real frontier evidence. Frontier hits keep their leading positions.
+    {
+        std::set<NetId> covered;
+        for (const auto& h : frontier_hits)
+            if (h.net >= 0) covered.insert(h.net);
+        std::size_t budget = out.size() >= 8 ? 0 : 8 - out.size();
+        std::size_t added = 0;
+        for (const auto& h : hits) {
+            if (added >= budget) break;
+            if (h.net >= 0 && covered.count(h.net)) continue;
+            out.push_back(h);
+            if (h.net >= 0) covered.insert(h.net);
+            ++added;
+            if (out.size() >= 8) break;
+        }
+    }
+    if (last && last->closest_node >= 0 && out.size() < 9) {
         BlockerHit h;
         h.desc = "frontier_gap_mm=" + std::to_string(nm_to_mm(last->closest_goal_dist_nm));
         h.net = -1;
@@ -162,10 +242,12 @@ DependencyGraph build_dependency_graph(
         const CandidateRoute* last = it != last_attempt.end() ? &it->second : nullptr;
         std::vector<BlockerHit> hits = attribute_blockers_detailed(board, task, rule.pref_width_nm, last);
         // Collapse to one edge per blocker net (max area wins), deterministic.
+        // Frontier-derived areas are huge by construction, so real evidence
+        // outranks corridor guesses here as well.
         std::map<NetId, DependencyEdge> best;
         for (const auto& h : hits) {
-            if (h.kind != "trace" && h.kind != "pad") {
-                if (h.kind == "keepout" || h.kind == "frontier") {
+            if (h.kind != "trace" && h.kind != "pad" && h.kind != "via") {
+                if (h.kind == "keepout" || h.kind == "frontier" || h.kind == "bounds") {
                     DependencyEdge e;
                     e.failed_pos = static_cast<int>(fi);
                     e.failed_net = task.net;
@@ -348,12 +430,35 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
                                             const DependencyGraph& graph,
                                             const std::vector<OwnedRoute>& owned,
                                             const HistoryHeuristic& history,
-                                            const std::string& pv_key, RecoveryMode /*mode*/,
+                                            const std::string& pv_key, RecoveryMode mode,
                                             int max_moves, int max_breadth) {
     std::vector<RipupMove> moves;
+    std::set<std::string> seen;  // dedup equivalent owned-route index sets
+    auto dedup_key = [](int failed_pos, const std::vector<int>& idx) {
+        std::string k = std::to_string(failed_pos) + ":";
+        for (int i : idx) k += std::to_string(i) + ",";
+        return k;
+    };
     // Owned routes by net for blocker lookup.
     std::map<NetId, std::vector<int>> owned_by_net;
     for (std::size_t i = 0; i < owned.size(); ++i) owned_by_net[owned[i].task.net].push_back((int)i);
+    auto cheapest_of_net = [&](NetId bn) -> std::vector<int> {
+        auto oit = owned_by_net.find(bn);
+        if (oit == owned_by_net.end() || oit->second.empty()) return {};
+        std::vector<int> cands = oit->second;
+        std::sort(cands.begin(), cands.end(), [&](int a, int b) {
+            if (owned[a].protection != owned[b].protection)
+                return owned[a].protection < owned[b].protection;
+            if (owned[a].task.net != owned[b].task.net)
+                return owned[a].task.net < owned[b].task.net;
+            if (owned[a].task.a != owned[b].task.a) return owned[a].task.a < owned[b].task.a;
+            return owned[a].task.b < owned[b].task.b;
+        });
+        return cands;
+    };
+    auto is_rippable = [&](int oi) {
+        return owned[oi].protection < kFixedProtection / 2;
+    };
 
     // Edges grouped per failed position.
     std::map<int, std::vector<DependencyEdge>> per_failed;
@@ -361,11 +466,13 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
         if (e.blocker_net < 0) continue;  // keepout/frontier: nothing to rip
         per_failed[e.failed_pos].push_back(e);
     }
+    const int over_gen = std::max(1, max_moves * 3);
     for (std::size_t fi = 0; fi < failed_tasks.size(); ++fi) {
         const ConnectionTask& failed = failed_tasks[fi];
         auto it = per_failed.find((int)fi);
         if (it == per_failed.end() || it->second.empty()) continue;
         // Distinct blocker nets, weight order (graph already sorted).
+        // Ranked blocker list per failed task feeds both layers below.
         std::vector<NetId> blockers;
         std::map<NetId, double> weight_of;
         for (const auto& e : it->second) {
@@ -378,26 +485,26 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
             if (weight_of[a] != weight_of[b]) return weight_of[a] > weight_of[b];
             return a < b;
         });
+        // ---- Layer 1 (cheapest first): single-blocker moves ----
         for (NetId bn : blockers) {
-            auto oit = owned_by_net.find(bn);
-            if (oit == owned_by_net.end() || oit->second.empty()) continue;
-            // Candidate owned routes of the blocker net, cheapest protection first.
-            std::vector<int> cands = oit->second;
-            std::sort(cands.begin(), cands.end(), [&](int a, int b) {
-                if (owned[a].protection != owned[b].protection)
-                    return owned[a].protection < owned[b].protection;
-                if (owned[a].task.net != owned[b].task.net)
-                    return owned[a].task.net < owned[b].task.net;
-                if (owned[a].task.a != owned[b].task.a) return owned[a].task.a < owned[b].task.a;
-                return owned[a].task.b < owned[b].task.b;
-            });
+            std::vector<int> cands = cheapest_of_net(bn);
+            if (cands.empty()) continue;
+            if (!is_rippable(cands[0])) continue;  // fixed: never include
             int breadth = std::min<int>(max_breadth, (int)cands.size());
             for (int k = 1; k <= breadth; ++k) {
+                bool ok = true;
+                for (int j = 0; j < k; ++j)
+                    if (!is_rippable(cands[j])) ok = false;
+                if (!ok) break;
                 RipupMove m;
                 m.failed_pos = (int)fi;
                 m.failed_task = failed;
                 m.blocker_net = bn;
                 for (int j = 0; j < k; ++j) m.owned_idx.push_back(cands[j]);
+                std::sort(m.owned_idx.begin(), m.owned_idx.end());
+                std::string dk = dedup_key((int)fi, m.owned_idx);
+                if (seen.count(dk)) continue;
+                seen.insert(dk);
                 m.reason = "blocked_by_net_" + std::to_string(bn);
                 m.gain = weight_of[bn];
                 m.cost = 0;
@@ -406,10 +513,76 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
                 m.score = m.gain / (1.0 + m.cost) + history.bonus(hk);
                 if (!pv_key.empty() && hk == pv_key) m.score += 1e9;  // PV reuse first
                 moves.push_back(m);
-                if ((int)moves.size() >= std::max(1, max_moves * 3)) break;
+                if ((int)moves.size() >= over_gen) break;
             }
-            if ((int)moves.size() >= std::max(1, max_moves * 3)) break;
+            if ((int)moves.size() >= over_gen) break;
         }
+        // ---- Layer 2 (issue #20): bounded multi-blocker beam ----
+        // Combines cheapest routes from 2..N distinct blocker nets. N is
+        // capped by mode (FAST=1 stays single); the candidate pool is capped
+        // to top-K nets so enumeration cannot explode.
+        int max_nets = max_blocker_nets_for_mode(mode);
+        if (max_nets >= 2 && blockers.size() >= 2) {
+            int top_k = std::min<int>((int)blockers.size(), max_nets + 2);
+            if (top_k > 5) top_k = 5;
+            std::vector<NetId> pool(blockers.begin(), blockers.begin() + top_k);
+            // Filter pool to nets with at least one rippable owned route.
+            std::vector<NetId> rip_pool;
+            for (NetId bn : pool) {
+                std::vector<int> c = cheapest_of_net(bn);
+                if (!c.empty() && is_rippable(c[0])) rip_pool.push_back(bn);
+            }
+            // Enumerate combinations of size 2..max_nets (index lex order).
+            int rn = (int)rip_pool.size();
+            std::vector<int> idx;
+            std::function<void(int, int)> rec = [&](int start, int want) {
+                if ((int)idx.size() == want) {
+                    // Build combo: cheapest 1 route per net (minimal
+                    // disruption; deeper per-net breadth is layer-1 work).
+                    std::vector<int> owned_idx;
+                    double gain = 0, cost = 0, hist = 0;
+                    std::string reason = "blocked_by_nets";
+                    for (int ii : idx) {
+                        NetId bn = rip_pool[ii];
+                        std::vector<int> c = cheapest_of_net(bn);
+                        owned_idx.push_back(c[0]);
+                        gain += weight_of[bn];
+                        cost += owned[c[0]].protection;
+                        hist += history.bonus(HistoryHeuristic::move_key(failed, bn));
+                        reason += (reason.back() == 's' ? "_" : "+") + std::to_string(bn);
+                    }
+                    std::sort(owned_idx.begin(), owned_idx.end());
+                    if ((int)owned_idx.size() > max_breadth) return;
+                    std::string dk = dedup_key((int)fi, owned_idx);
+                    if (seen.count(dk)) return;
+                    seen.insert(dk);
+                    RipupMove m;
+                    m.failed_pos = (int)fi;
+                    m.failed_task = failed;
+                    m.blocker_net = rip_pool[idx[0]];
+                    m.owned_idx = owned_idx;
+                    m.reason = reason;
+                    m.gain = gain;
+                    m.cost = cost;
+                    m.score = gain / (1.0 + cost) + hist;
+                    // No 1e9 PV bonus for combos: singles stay cheapest first.
+                    moves.push_back(m);
+                    return;
+                }
+                for (int i = start; i < rn; ++i) {
+                    if ((int)moves.size() >= over_gen * 2) return;
+                    idx.push_back(i);
+                    rec(i + 1, want);
+                    idx.pop_back();
+                }
+            };
+            for (int want = 2; want <= max_nets && want <= rn; ++want) {
+                idx.clear();
+                rec(0, want);
+                if ((int)moves.size() >= over_gen * 2) break;
+            }
+        }
+        if ((int)moves.size() >= over_gen * 2) break;
     }
     std::sort(moves.begin(), moves.end(), [](const RipupMove& a, const RipupMove& b) {
         if (a.score != b.score) return a.score > b.score;

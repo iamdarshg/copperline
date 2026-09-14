@@ -62,6 +62,9 @@ AStarConfig astar_config_for_mode(const AStarConfig& base, RecoveryMode mode);
 int branch_width_for_generation(int generation);
 // How many owned routes a single move may rip (deepening).
 int max_rip_breadth_for_generation(int generation);
+// Issue #20: how many distinct blocker nets one rip-up set may combine.
+// FAST stays single-blocker; RECOVERY/EXHAUSTIVE widen combinations.
+int max_blocker_nets_for_mode(RecoveryMode mode);
 
 // ---- Stall detection ----
 
@@ -82,6 +85,8 @@ struct FrontierDiag {
     std::int64_t expansions = 0;
     int closest_node = -1;
     Coord closest_goal_dist_nm = 0;
+    // Issue #21: actual frontier blockers (bounded, deterministic order).
+    std::vector<FrontierBlockerStat> top_blockers;
     JsonValue to_json() const;
 };
 
@@ -92,8 +97,10 @@ FrontierDiag diagnose_task(const ConnectionTask& task, const CandidateRoute& las
 struct BlockerHit {
     std::string desc;  // "trace:net=X" | "pad:net=X:U1.A3" | "keepout:..." | ...
     NetId net = -1;    // blocker net id, -1 for keepouts/frontier gaps
-    std::string kind;  // "trace" | "pad" | "keepout" | "frontier"
+    std::string kind;  // "trace" | "pad" | "via" | "keepout" | "frontier" | "bounds"
     Coord area = 0;    // overlap area proxy for ordering (larger first)
+                       // Issue #21: frontier-derived hits use a 2^60 base so
+                       // real rejection evidence always outranks corridor area.
 };
 
 std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
@@ -210,6 +217,11 @@ struct RipupMove {
 
 // Deterministic: sorted by (score desc, failed net/a/b, owned nets...).
 // Skips keepout-only failures (nothing to rip) and caps the move count.
+// Issue #20: single-blocker moves form the cheapest first layer; when the
+// mode allows, a deterministic bounded beam over 2..N blocker nets adds
+// combined sets (gain = summed blocker weights, cost = summed protection).
+// Equivalent owned-route index sets are deduplicated; fixed copper is never
+// included.
 std::vector<RipupMove> generate_ripup_moves(
     const std::vector<ConnectionTask>& failed_tasks, const DependencyGraph& graph,
     const std::vector<OwnedRoute>& owned, const HistoryHeuristic& history,

@@ -40,11 +40,30 @@ struct GraphStats {
     int obstacle_count = 0;
 };
 
+// Issue #21: bounded summary of rejected frontier transitions. The sparse
+// graph builder knows exactly which obstacle killed each candidate edge/node;
+// A* only sees legal edges, so this evidence is collected here and forwarded
+// through CandidateRoute -> FrontierDiag -> blocker attribution. Aggregated
+// per (blocker net, kind, layer) with a deterministic order; memory is
+// bounded by top-N truncation (kMaxFrontierStats).
+struct GraphFrontierStat {
+    NetId blocker_net = -1;  // -1 = keepout / bounds (nothing to rip)
+    std::string kind;        // "trace" | "pad" | "via" | "keepout" | "bounds"
+    std::string desc;        // "trace:net=X" | "pad:net=..." | "keepout:..." | ...
+    LayerId layer = 0;       // query layer the rejection happened on
+    Point pos{};             // representative rejection position (first hit)
+    int count = 0;           // number of rejected transitions attributed here
+};
+
+inline constexpr int kMaxFrontierStats = 8;
+
 class SparseRoutingGraph {
   public:
     const std::vector<SparseNode>& nodes() const { return nodes_; }
     const std::vector<SparseEdge>& edges(int node) const { return adj_[node]; }
     const GraphStats& stats() const { return stats_; }
+    // Issue #21: bounded frontier-rejection evidence (sorted, top-N).
+    const std::vector<GraphFrontierStat>& frontier_stats() const { return frontier_stats_; }
 
     // Builds the graph for one point-to-point task against the CURRENT
     // committed board state (pre-routed + already-routed copper).
@@ -64,6 +83,7 @@ class SparseRoutingGraph {
     std::vector<SparseNode> nodes_;
     std::vector<std::vector<SparseEdge>> adj_;
     GraphStats stats_;
+    std::vector<GraphFrontierStat> frontier_stats_;
     int src_node_ = -1;
     int dst_node_ = -1;
 };

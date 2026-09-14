@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <map>
+#include <string>
 
 #include "router/via_bundle.h"
 
@@ -22,6 +23,10 @@ struct Obstacle {
     Rect raw{};
     LayerId layer = kAllLayers;
     Coord dist_min_nm = 0;  // required centerline distance from raw copper
+    // Issue #21: identity for frontier-rejection evidence.
+    NetId net = -1;      // -1 = keepout (nothing to rip)
+    std::string kind;    // "keepout" | "pad" | "trace" | "via"
+    std::string desc;    // stable human/agent-readable label
 };
 
 bool layer_match(LayerId obstacle_layer, LayerId query_layer) {
@@ -79,42 +84,109 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     std::vector<Obstacle> obstacles;
     obstacles.reserve(committed.keepouts.size() + committed.terminals.size() +
                       committed.traces.size() + committed.vias.size());
-    auto push_obstacle = [&](Rect raw, LayerId layer, Coord dist_min) {
+    auto push_obstacle = [&](Rect raw, LayerId layer, Coord dist_min, NetId onet,
+                             std::string kind, std::string desc) {
         if (raw.x2 < raw.x1 || raw.y2 < raw.y1) return;
-        obstacles.push_back({raw, layer, dist_min});
+        obstacles.push_back({raw, layer, dist_min, onet, std::move(kind), std::move(desc)});
     };
     for (const auto& ko : committed.keepouts) {
-        push_obstacle(ko.rect, ko.layer, max_clear + half_w);
+        push_obstacle(ko.rect, ko.layer, max_clear + half_w, -1, "keepout",
+                      "keepout:" + ko.reason);
     }
     for (const auto& t : committed.terminals) {
         if (t.net == net) continue;  // own copper is connectable, not an obstacle
-        push_obstacle(t.pad_rect(), t.layer, clearance_to(t.net, t.layer) + half_w);
+        const NetInfo* on = committed.find_net(t.net);
+        std::string nm = on ? on->name : "?";
+        std::string desc = "pad:net=" + nm +
+                           (t.component.empty() ? "" : ":" + t.component + "." + t.pin);
+        push_obstacle(t.pad_rect(), t.layer, clearance_to(t.net, t.layer) + half_w, t.net,
+                      "pad", std::move(desc));
     }
     for (const auto& t : committed.traces) {
         if (t.net == net) continue;
+        const NetInfo* on = committed.find_net(t.net);
+        std::string nm = on ? on->name : "?";
         Rect raw = t.segment().bounds().expanded(t.width_nm / 2);
-        push_obstacle(raw, t.layer, clearance_to(t.net, t.layer) + half_w);
+        push_obstacle(raw, t.layer, clearance_to(t.net, t.layer) + half_w, t.net, "trace",
+                      "trace:net=" + nm);
     }
     for (const auto& v : committed.vias) {
         if (v.net == net) continue;
+        const NetInfo* on = committed.find_net(v.net);
+        std::string nm = on ? on->name : "?";
         Coord c = clearance_to(v.net, v.top_layer);
         Rect raw = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
         for (const auto& l : committed.layers) {
             bool in_span = (l.id >= std::min(v.top_layer, v.bottom_layer) &&
                             l.id <= std::max(v.top_layer, v.bottom_layer));
-            if (in_span) push_obstacle(raw, l.id, c + half_w);
+            if (in_span)
+                push_obstacle(raw, l.id, c + half_w, v.net, "via", "via:net=" + nm);
         }
     }
     g.stats_.obstacle_count = static_cast<int>(obstacles.size());
 
-    auto seg_legal = [&](const Segment& s, LayerId layer) -> bool {
-        if (!seg_in_bounds(s, committed.bounds(), half_w)) return false;
+    // Issue #21: bounded frontier-rejection aggregation. Keyed by
+    // (blocker net, kind, layer) so memory stays bounded no matter how many
+    // candidate edges are attempted; the representative position is the first
+    // rejection site (deterministic: graph build order is deterministic).
+    struct RejAgg {
+        NetId net = -1;
+        std::string kind;
+        std::string desc;
+        LayerId layer = 0;
+        Point pos{};
+        int count = 0;
+    };
+    std::map<std::string, RejAgg> rej;
+    auto rej_key = [](NetId n, const std::string& k, LayerId l) {
+        return std::to_string(n) + "|" + k + "|" + std::to_string(l);
+    };
+    auto note_rejection = [&](NetId bn, const std::string& kind, const std::string& desc,
+                              LayerId layer, Point rep) {
+        std::string key = rej_key(bn, kind, layer);
+        auto it = rej.find(key);
+        if (it == rej.end()) {
+            RejAgg a;
+            a.net = bn;
+            a.kind = kind;
+            a.desc = desc;
+            a.layer = layer;
+            a.pos = rep;
+            a.count = 1;
+            rej.emplace(key, std::move(a));
+        } else {
+            it->second.count++;
+        }
+    };
+
+    auto first_blocker = [&](const Segment& s, LayerId layer) -> const Obstacle* {
         for (const auto& o : obstacles) {
             if (!layer_match(o.layer, layer)) continue;
-            if (!seg_legal_vs(s, o)) return false;
+            if (!seg_legal_vs(s, o)) return &o;
+        }
+        return nullptr;
+    };
+
+    auto seg_legal = [&](const Segment& s, LayerId layer) -> bool {
+        if (!seg_in_bounds(s, committed.bounds(), half_w)) return false;
+        return first_blocker(s, layer) == nullptr;
+    };
+    // Recording variant: on rejection, attributes the actual blocker (or
+    // bounds) with a representative position. Used for every legality probe
+    // during graph construction so the evidence reflects what A* could not
+    // traverse -- not a rectangular corridor guess.
+    auto seg_legal_record = [&](const Segment& s, LayerId layer, Point rep) -> bool {
+        if (!seg_in_bounds(s, committed.bounds(), half_w)) {
+            note_rejection(-1, "bounds", "off_board", layer, rep);
+            return false;
+        }
+        if (const Obstacle* o = first_blocker(s, layer)) {
+            note_rejection(o->net, o->kind, o->desc, layer, rep);
+            return false;
         }
         return true;
     };
+    (void)seg_legal;
 
     // ---- 2. Candidate base points ----
     // Node-count optimisation: expanded corners are only emitted for obstacles
@@ -185,7 +257,7 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
         for (const auto& l : committed.layers) {
             // A wire point is legal when a zero-length segment there is legal.
             Segment pt{bases[bi], bases[bi]};
-            if (!seg_legal(pt, l.id)) continue;
+            if (!seg_legal_record(pt, l.id, bases[bi])) continue;
             // Always keep src/dst on their own layers even if the pad interior
             // is marked (endpoint copper belongs to us and was excluded above,
             // so this only triggers on genuine foreign overlap -> then the
@@ -257,8 +329,13 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
             Segment s1{a, c.has_elbow ? c.elbow : b};
             Segment s2{c.has_elbow ? Segment{c.elbow, b} : Segment{b, b}};
             bool s2_empty = !c.has_elbow;
-            if (!seg_legal(s1, layer)) continue;
-            if (!s2_empty && !seg_legal(s2, layer)) continue;
+            Point rep1{(a.x + (c.has_elbow ? c.elbow.x : b.x)) / 2,
+                       (a.y + (c.has_elbow ? c.elbow.y : b.y)) / 2};
+            if (!seg_legal_record(s1, layer, rep1)) continue;
+            if (!s2_empty) {
+                Point rep2{(c.elbow.x + b.x) / 2, (c.elbow.y + b.y) / 2};
+                if (!seg_legal_record(s2, layer, rep2)) continue;
+            }
             SparseEdge e;
             e.to = to;
             e.len_nm = manhattan(a, c.has_elbow ? c.elbow : b) +
@@ -339,6 +416,31 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     for (const auto& vec : g.adj_) edges += static_cast<int>(vec.size());
     g.stats_.node_count = static_cast<int>(g.nodes_.size());
     g.stats_.edge_count = edges;
+    // Issue #21: finalize bounded frontier evidence (count desc, then stable
+    // net/kind/layer/desc order). Deterministic across runs and threads.
+    {
+        std::vector<RejAgg> all;
+        all.reserve(rej.size());
+        for (auto& [k, v] : rej) all.push_back(v);
+        std::sort(all.begin(), all.end(), [](const RejAgg& a, const RejAgg& b) {
+            if (a.count != b.count) return a.count > b.count;
+            if (a.net != b.net) return a.net < b.net;
+            if (a.kind != b.kind) return a.kind < b.kind;
+            if (a.layer != b.layer) return a.layer < b.layer;
+            return a.desc < b.desc;
+        });
+        for (std::size_t i = 0; i < all.size() && (int)g.frontier_stats_.size() < kMaxFrontierStats;
+             ++i) {
+            GraphFrontierStat s;
+            s.blocker_net = all[i].net;
+            s.kind = all[i].kind;
+            s.desc = all[i].desc;
+            s.layer = all[i].layer;
+            s.pos = all[i].pos;
+            s.count = all[i].count;
+            g.frontier_stats_.push_back(s);
+        }
+    }
     return g;
 }
 
