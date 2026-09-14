@@ -36,6 +36,20 @@ AStarResult astar_route(const SparseRoutingGraph& graph, const std::vector<doubl
     }
     const Point goal = graph.nodes()[dst].p;
 
+    // Hoisted invariants: cheapest layer multiplier (admissible scaling) and
+    // the per-node layer cost factor, so the inner loop does no scans.
+    double min_mult = 1.0;
+    if (!layer_mult.empty()) {
+        min_mult = layer_mult[0];
+        for (double v : layer_mult) min_mult = std::min(min_mult, v);
+    }
+    std::vector<double> node_layer_cost(n, 1.0);
+    for (int i = 0; i < n; ++i) {
+        LayerId l = graph.nodes()[i].layer;
+        if (l >= 0 && l < static_cast<int>(layer_mult.size()) && layer_mult[l] > 0)
+            node_layer_cost[i] = layer_mult[l];
+    }
+
     constexpr Coord kInf = std::numeric_limits<Coord>::max() / 4;
     // dist[node][dir]
     std::vector<std::vector<Coord>> dist(n, std::vector<Coord>(5, kInf));
@@ -48,12 +62,7 @@ AStarResult astar_route(const SparseRoutingGraph& graph, const std::vector<doubl
 
     auto heuristic = [&](int node) -> Coord {
         Coord h = manhattan(graph.nodes()[node].p, goal);
-        double m = 1.0;
-        if (!layer_mult.empty()) {
-            m = layer_mult[0];
-            for (double v : layer_mult) m = std::min(m, v);
-        }
-        return static_cast<Coord>(h * m);
+        return static_cast<Coord>(h * min_mult);
     };
 
     using Entry = std::tuple<Coord, Coord, int, int>;  // (f, g, node, dir)
@@ -63,13 +72,6 @@ AStarResult astar_route(const SparseRoutingGraph& graph, const std::vector<doubl
 
     out.closest_node = src;
     out.closest_goal_dist_nm = manhattan(graph.nodes()[src].p, goal);
-
-    auto layer_cost = [&](int node) -> double {
-        LayerId l = graph.nodes()[node].layer;
-        if (l >= 0 && l < static_cast<int>(layer_mult.size()) && layer_mult[l] > 0)
-            return layer_mult[l];
-        return 1.0;
-    };
 
     std::int64_t expansions = 0;
     int found_dir = -1;
@@ -102,7 +104,7 @@ AStarResult astar_route(const SparseRoutingGraph& graph, const std::vector<doubl
             } else {
                 int first = 4, second = -1;
                 edge_exit_dirs(e, first, second);
-                step = static_cast<Coord>(step * layer_cost(e.to));
+                step = static_cast<Coord>(step * node_layer_cost[e.to]);
                 if (dir != 4 && first != 4 && first != dir) step += config.bend_cost_nm;
                 if (second >= 0 && second != first) step += config.bend_cost_nm;
                 ndir = second >= 0 ? second : first;

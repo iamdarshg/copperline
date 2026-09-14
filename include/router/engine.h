@@ -1,19 +1,24 @@
-// Copperline: single-threaded routing engine (phase 1).
+// Copperline: parallel global routing engine (Prompt 3).
 //
-// Routes every RouteTree connection task sequentially in deterministic
-// difficulty order against the live committed board. Each task builds a fresh
-// sparse graph (phase-3 will add epochs/batches); committed copper is the
-// only shared state and only this thread mutates it.
+// Epoch pipeline: connection tasks from RouteTrees are scored with difficulty
+// vectors, ordered by the deterministic batch scheduler, and routed in fixed
+// batches. A worker pool generates candidates against an immutable committed
+// snapshot (workers never mutate copper); the deterministic central arbiter
+// revalidates, builds conflicts, selects a compatible subset, and commits it
+// atomically as one epoch. Pathfinder-style present/history congestion plus
+// soft reservations bias planning pressure only — never final DRC legality.
 #pragma once
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "router/astar.h"
 #include "router/board.h"
 #include "router/json.h"
+#include "router/parallel.h"
 #include "router/rules.h"
 
 namespace copperline {
@@ -23,24 +28,13 @@ struct RouteFailure {
     std::string net_name;
     TermId a = -1;
     TermId b = -1;
-    std::string reason;  // "unreachable" | "budget_exhausted" | "timeout" | "no_via" | ...
+    std::string reason;  // "unreachable" | "budget_exhausted" | "timeout" |
+                         // "conflict" | "illegal_overlap:..." | "unattempted" |
+                         // "no_via" | "bad_task" | ...
     std::vector<std::string> blockers;
     std::int64_t expansions = 0;
     double required_width_mm = 0;
     std::string width_source;
-};
-
-struct RouteStats {
-    int nets_total = 0;
-    int nets_routed = 0;
-    int tasks_total = 0;
-    int tasks_routed = 0;
-    int via_count = 0;
-    Coord length_nm = 0;
-    std::int64_t expansions_total = 0;
-    std::int64_t time_ms = 0;
-    int threads_requested = 1;
-    int threads_used = 1;  // phase 1 is single-threaded by design
 };
 
 struct RouteReport {
@@ -50,6 +44,9 @@ struct RouteReport {
     int total_terminals = 0;
     RouteStats stats;
     std::vector<RouteFailure> failures;
+    std::vector<EpochInfo> epochs;
+    std::vector<Hotspot> hotspots;
+    std::string board_hash;  // geometry_hash() of committed copper
     JsonValue to_json() const;
 };
 
@@ -58,6 +55,8 @@ struct EngineOptions {
     unsigned seed = 42;
     int threads = 1;
     double timeout_s = 0;  // 0 = none
+    int max_epochs = 4096;
+    ProgressCallback progress;  // optional per-epoch NDJSON events
 };
 
 class RouterEngine {

@@ -154,4 +154,56 @@ CT_TEST(width_class_model) {
     CT_CHECK(source == "width_class");
 }
 
+CT_TEST(parallel_vias_required_for_high_current) {
+    Board b = current_board();
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    ViaStyle std_style;
+    CT_CHECK(r.lookup_via_style("STD", std_style));
+    // 5A through a 2A STD via needs at least 3 in parallel.
+    int n = r.current().vias_required(std_style, *b.find_net(1), b.defaults, ctx);
+    CT_CHECK(n >= 3);
+    int n_sig = r.current().vias_required(std_style, *b.find_net(0), b.defaults, ctx);
+    CT_CHECK(n_sig == 1);
+}
+
+CT_TEST(allowed_vias_prefers_named_class) {
+    Board b = current_board();
+    NetInfo* sig = b.find_net(0);
+    sig->via_class = "BIG";
+    JsonValue cfg = ipc_config();
+    JsonValue styles = JsonValue::array();
+    JsonValue small = JsonValue::object();
+    small["name"] = "STD";
+    small["outer_mm"] = 0.6;
+    small["hole_mm"] = 0.3;
+    small["max_current_a"] = 2.0;
+    styles.as_array().push_back(small);
+    JsonValue big = JsonValue::object();
+    big["name"] = "BIG";
+    big["outer_mm"] = 1.0;
+    big["hole_mm"] = 0.5;
+    big["max_current_a"] = 8.0;
+    styles.as_array().push_back(big);
+    cfg["via_classes"] = styles;
+    RuleResolver r = RuleResolver::from_config(b, cfg);
+    LayerSpan span{0, 1};
+    auto allowed = r.allowedVias(0, span);
+    CT_CHECK(!allowed.empty());
+    CT_CHECK(allowed[0].name == "BIG");  // preferred class first
+    ViaStyle picked;
+    CT_CHECK(r.select_via(0, span, picked));
+    CT_CHECK(picked.name == "BIG");
+}
+
+CT_TEST(peak_current_drives_effective_current) {
+    Board b = current_board();
+    NetInfo* sig = b.find_net(0);
+    sig->has_peak = true;
+    sig->peak_a = 4.0;  // peak dominates the 0.1A continuous rating
+    RuleResolver r = RuleResolver::from_config(b, ipc_config());
+    ElectricalContext ctx;
+    CT_CHECK(r.requiredTraceWidth(0, 0, ctx) == mm_to_nm(4.0 * 0.75));
+}
+
 int main() { return copperline::test::run_all_tests(); }

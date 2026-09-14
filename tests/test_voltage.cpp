@@ -133,4 +133,50 @@ CT_TEST(verifier_catches_voltage_clearance) {
     CT_CHECK(found);
 }
 
+CT_TEST(class_pair_overrides_table) {
+    Board b = voltage_board();
+    b.nets[0].voltage_class = "LOGIC";
+    b.nets[1].voltage_class = "HV";
+    JsonValue cfg = voltage_config();
+    JsonValue pairs = JsonValue::array();
+    JsonValue p = JsonValue::object();
+    p["a"] = "HV";
+    p["b"] = "LOGIC";
+    p["clearance_mm"] = 2.0;
+    pairs.as_array().push_back(p);
+    cfg["class_pairs"] = pairs;
+    RuleResolver r = RuleResolver::from_config(b, cfg);
+    ElectricalContext ctx;
+    std::string source;
+    Coord c = r.requiredClearance(0, 1, 0, ctx, &source);
+    CT_CHECK(c == mm_to_nm(2.0));
+    CT_CHECK(source == "class_pair");
+}
+
+CT_TEST(net_floor_max_wins) {
+    Board b = voltage_board();
+    // KiCad-style per-net floor above the table value: max wins.
+    b.nets[0].has_min_clearance = true;
+    b.nets[0].min_clearance_nm = mm_to_nm(1.5);
+    RuleResolver r = RuleResolver::from_config(b, voltage_config());
+    ElectricalContext ctx;
+    std::string source;
+    Coord c = r.requiredClearance(0, 1, 0, ctx, &source);
+    CT_CHECK(c == mm_to_nm(1.5));
+    CT_CHECK(source == "net_floor");
+}
+
+CT_TEST(unknown_voltage_falls_back_to_default) {
+    Board b = voltage_board();
+    NetInfo bare = make_net(2, "BARE");  // no voltage metadata
+    b.nets.push_back(bare);
+    RuleResolver r = RuleResolver::from_config(b, voltage_config());
+    ElectricalContext ctx;
+    std::string source;
+    // Table needs BOTH voltages; without them the board default applies.
+    Coord c = r.requiredClearance(0, 2, 0, ctx, &source);
+    CT_CHECK(c == b.defaults.clearance_nm);
+    CT_CHECK(source == "board_default");
+}
+
 int main() { return copperline::test::run_all_tests(); }

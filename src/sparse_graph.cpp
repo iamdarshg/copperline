@@ -22,17 +22,16 @@ struct Obstacle {
     Coord dist_min_nm = 0;  // required centerline distance from raw copper
 };
 
-std::string net_name(const Board& b, NetId net) {
-    const NetInfo* n = b.find_net(net);
-    return n ? n->name : ("#" + std::to_string(net));
-}
-
 bool layer_match(LayerId obstacle_layer, LayerId query_layer) {
     return obstacle_layer == kAllLayers || obstacle_layer == query_layer;
 }
 
-// Exact legality: squared centerline distance >= dist_min^2.
+// Exact legality: squared centerline distance >= dist_min^2. Fast path: when
+// the segment bbox expanded by dist_min does not even touch the raw rect,
+// the exact distance must exceed dist_min (closed-interval touch would still
+// be caught, so falling through on touch keeps the predicate exact).
 bool seg_legal_vs(const Segment& s, const Obstacle& o) {
+    if (!s.bounds().expanded(o.dist_min_nm).intersects(o.raw)) return true;
     __int128 d2 = seg_rect_dist2(s, o.raw);
     __int128 need = (__int128)o.dist_min_nm * o.dist_min_nm;
     return d2 >= need;
@@ -45,22 +44,39 @@ bool seg_in_bounds(const Segment& s, const Rect& bounds, Coord half_width) {
 
 }  // namespace
 
+void SparseRoutingGraph::add_penalties(
+    const std::function<Coord(const SparseNode&, const SparseEdge&)>& fn) {
+    for (std::size_t i = 0; i < nodes_.size(); ++i)
+        for (auto& e : adj_[i]) e.penalty_nm += fn(nodes_[i], e);
+}
+
 SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleResolver& resolver,
-                                             NetId net, Point src, Point dst, LayerId src_layer,
-                                             LayerId dst_layer, Coord route_width_nm,
-                                             const ElectricalContext& ctx) {
+                                              NetId net, Point src, Point dst, LayerId src_layer,
+                                              LayerId dst_layer, Coord route_width_nm,
+                                              const ElectricalContext& ctx) {
     SparseRoutingGraph g;
     const Coord half_w = route_width_nm / 2;
 
     // ---- 1. Collect raw obstacles with per-obstacle keep distances ----
-    std::vector<Obstacle> obstacles;
-    // Max clearance of this net vs any other net: used for keepouts (no net).
+    // Clearance is layer-independent (RuleResolver ignores layer/ctx), so one
+    // lookup per foreign net is exact and avoids repeat linear scans.
+    std::map<NetId, Coord> clear_cache;
+    auto clearance_to = [&](NetId other, LayerId layer) -> Coord {
+        auto it = clear_cache.find(other);
+        if (it != clear_cache.end()) return it->second;
+        std::string cs;
+        Coord c = resolver.requiredClearance(net, other, layer, ctx, &cs);
+        clear_cache[other] = c;
+        return c;
+    };
     Coord max_clear = 0;
     for (const auto& other : committed.nets) {
         if (other.id == net) continue;
-        std::string cs;
-        max_clear = std::max(max_clear, resolver.requiredClearance(net, other.id, 0, ctx, &cs));
+        max_clear = std::max(max_clear, clearance_to(other.id, 0));
     }
+    std::vector<Obstacle> obstacles;
+    obstacles.reserve(committed.keepouts.size() + committed.terminals.size() +
+                      committed.traces.size() + committed.vias.size());
     auto push_obstacle = [&](Rect raw, LayerId layer, Coord dist_min) {
         if (raw.x2 < raw.x1 || raw.y2 < raw.y1) return;
         obstacles.push_back({raw, layer, dist_min});
@@ -70,21 +86,16 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     }
     for (const auto& t : committed.terminals) {
         if (t.net == net) continue;  // own copper is connectable, not an obstacle
-        std::string cs;
-        Coord c = resolver.requiredClearance(net, t.net, t.layer, ctx, &cs);
-        push_obstacle(t.pad_rect(), t.layer, c + half_w);
+        push_obstacle(t.pad_rect(), t.layer, clearance_to(t.net, t.layer) + half_w);
     }
     for (const auto& t : committed.traces) {
         if (t.net == net) continue;
-        std::string cs;
-        Coord c = resolver.requiredClearance(net, t.net, t.layer, ctx, &cs);
         Rect raw = t.segment().bounds().expanded(t.width_nm / 2);
-        push_obstacle(raw, t.layer, c + half_w);
+        push_obstacle(raw, t.layer, clearance_to(t.net, t.layer) + half_w);
     }
     for (const auto& v : committed.vias) {
         if (v.net == net) continue;
-        std::string cs;
-        Coord c = resolver.requiredClearance(net, v.net, v.top_layer, ctx, &cs);
+        Coord c = clearance_to(v.net, v.top_layer);
         Rect raw = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
         for (const auto& l : committed.layers) {
             bool in_span = (l.id >= std::min(v.top_layer, v.bottom_layer) &&
@@ -92,7 +103,6 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
             if (in_span) push_obstacle(raw, l.id, c + half_w);
         }
     }
-    (void)net_name;
     g.stats_.obstacle_count = static_cast<int>(obstacles.size());
 
     auto seg_legal = [&](const Segment& s, LayerId layer) -> bool {
@@ -105,10 +115,19 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     };
 
     // ---- 2. Candidate base points ----
+    // Node-count optimisation: expanded corners are only emitted for obstacles
+    // near the task corridor (generous margin, so detours survive). ALL
+    // obstacles still participate in legality, so no illegal edge can ever be
+    // built; at worst a far detour is missed and the arbiter reports it.
+    const Coord span = manhattan(src, dst);
+    const Coord margin = std::max(mm_to_nm(6.0), span / 2);
+    const Rect corridor = Rect::from_points(src, dst).expanded(margin);
     std::vector<Point> bases;
+    bases.reserve(2 + obstacles.size());
     bases.push_back(src);
     bases.push_back(dst);
     for (const auto& o : obstacles) {
+        if (!o.raw.expanded(o.dist_min_nm).intersects(corridor)) continue;
         Rect exp = o.raw.expanded(o.dist_min_nm);
         Point corners[4] = {{exp.x1, exp.y1}, {exp.x2, exp.y1}, {exp.x2, exp.y2}, {exp.x1, exp.y2}};
         for (auto c : corners) bases.push_back(c);
@@ -125,8 +144,32 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     bases.erase(std::unique(bases.begin(), bases.end(),
                             [](const Point& a, const Point& b) { return a.x == b.x && a.y == b.y; }),
                 bases.end());
+    // Deterministic safety cap: keep src/dst plus the bases closest to the
+    // task segment (distance, then x, then y tie-breaks).
+    constexpr std::size_t kMaxBases = 384;
+    if (bases.size() > kMaxBases) {
+        Segment task_seg{src, dst};
+        std::vector<std::pair<__int128, Point>> ranked;
+        ranked.reserve(bases.size());
+        for (auto p : bases) {
+            if (p == src || p == dst) continue;
+            ranked.push_back({seg_rect_dist2(task_seg, Rect{p.x, p.y, p.x, p.y}), p});
+        }
+        std::sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) {
+            if (a.first != b.first) return a.first < b.first;
+            if (a.second.x != b.second.x) return a.second.x < b.second.x;
+            return a.second.y < b.second.y;
+        });
+        bases.clear();
+        bases.push_back(src);
+        bases.push_back(dst);
+        for (std::size_t i = 0; i < ranked.size() && bases.size() < kMaxBases; ++i)
+            bases.push_back(ranked[i].second);
+        std::sort(bases.begin(), bases.end());
+    }
     // Clamp into the legal centerline region.
     std::vector<Point> clipped;
+    clipped.reserve(bases.size());
     for (auto p : bases) {
         if (!inner.contains(p)) continue;
         clipped.push_back(p);
@@ -183,8 +226,13 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     g.dst_node_ = ensure_node(dst, dst_layer);
     g.adj_.resize(g.nodes_.size());
 
+    // Per-layer node lists: edge search never scans other layers.
+    std::map<LayerId, std::vector<int>> layer_nodes;
+    for (int i = 0; i < static_cast<int>(g.nodes_.size()); ++i)
+        layer_nodes[g.nodes_[i].layer].push_back(i);
+
     // ---- 4. Manhattan edges: aligned pairs + K nearest per node ----
-    constexpr int kNearest = 24;
+    constexpr int kNearest = 16;
     auto try_edge = [&](int from, int to) {
         if (from == to) return;
         const Point a = g.nodes_[from].p;
@@ -221,25 +269,30 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
             break;  // first legal elbow order wins (deterministic)
         }
     };
-    int ncount = static_cast<int>(g.nodes_.size());
-    // Aligned pairs (shared x or y) preserve corridors at any distance.
-    std::map<Coord, std::vector<int>> by_x, by_y;
-    for (int i = 0; i < ncount; ++i) {
-        by_x[g.nodes_[i].p.x].push_back(i);
-        by_y[g.nodes_[i].p.y].push_back(i);
-    }
-    for (int i = 0; i < ncount; ++i) {
-        for (int j : by_x[g.nodes_[i].p.x]) try_edge(i, j);
-        for (int j : by_y[g.nodes_[i].p.y]) try_edge(i, j);
-        // K nearest on the same layer.
-        std::vector<std::pair<Coord, int>> near;
-        for (int j = 0; j < ncount; ++j) {
-            if (j == i || g.nodes_[j].layer != g.nodes_[i].layer) continue;
-            near.push_back({manhattan(g.nodes_[i].p, g.nodes_[j].p), j});
+    for (const auto& [layer, ids] : layer_nodes) {
+        // Aligned pairs (shared x or y) preserve corridors at any distance.
+        std::map<Coord, std::vector<int>> by_x, by_y;
+        for (int i : ids) {
+            by_x[g.nodes_[i].p.x].push_back(i);
+            by_y[g.nodes_[i].p.y].push_back(i);
         }
-        std::sort(near.begin(), near.end());
-        for (int k = 0; k < static_cast<int>(near.size()) && k < kNearest; ++k) {
-            try_edge(i, near[k].second);
+        for (int i : ids) {
+            for (int j : by_x[g.nodes_[i].p.x]) try_edge(i, j);
+            for (int j : by_y[g.nodes_[i].p.y]) try_edge(i, j);
+        }
+        // K nearest on the same layer (deterministic: full sort by
+        // (distance, node id); lists are small after corridor clipping).
+        for (int i : ids) {
+            std::vector<std::pair<Coord, int>> near;
+            near.reserve(ids.size());
+            for (int j : ids) {
+                if (j == i) continue;
+                near.push_back({manhattan(g.nodes_[i].p, g.nodes_[j].p), j});
+            }
+            std::sort(near.begin(), near.end());
+            for (int k = 0; k < static_cast<int>(near.size()) && k < kNearest; ++k) {
+                try_edge(i, near[k].second);
+            }
         }
     }
 
@@ -295,7 +348,7 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     }
     int edges = 0;
     for (const auto& vec : g.adj_) edges += static_cast<int>(vec.size());
-    g.stats_.node_count = ncount;
+    g.stats_.node_count = static_cast<int>(g.nodes_.size());
     g.stats_.edge_count = edges;
     return g;
 }

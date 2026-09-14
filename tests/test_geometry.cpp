@@ -40,6 +40,33 @@ CT_TEST(seg_distances) {
     CT_CHECK(seg_rect_dist2(s, r) == 100 + 400);  // dx=10, dy=20
 }
 
+CT_TEST(orientation_and_segment_predicates) {
+    CT_CHECK(orientation({0, 0}, {10, 0}, {10, 10}) == 2);
+    CT_CHECK(orientation({0, 0}, {10, 0}, {10, -10}) == 1);
+    CT_CHECK(orientation({0, 0}, {5, 0}, {10, 0}) == 0);  // collinear
+    CT_CHECK(on_segment({0, 0}, {5, 0}, {10, 0}));
+    CT_CHECK(!on_segment({0, 0}, {11, 0}, {10, 0}));
+    CT_CHECK(seg_intersects_seg({{0, 0}, {10, 10}}, {{0, 10}, {10, 0}}));
+    CT_CHECK(!seg_intersects_seg({{0, 0}, {10, 0}}, {{0, 5}, {10, 5}}));
+    CT_CHECK(seg_intersects_rect({{0, 5}, {10, 5}}, {2, 2, 8, 8}));
+    CT_CHECK(!seg_intersects_rect({{0, 0}, {10, 0}}, {2, 2, 8, 8}));
+}
+
+CT_TEST(rect_gap_exact_axes) {
+    Rect a{0, 0, 10, 10};
+    Rect touch{10, 0, 20, 10};
+    CT_CHECK(rect_gap(a, touch) == 0);  // touching: zero gap
+    Rect diag{13, 14, 20, 20};          // dx=3, dy=4 -> 5
+    CT_CHECK(rect_gap(a, diag) == 5);
+    Rect vonly{2, 15, 8, 25};  // x-overlap, dy=5
+    CT_CHECK(rect_gap(a, vonly) == 5);
+    // Expanded-bounds fast reject agrees with the exact predicate.
+    Segment s{{0, 0}, {10, 0}};
+    Rect far{100, 100, 110, 110};
+    CT_CHECK(!s.bounds().expanded(50).intersects(far));
+    CT_CHECK(s.bounds().expanded(200).intersects(far));
+}
+
 CT_TEST(integer_legality_comparison) {
     // Exact integer comparison: gap^2 vs required^2, no float involvement.
     Segment s{{0, 0}, {10, 0}};

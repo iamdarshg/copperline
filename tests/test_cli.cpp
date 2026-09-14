@@ -79,6 +79,19 @@ CT_TEST(capabilities_json) {
     CT_CHECK(v.has("formats"));
 }
 
+CT_TEST(capabilities_parallel_phase) {
+    int rc = 0;
+    std::string out = run_cli("capabilities --json", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("phase") == "prompt-3-parallel");
+    CT_CHECK(v.find("features")->get_bool("parallel_routing", false));
+    bool has_benchmark = false;
+    for (const auto& c : v.find("commands")->as_array())
+        if (c.as_string() == "benchmark") has_benchmark = true;
+    CT_CHECK(has_benchmark);
+}
+
 CT_TEST(analyze_open_json) {
     int rc = 0;
     std::string out = run_cli("analyze " + fixture("open_2layer.json") + " --json", rc);
@@ -198,6 +211,12 @@ CT_TEST(route_is_deterministic) {
     JsonValue v1 = must_parse(o1), v2 = must_parse(o2);
     v1["stats"]["time_ms"] = 0.0;
     v2["stats"]["time_ms"] = 0.0;
+    // Per-epoch time_ms is measured wall-clock by design; mask it too.
+    for (JsonValue* v : {&v1, &v2}) {
+        if (const JsonValue* log = v->find("epoch_log")) {
+            for (auto& e : const_cast<JsonArray&>(log->as_array())) e["time_ms"] = 0.0;
+        }
+    }
     CT_CHECK(serialize_json(v1) == serialize_json(v2));
 }
 
@@ -212,6 +231,46 @@ CT_TEST(escape_bga_json) {
     CT_CHECK(fp.has("eligibility_order"));
     CT_CHECK(fp.has("commit_order"));
     CT_CHECK(!fp.find("pads")->as_array().empty());
+}
+
+CT_TEST(route_threads_parity) {
+    int rc1 = 0, rc4 = 0;
+    std::string o1 = run_cli("route " + fixture("obstacle_detour.json") + " --json --seed 7 --threads 1", rc1);
+    std::string o4 = run_cli("route " + fixture("obstacle_detour.json") + " --json --seed 7 --threads 4", rc4);
+    CT_CHECK(rc1 == 0 && rc4 == 0);
+    JsonValue v1 = must_parse(o1), v4 = must_parse(o4);
+    CT_CHECK(v1.get_string("status") == "COMPLETE");
+    CT_CHECK(v4.get_string("status") == "COMPLETE");
+    CT_CHECK(v1.get_string("board_hash") == v4.get_string("board_hash"));
+    CT_CHECK(serialize_json(*v1.find("board")) == serialize_json(*v4.find("board")));
+    CT_CHECK(v4.find("stats")->get_number("threads_used", 0) >= 2);
+    CT_CHECK(v1.find("stats")->get_number("epochs", 0) >= 1);
+    CT_CHECK(v1.has("epoch_log"));
+    CT_CHECK(v1.has("congestion_hotspots"));
+}
+
+CT_TEST(route_progress_json_pure) {
+    int rc = 0;
+    // --progress emits NDJSON on stderr; stdout must stay pure JSON.
+    std::string out =
+        run_cli("route " + fixture("open_2layer.json") + " --json --seed 7 --progress", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+}
+
+CT_TEST(benchmark_reports_real_numbers) {
+    int rc = 0;
+    std::string out = run_cli("benchmark " + fixture("open_2layer.json") + " --json", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("schema") == "copperline/benchmark-report/1");
+    CT_CHECK(v.has("single"));
+    CT_CHECK(v.has("parallel"));
+    CT_CHECK(v.has("speedup"));
+    CT_CHECK(v.get_bool("identical_geometry", false));
+    CT_CHECK(v.find("single")->get_string("board_hash") ==
+              v.find("parallel")->get_string("board_hash"));
 }
 
 CT_TEST(escape_impossible_reports_incomplete) {

@@ -6,11 +6,13 @@ EDA pipelines: every important operation has a stable machine-readable JSON
 representation, documented nonzero exit codes, and deterministic output for a
 given `(board, rules, seed)`.
 
-> Status: **Prompt 2 escape** (`0.2.0`) — fine-pitch centre-out escape stage
-> (`FinePitchDetector`, `CentreDepthAnalyzer`, `EscapeBoundary`, K-best
-> constrained A*, `router escape`) on top of the Prompt 1 foundation. Parallel
-> routing (P3), rip-up/meta-search (P4) and adapters/optimizer/release (P5)
-> are explicitly planned and reported as such by `router capabilities`.
+> Status: **Prompt 3 parallel** (`0.3.0`) — multicore global routing with
+> deterministic epochs (`DifficultyVector`, probable corridors, interference
+> graph, batch scheduler, `CongestionMap`, soft reservations, worker pool,
+> central arbiter, atomic commit, `router benchmark`) on top of the
+> Prompt 1 foundation + Prompt 2 escape. Rip-up/meta-search (P4) and
+> adapters/optimizer/release (P5) are explicitly planned and reported as
+> such by `router capabilities`.
 
 ## Quick start (agents: copy/paste)
 
@@ -19,16 +21,22 @@ given `(board, rules, seed)`.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# Run the full test suite (61 cases, 8 binaries; test_escape takes ~3 min)
+# Run the full test suite (106 cases, 10 binaries, ~21 s)
 ctest --test-dir build --output-on-failure
 
 # Route a board, machine-readable
 ./build/router route fixtures/open_2layer.json --json --seed 42 \
   --output routed.json --report report.json
 
-# Route with electrical sidecar rules
+# Route with electrical sidecar rules (multicore: identical copper at any --threads)
 ./build/router route fixtures/high_current.json --config fixtures/rules_demo.json \
   --threads 16 --seed 42 --output routed.json --report report.json --json
+
+# Watch epoch progress as NDJSON on stderr (stdout stays pure JSON)
+./build/router route fixtures/narrow_channel.json --json --threads 8 --progress
+
+# Compare single-thread vs multicore with real measured numbers
+./build/router benchmark fixtures/obstacle_detour.json --json --threads 8
 
 # Verify committed copper independently of the router's search state
 ./build/router verify routed.json --json
@@ -133,12 +141,15 @@ order legal alternatives.
 ```
 include/router  geometry.h  json.h  sexpr.h  board.h  rules.h
                 spatial_index.h  density.h  route_tree.h
-                sparse_graph.h  astar.h  escape.h  engine.h  verifier.h
-                analyze.h
+                sparse_graph.h  astar.h  escape.h  parallel.h  engine.h
+                verifier.h  analyze.h
 src             json/sexpr/board/kicad/rules/spatial_index/density/...
-                route_tree/sparse_graph/astar/escape/engine/verifier/analyze/main(CLI)
-tests           8 binaries, 61 cases (no third-party framework)
-fixtures        5 Prompt-1 JSON boards + 9 fine-pitch golden boards
+                route_tree/sparse_graph/astar/escape/parallel/engine/...
+                verifier/analyze/main(CLI)
+tests           10 binaries, 106 cases (no third-party framework)
+fixtures        6 Prompt-1/3 JSON boards (open_2layer, obstacle_detour,
+                high_current, voltage_clearance, narrow_channel, ...)
+                + 9 fine-pitch golden boards
                 (bga_4x4, bga_8x8, bga_8x8_via, irregular_array, dense_qfn,
                 high_current_bga, mixed_voltage_bga, greedy_outside_first,
                 impossible_escape) + rules sidecar + KiCad sample + violation board
@@ -167,15 +178,44 @@ K-best with distinct signatures
 and `multilayer`. The engine routes fine-pitch tasks centre-out via a depth
 difficulty boost. `router analyze --json` gains a `fine_pitch` section.
 
-## Known limitations (Prompt 2)
+## Parallel global routing (Prompt 3)
 
-- Single-threaded engine (`--threads N>1` is accepted, logged, and runs 1).
-- No rip-up/reroute, no optimizer — greedy sequential A* + escape stubs;
+Workers route connection tasks against an **immutable committed snapshot**
+and return candidates only; a deterministic central arbiter revalidates,
+builds the conflict graph, selects a compatible subset in
+`(difficulty, net, a, b)` order, and commits it as one atomic epoch.
+Worker completion order cannot change the result: batch membership is a
+pure function of scheduler order with a fixed width, so
+`--threads 1/2/4/16` produce bit-identical copper (see `board_hash`).
+
+- Difficulty vectors: span, endpoint density, free space, corridor
+  count/scarcity, trace width, voltage-clearance burden, layer/via
+  restrictions, previous failures, fine-pitch depth.
+- Pathfinder-style congestion: `present_cost` per epoch vs persistent
+  `history_cost`; soft reservations from probable corridors (bounded
+  costs, never hard locks — the only legal route is never rejected for
+  predicted use). Final DRC legality is always exact integer geometry.
+- Starvation-free scheduler: tasks that sat out the previous epoch go
+  first, so failing giants cannot block easy tasks forever.
+- Agent observables: `epoch_log`, `candidates_accepted/rejected`,
+  `congestion_hotspots`, `board_hash`, `--progress` NDJSON on stderr,
+  `router benchmark` (real wall-clock single-vs-parallel + speedup).
+
+Reference throughput (Release, 16 cores): 32-task maze board COMPLETE in
+~270 ms single-thread (~260 tasks/s) vs ~60 ms parallel (~4.4x speedup,
+identical hash). `tests/test_perf.cpp` enforces generous floors
+(>5 tasks/s, >1.5x speedup) so regressions trip loudly.
+
+## Known limitations (Prompt 3)
+
+- No rip-up/reroute, no optimizer — greedy epoch A* + escape stubs;
   impossible boards report `INCOMPLETE` with blocker hints.
 - Escape is complete on 4x4/QFN/irregular fixtures; ultra-dense 8x8
   (0.8 mm pitch, zero same-layer channels) escapes 48/64 with explicit
   infeasibility records for the rest — recovery is Prompt 4 work.
-- Escape planner + `test_escape` are slow on 8x8 (~1 min/plan, ~3 min suite):
-  accepted for this phase, profiling/optimization handed to the next agent.
+- Escape planner on ultra-dense 8x8 (0.8 mm pitch, zero same-layer channels)
+  escapes 48/64 with explicit infeasibility records for the rest —
+  recovery is Prompt 4 work. Sparse-graph corridor clipping cut the escape
+  suite from ~3 min to ~18 s as a side effect.
 - No DSN/SES export yet; routed output is native JSON (Prompt 5).
-- `router benchmark|explain-failure` are stubs by design.
+- `router explain-failure` is a stub by design (Prompt 5).

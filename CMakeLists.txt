@@ -25,11 +25,14 @@ add_library(router_core
   src/sparse_graph.cpp
   src/astar.cpp
   src/escape.cpp
+  src/parallel.cpp
   src/engine.cpp
   src/verifier.cpp
   src/analyze.cpp
 )
 target_include_directories(router_core PUBLIC include)
+find_package(Threads REQUIRED)
+target_link_libraries(router_core PUBLIC Threads::Threads)
 
 add_executable(router src/main.cpp)
 target_link_libraries(router PRIVATE router_core)
@@ -54,4 +57,6 @@ copperline_test(test_density)
 copperline_test(test_engine)
 copperline_test(test_verifier)
 copperline_test(test_escape)
+copperline_test(test_parallel)
+copperline_test(test_perf)
 copperline_test(test_cli)

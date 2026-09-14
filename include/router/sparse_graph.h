@@ -10,6 +10,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 #include "router/board.h"
@@ -54,6 +55,10 @@ class SparseRoutingGraph {
 
     int src_node() const { return src_node_; }
     int dst_node() const { return dst_node_; }
+
+    // Adds soft planning costs to edges (congestion/reservations, Prompt 3).
+    // Hard legality is untouched: this only biases A* ordering.
+    void add_penalties(const std::function<Coord(const SparseNode&, const SparseEdge&)>& fn);
 
   private:
     std::vector<SparseNode> nodes_;

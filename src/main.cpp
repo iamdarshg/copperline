@@ -17,6 +17,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "router/analyze.h"
@@ -45,6 +46,7 @@ struct Flags {
     bool json = false;
     bool quiet = false;
     bool pretty = false;
+    bool progress = false;  // NDJSON epoch events on stderr
     std::string config;
     unsigned seed = 42;
     int threads = 1;
@@ -120,6 +122,7 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
         if (a == "--json") f.json = true;
         else if (a == "--quiet") f.quiet = true;
         else if (a == "--pretty") f.pretty = true;
+        else if (a == "--progress") f.progress = true;
         else if (a == "--config") {
             if (!need_value(i, "--config", v)) return false;
             f.config = v;
@@ -252,13 +255,13 @@ JsonValue capabilities_json() {
     r["schema"] = "copperline/capabilities/1";
     r["name"] = "copperline";
     r["version"] = COPPERLINE_VERSION;
-    r["phase"] = "prompt-2-escape";
+    r["phase"] = "prompt-3-parallel";
     JsonValue cmds = JsonValue::array();
-    for (const char* c : {"capabilities", "analyze", "verify", "route", "escape"})
+    for (const char* c : {"capabilities", "analyze", "verify", "route", "escape", "benchmark"})
         cmds.as_array().push_back(JsonValue(c));
     r["commands"] = cmds;
     JsonValue planned = JsonValue::array();
-    for (const char* c : {"benchmark", "explain-failure"})
+    for (const char* c : {"explain-failure"})
         planned.as_array().push_back(JsonValue(c));
     r["planned_commands"] = planned;
     JsonValue formats = JsonValue::object();
@@ -284,7 +287,9 @@ JsonValue capabilities_json() {
     feat["current_aware"] = true;
     feat["voltage_aware"] = true;
     feat["pin_density"] = true;
-    feat["parallel_routing"] = false;
+    feat["parallel_routing"] = true;
+    feat["deterministic_epochs"] = true;
+    feat["congestion_negotiation"] = true;
     feat["fine_pitch_escape"] = true;
     feat["ripup_reroute"] = false;
     feat["optimizer"] = false;
@@ -296,9 +301,9 @@ int cmd_capabilities(const Flags& f) {
     if (f.json) {
         emit_json(f, capabilities_json());
     } else if (!f.quiet) {
-        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-2 escape)\n"
-                  << "commands: capabilities, analyze, verify, route, escape\n"
-                  << "planned: benchmark, explain-failure\n"
+        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-3 parallel)\n"
+                  << "commands: capabilities, analyze, verify, route, escape, benchmark\n"
+                  << "planned: explain-failure\n"
                   << "formats: json, kicad_pcb (.kicad_pcb)\n"
                   << "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
                   << "            5 rule violation, 6 internal failure, 7 budget exhausted\n";
@@ -412,7 +417,6 @@ int cmd_route(const Flags& f) {
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
-    if (f.threads > 1) warn(f, "phase-1 engine is single-threaded; using 1 thread");
     for (const auto& w : lb.warnings) warn(f, "import: " + w);
 
     EngineOptions opt;
@@ -420,6 +424,11 @@ int cmd_route(const Flags& f) {
     opt.threads = f.threads;
     opt.timeout_s = f.timeout_s;
     opt.astar.max_expansions = f.max_search_nodes;
+    if (f.progress) {
+        opt.progress = [](const JsonValue& ev) {
+            std::cerr << serialize_json(ev) << "\n";
+        };
+    }
     RouterEngine engine(std::move(lb.board), std::move(resolver), opt);
     RouteReport report = engine.run();
 
@@ -452,7 +461,9 @@ int cmd_route(const Flags& f) {
                   << report.total_terminals << " terminals, " << report.stats.tasks_routed << "/"
                   << report.stats.tasks_total << " tasks, " << report.stats.via_count << " vias, "
                   << nm_to_mm(report.stats.length_nm) << "mm, " << report.stats.expansions_total
-                  << " expansions, " << report.stats.time_ms << "ms)\n";
+                  << " expansions, " << report.stats.time_ms << "ms, "
+                  << report.stats.epochs_count << " epochs, " << report.stats.threads_used
+                  << "/" << f.threads << " workers, hash " << report.board_hash << ")\n";
         for (const auto& fl : report.failures)
             std::cout << "  failed: net " << fl.net_name << " (" << fl.reason << ")\n";
     }
@@ -462,9 +473,78 @@ int cmd_route(const Flags& f) {
     return kIncomplete;
 }
 
+int cmd_benchmark(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    RuleResolver base = RuleResolver::defaults_for(lb.board);
+    if (!f.config.empty()) {
+        if (!load_resolver(f, lb.board, base, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                        "malformed_rules", msg);
+    }
+    unsigned hw = std::thread::hardware_concurrency();
+    if (hw == 0) hw = 4;
+    int par_threads = f.threads > 1 ? f.threads : static_cast<int>(hw);
+
+    auto run_once = [&](int threads) {
+        Board b = lb.board;  // immutable input snapshot per run
+        RuleResolver r = base;
+        r.rebind(&b);  // point at this run's copy (engine rebinds to owned board anyway)
+        EngineOptions opt;
+        opt.seed = f.seed;
+        opt.threads = threads;
+        opt.timeout_s = f.timeout_s;
+        opt.astar.max_expansions = f.max_search_nodes;
+        auto t0 = std::chrono::steady_clock::now();
+        RouterEngine engine(std::move(b), std::move(r), opt);
+        RouteReport rep = engine.run();
+        auto t1 = std::chrono::steady_clock::now();
+        std::int64_t wall =
+            std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        return std::make_pair(rep, wall);
+    };
+
+    auto [rep1, wall1] = run_once(1);
+    auto [repN, wallN] = run_once(par_threads);
+
+    JsonValue r = JsonValue::object();
+    r["schema"] = "copperline/benchmark-report/1";
+    r["board"] = f.board;
+    r["seed"] = static_cast<double>(f.seed);
+    r["threads_available"] = static_cast<double>(hw);
+    auto side = [](const RouteReport& rep, std::int64_t wall, int threads) {
+        JsonValue o = JsonValue::object();
+        o["threads"] = static_cast<double>(threads);
+        o["status"] = rep.status;
+        o["wall_ms"] = static_cast<double>(wall);
+        o["engine_ms"] = static_cast<double>(rep.stats.time_ms);
+        o["expansions"] = static_cast<double>(rep.stats.expansions_total);
+        o["tasks_routed"] = static_cast<double>(rep.stats.tasks_routed);
+        o["tasks_total"] = static_cast<double>(rep.stats.tasks_total);
+        o["epochs"] = static_cast<double>(rep.stats.epochs_count);
+        o["threads_used"] = static_cast<double>(rep.stats.threads_used);
+        o["board_hash"] = rep.board_hash;
+        return o;
+    };
+    r["single"] = side(rep1, wall1, 1);
+    r["parallel"] = side(repN, wallN, par_threads);
+    r["identical_geometry"] = rep1.board_hash == repN.board_hash;
+    r["speedup"] = wallN > 0 ? static_cast<double>(wall1) / static_cast<double>(wallN) : 0.0;
+    if (f.json) {
+        emit_json(f, r);
+    } else if (!f.quiet) {
+        std::cout << "benchmark: single " << wall1 << "ms, parallel(" << par_threads << ") "
+                  << wallN << "ms, speedup " << serialize_json(r["speedup"]) << ", geometry "
+                  << (rep1.board_hash == repN.board_hash ? "identical" : "DIFFERS") << "\n";
+    }
+    return kOk;
+}
+
 int run(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "usage: router <capabilities|analyze|verify|route|escape> [board] [flags]\n"
+        std::cerr << "usage: router <capabilities|analyze|verify|route|escape|benchmark> [board] [flags]\n"
                      "       router --help | router --version\n";
         return kInvalidInput;
     }
@@ -477,8 +557,11 @@ int run(const std::vector<std::string>& args) {
                       "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
                       "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
                       "                       [--output routed.json] [--report report.json]\n"
-                      "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n\n"
-                     "boards: .json (native) or .kicad_pcb\n";
+                      "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n"
+                      "  router benchmark <board> [--json] [--config cfg.json] [--seed N]\n"
+                      "                       [--threads N] [--timeout S] [--max-search-nodes N]\n\n"
+                      "route flags: --progress emits NDJSON epoch events on stderr\n"
+                      "boards: .json (native) or .kicad_pcb\n";
         return kOk;
     }
     if (args[1] == "--version") {
@@ -500,10 +583,10 @@ int run(const std::vector<std::string>& args) {
         if (cmd == "verify") return cmd_verify(f);
         if (cmd == "route") return cmd_route(f);
         if (cmd == "escape") return cmd_escape(f);
-        if (cmd == "benchmark" || cmd == "explain-failure")
+        if (cmd == "benchmark") return cmd_benchmark(f);
+        if (cmd == "explain-failure")
             return fail(f, kInvalidInput, "not_implemented",
-                         "command '" + cmd + "' lands in Prompt " +
-                             (cmd == "benchmark" ? "3" : "5"));
+                        "command 'explain-failure' lands in Prompt 5");
         return fail(f, kInvalidInput, "unknown_command",
                     "unknown command '" + cmd + "' (see router --help)");
     } catch (const BoardError& e) {

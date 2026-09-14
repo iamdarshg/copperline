@@ -43,6 +43,63 @@ CT_TEST(connected_legal_board_passes) {
     CT_CHECK(vr.ok);
 }
 
+CT_TEST(keepout_violation_detected) {
+    Board b = two_traces_board();
+    Keepout ko;
+    ko.rect = {mm_to_nm(2.0), mm_to_nm(4.0), mm_to_nm(4.0), mm_to_nm(6.0)};
+    ko.layer = 0;
+    ko.reason = "test-zone";
+    b.keepouts.push_back(ko);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    VerifyResult vr = v.verify(b, r, ctx);
+    CT_CHECK(!vr.legal);
+    CT_CHECK(!vr.ok);
+    bool found = false;
+    for (const auto& x : vr.violations)
+        if (x.rule == "keepout") found = true;
+    CT_CHECK(found);
+}
+
+CT_TEST(off_board_violation_detected) {
+    Board b = two_traces_board();
+    // A trace hanging 5mm past the 20mm board edge.
+    b.traces.push_back({0, 0, {mm_to_nm(18.0), mm_to_nm(5.0)}, {mm_to_nm(25.0), mm_to_nm(5.0)},
+                        mm_to_nm(0.2)});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    VerifyResult vr = v.verify(b, r, ctx);
+    CT_CHECK(!vr.legal);
+    bool found = false;
+    for (const auto& x : vr.violations)
+        if (x.type == "off_board") found = true;
+    CT_CHECK(found);
+}
+
+CT_TEST(unknown_via_class_detected) {
+    Board b = two_traces_board();
+    Via v;
+    v.net = 0;
+    v.pos = {mm_to_nm(3.0), mm_to_nm(5.0)};
+    v.top_layer = 0;
+    v.bottom_layer = 1;
+    v.outer_d_nm = mm_to_nm(0.6);
+    v.hole_d_nm = mm_to_nm(0.3);
+    v.via_class = "NOPE";
+    b.vias.push_back(v);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier vrf;
+    VerifyResult vr = vrf.verify(b, r, ctx);
+    CT_CHECK(!vr.legal);
+    bool found = false;
+    for (const auto& x : vr.violations)
+        if (x.type == "via_class") found = true;
+    CT_CHECK(found);
+}
+
 CT_TEST(missing_trace_reports_unconnected) {
     Board b = two_traces_board();
     b.traces.pop_back();  // net B loses its link
