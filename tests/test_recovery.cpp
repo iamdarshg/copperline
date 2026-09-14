@@ -226,18 +226,86 @@ CT_TEST(move_generation_deterministic_selective) {
 }
 
 CT_TEST(branch_better_never_prefers_short_unconnected) {
+    // Global connectivity dominates vias/length (issue #19): fewer
+    // remaining (unconnected) tasks wins even when longer / more vias.
     BranchResult short_bad, long_good;
     short_bad.evaluated = true;
-    short_bad.connected_tasks = 1;
+    short_bad.connected_tasks = 1;  // local-only; ignored by ranking
+    short_bad.remaining_task_ids = {1};
+    short_bad.newly_connected_global = 0;
+    short_bad.disrupted_routes = 0;
     short_bad.length_nm = 1000;
     short_bad.via_count = 0;
     long_good.evaluated = true;
-    long_good.connected_tasks = 2;
+    long_good.connected_tasks = 2;  // local-only; ignored by ranking
+    long_good.remaining_task_ids = {};
+    long_good.newly_connected_global = 1;
+    long_good.disrupted_routes = 1;
     long_good.length_nm = 100000000;
     long_good.via_count = 10;
     // 0.1% shorter + one unconnected pad must NEVER beat full connectivity.
     CT_CHECK(branch_better(long_good, short_bad));
     CT_CHECK(!branch_better(short_bad, long_good));
+}
+
+CT_TEST(branch_better_equal_connectivity_prefers_less_disruption) {
+    // Issue #19 regression: one branch rips 1 route, another rips 3; both
+    // connect the same previously-failed task (same global remaining). The
+    // less disruptive branch must win even though the big branch did more
+    // local work (higher connected_tasks).
+    BranchResult small, big;
+    small.evaluated = true;
+    small.connected_tasks = 2;  // failed + 1 ripped
+    small.remaining_task_ids = {6};
+    small.global_connected_tasks = 5;
+    small.newly_connected_global = 1;
+    small.disrupted_routes = 1;
+    small.via_count = 2;
+    small.length_nm = 5000;
+    big.evaluated = true;
+    big.connected_tasks = 4;  // failed + 3 ripped: more local work, same global gain
+    big.remaining_task_ids = {6};
+    big.global_connected_tasks = 5;
+    big.newly_connected_global = 1;
+    big.disrupted_routes = 3;
+    big.via_count = 2;
+    big.length_nm = 5000;
+    CT_CHECK(branch_better(small, big));
+    CT_CHECK(!branch_better(big, small));
+}
+
+CT_TEST(branch_better_does_not_reward_reconnected_ripped) {
+    // Newly-connected previously-unrouted count dominates local churn:
+    // a branch connecting a genuinely new task beats one that only
+    // reconnects ripped copper, at equal remaining... and when remaining is
+    // equal the newly_global field breaks the tie before disruption.
+    BranchResult reconnect_only, new_progress;
+    reconnect_only.evaluated = true;
+    reconnect_only.connected_tasks = 3;
+    reconnect_only.remaining_task_ids = {5};
+    reconnect_only.newly_connected_global = 0;
+    reconnect_only.disrupted_routes = 2;
+    reconnect_only.via_count = 1;
+    reconnect_only.length_nm = 1000;
+    new_progress.evaluated = true;
+    new_progress.connected_tasks = 1;
+    new_progress.remaining_task_ids = {5};
+    new_progress.newly_connected_global = 1;
+    new_progress.disrupted_routes = 1;
+    new_progress.via_count = 5;
+    new_progress.length_nm = 9000;
+    CT_CHECK(branch_better(new_progress, reconnect_only));
+    CT_CHECK(!branch_better(reconnect_only, new_progress));
+}
+
+CT_TEST(recovery_tasks_routed_never_exceeds_total) {
+    // Recovery must not double-count rerouted ripped tasks (issue #19).
+    RouteReport rep = run_board(trap_board(), 1, /*ripup=*/true);
+    CT_CHECK(rep.status == "COMPLETE");
+    CT_CHECK(rep.stats.tasks_routed <= rep.stats.tasks_total);
+    CT_CHECK(rep.stats.tasks_routed == rep.stats.tasks_total);
+    RouteReport rep4 = run_board(trap_board(), 4, /*ripup=*/true);
+    CT_CHECK(rep4.stats.tasks_routed <= rep4.stats.tasks_total);
 }
 
 CT_TEST(modes_escalate_budgets_widen) {

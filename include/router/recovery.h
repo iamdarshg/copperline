@@ -220,10 +220,13 @@ std::vector<RipupMove> generate_ripup_moves(
 struct BranchResult {
     bool evaluated = false;
     bool pruned = false;
+    // Local diagnostics: tasks routed inside this branch attempt (includes
+    // reconnected ripped routes). NOT used for ranking (see issue #19):
+    // reconnecting already-connected copper is work, not improvement.
     int connected_tasks = 0;  // tasks routed inside this branch attempt
     int total_tasks = 0;
-    Coord length_nm = 0;
-    int via_count = 0;
+    Coord length_nm = 0;  // global: over surviving + rerouted owned copper
+    int via_count = 0;    // global: over surviving + rerouted owned copper
     StateHash128 hash;  // exact state hash over (copper, remaining_task_ids)
     std::string mode;
     RipupMove move;
@@ -238,10 +241,26 @@ struct BranchResult {
     // consumed serially by the arbiter for transposition pruning.
     std::vector<int> remaining_task_ids;
     std::int64_t expansions = 0;
+    // ---- Issue #19: explicit global outcome fields ----
+    // Ranking must measure the resulting global board, not the amount of
+    // work performed inside the branch. All fields below are global.
+    int global_connected_tasks = 0;  // tasks.size() - remaining_task_ids.size()
+    int hard_violations = 0;         // branches are built legal-only; nonzero if ever violated
+    int resource_overuse = 0;        // unresolved resource overuse (0: none tracked yet)
+    int newly_connected_global = 0;  // |newly_done ∩ gen_remaining|: previously-unrouted tasks
+                                     // connected by this branch. Reconnecting an
+                                     // already-connected ripped route does NOT count.
+    int disrupted_routes = 0;        // ripped-route count (move.owned_idx.size())
 };
 
-// Lexicographic objective: strictly more connected tasks always wins;
-// ties break on fewer vias, then shorter length, then stable hash order.
+// Lexicographic global objective (issue #19): fewer unconnected tasks
+// (smaller remaining_task_ids) always wins; then fewer hard violations,
+// then less overuse, then more newly-connected previously-unrouted tasks,
+// then lower disruption (fewer ripped routes), then fewer vias, then shorter
+// length, then stable hash order. Local connected_tasks is deliberately NOT
+// compared: a branch that rips 3 and reconnects 3+failed improves the global
+// board by the same single task as one that rips 1 and reconnects 1+failed,
+// so the less disruptive branch must win.
 // Returns true when `a` is strictly better than `b`.
 bool branch_better(const BranchResult& a, const BranchResult& b);
 

@@ -596,7 +596,17 @@ RouteReport RouterEngine::run() {
                                                       o.stable_epochs, false, mode);
             }
             // Update done/remaining deterministically.
+            // Issue #19: only false->true transitions count toward
+            // tasks_routed. Rerouted ripped routes were already counted in
+            // the greedy phase; re-adding them would let tasks_routed exceed
+            // tasks_total after multiple generations.
             for (int ti : win.newly_done) task_done[ti] = 1;
+            {
+                int routed = 0;
+                for (char d : task_done)
+                    if (d) ++routed;
+                report.stats.tasks_routed = routed;
+            }
             // Fail counts: only the tasks involved in this move that are
             // still not done count another failure (avoids inflating every
             // remaining task's difficulty each generation).
@@ -614,7 +624,6 @@ RouteReport RouterEngine::run() {
                 history.reward(HistoryHeuristic::move_key(m.failed_task, m.blocker_net), 1.0);
                 pv_key = HistoryHeuristic::move_key(m.failed_task, m.blocker_net);
             }
-            report.stats.tasks_routed += (int)win.newly_done.size();
             report.stats.expansions_total += win.expansions;
             // Count all branches' search work (not just the winner).
             for (int b = 0; b < branch_n; ++b) {

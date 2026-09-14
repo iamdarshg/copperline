@@ -426,9 +426,20 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
 bool branch_better(const BranchResult& a, const BranchResult& b) {
     if (!a.evaluated) return false;
     if (!b.evaluated) return true;
-    // Strict connectivity priority: more connected tasks always wins, even
-    // when the board is longer or has more vias.
-    if (a.connected_tasks != b.connected_tasks) return a.connected_tasks > b.connected_tasks;
+    // 1. Global connectivity first: fewer unconnected tasks wins. This is
+    // the router's lexicographic objective (connectivity > everything).
+    if (a.remaining_task_ids.size() != b.remaining_task_ids.size())
+        return a.remaining_task_ids.size() < b.remaining_task_ids.size();
+    // 2. Legality, then resource overuse.
+    if (a.hard_violations != b.hard_violations) return a.hard_violations < b.hard_violations;
+    if (a.resource_overuse != b.resource_overuse) return a.resource_overuse < b.resource_overuse;
+    // 3. More newly-connected previously-unrouted tasks wins. Reconnecting
+    // an already-connected ripped route does not count (issue #19).
+    if (a.newly_connected_global != b.newly_connected_global)
+        return a.newly_connected_global > b.newly_connected_global;
+    // 4. Lower disruption wins: fewer ripped/replaced routes.
+    if (a.disrupted_routes != b.disrupted_routes) return a.disrupted_routes < b.disrupted_routes;
+    // 5. Fewer vias, then shorter global copper, then deterministic hash.
     if (a.via_count != b.via_count) return a.via_count < b.via_count;
     if (a.length_nm != b.length_nm) return a.length_nm < b.length_nm;
     return a.hash.to_hex() < b.hash.to_hex();
@@ -546,8 +557,11 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
     // Exact unfinished set: (gen_remaining ∪ to_route) \ newly_done, sorted.
     // No transposition access here (workers never touch the table); the
     // arbiter prunes/records serially after join using this exact identity.
+    // Issue #19: also fill the explicit global outcome fields so ranking
+    // measures the resulting global board, not branch-local work.
     {
         std::set<int> done_set(done.begin(), done.end());
+        std::set<int> gen_set(gen_remaining.begin(), gen_remaining.end());
         std::set<int> rest(gen_remaining.begin(), gen_remaining.end());
         for (int ti : to_route) rest.insert(ti);
         std::vector<int> rem;
@@ -556,6 +570,14 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         std::sort(rem.begin(), rem.end());
         out.remaining_task_ids = rem;
         out.hash = state_hash128(work, tasks, rem);
+        out.global_connected_tasks = (int)tasks.size() - (int)rem.size();
+        int newly_global = 0;
+        for (int ti : done)
+            if (gen_set.count(ti)) ++newly_global;
+        out.newly_connected_global = newly_global;
+        out.disrupted_routes = (int)move.owned_idx.size();
+        out.hard_violations = 0;  // branch commits only legal-vs-board + conflict-free copper
+        out.resource_overuse = 0;
     }
     return out;
 }
