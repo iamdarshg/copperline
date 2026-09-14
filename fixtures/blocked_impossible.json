@@ -1,0 +1,24 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [{"id": 0, "name": "Top"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "SIG1", "current_a": 0.1,
+      "terminals": [
+        {"id": 0, "x_mm": 2, "y_mm": 10, "layer": 0},
+        {"id": 1, "x_mm": 18, "y_mm": 10, "layer": 0}
+      ]
+    }
+  ],
+  "keepouts": [
+    {"x1_mm": 9, "y1_mm": 0, "x2_mm": 11, "y2_mm": 20, "layer": -1, "reason": "full wall"}
+  ]
+}

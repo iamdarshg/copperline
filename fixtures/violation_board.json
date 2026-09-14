@@ -1,0 +1,32 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [{"id": 0, "name": "Top"}, {"id": 1, "name": "Bottom"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "A",
+      "terminals": [
+        {"id": 0, "x_mm": 1, "y_mm": 5, "layer": 0},
+        {"id": 1, "x_mm": 5, "y_mm": 5, "layer": 0}
+      ]
+    },
+    {
+      "id": 1, "name": "B",
+      "terminals": [
+        {"id": 2, "x_mm": 1, "y_mm": 5.1, "layer": 0},
+        {"id": 3, "x_mm": 5, "y_mm": 5.1, "layer": 0}
+      ]
+    }
+  ],
+  "traces": [
+    {"net": 0, "layer": 0, "x1_mm": 1, "y1_mm": 5, "x2_mm": 5, "y2_mm": 5, "width_mm": 0.2},
+    {"net": 1, "layer": 0, "x1_mm": 1, "y1_mm": 5.1, "x2_mm": 5, "y2_mm": 5.1, "width_mm": 0.2}
+  ]
+}

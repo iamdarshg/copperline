@@ -1,0 +1,12 @@
+{
+  "schema": "copperline/rules-config/1",
+  "ipc": {"enabled": true, "mm_per_amp": 0.75, "min_mm": 0.15, "max_mm": 10.0},
+  "voltage_table": [
+    {"delta_v_min": 0, "clearance_mm": 0.15},
+    {"delta_v_min": 50, "clearance_mm": 1.0}
+  ],
+  "via_classes": [
+    {"name": "STD", "outer_mm": 0.6, "hole_mm": 0.3, "max_current_a": 2.0},
+    {"name": "POWER", "outer_mm": 1.2, "hole_mm": 0.6, "max_current_a": 8.0}
+  ]
+}

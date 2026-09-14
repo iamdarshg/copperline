@@ -1,0 +1,28 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 10},
+  "layers": [{"id": 0, "name": "Top"}, {"id": 1, "name": "Bottom"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "LOGIC", "voltage_v": 3.3,
+      "terminals": [
+        {"id": 0, "x_mm": 10, "y_mm": 5, "layer": 0, "pad_w_mm": 1.0, "pad_h_mm": 1.0, "component": "U1", "pin": "L1"},
+        {"id": 1, "x_mm": 10, "y_mm": 8, "layer": 0, "pad_w_mm": 1.0, "pad_h_mm": 1.0, "component": "U1", "pin": "L2"}
+      ]
+    },
+    {
+      "id": 1, "name": "HV", "voltage_v": 100.0,
+      "terminals": [
+        {"id": 2, "x_mm": 1, "y_mm": 5, "layer": 0, "component": "J1", "pin": "HV1"},
+        {"id": 3, "x_mm": 19, "y_mm": 5, "layer": 0, "component": "J2", "pin": "HV2"}
+      ]
+    }
+  ]
+}

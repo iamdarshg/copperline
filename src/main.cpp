@@ -1,0 +1,482 @@
+// Copperline CLI: the only user interface (headless, agent-first).
+//
+// Every command supports --json (stdout = pure machine-readable JSON,
+// diagnostics on stderr) and --quiet (errors only). Exit codes are stable
+// and documented under `router capabilities`:
+//
+//   0  success (route complete / verify clean / analyze ok)
+//   2  invalid input (missing file, bad JSON, bad flags, unknown command)
+//   3  malformed design rules (bad net rules or --config content)
+//   4  routing incomplete (finished, but terminals remain unconnected)
+//   5  hard-rule violation (verify found clearance/width/via/keepout hits)
+//   6  internal failure (unexpected exception)
+//   7  search budget exhausted (node budget or --timeout hit with work left)
+#include <chrono>
+#include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "router/analyze.h"
+#include "router/board.h"
+#include "router/engine.h"
+#include "router/rules.h"
+#include "router/verifier.h"
+
+#ifndef COPPERLINE_VERSION
+#define COPPERLINE_VERSION "0.1.0"
+#endif
+
+namespace copperline {
+namespace {
+
+constexpr int kOk = 0;
+constexpr int kInvalidInput = 2;
+constexpr int kBadRules = 3;
+constexpr int kIncomplete = 4;
+constexpr int kViolation = 5;
+constexpr int kInternal = 6;
+constexpr int kBudget = 7;
+
+struct Flags {
+    bool json = false;
+    bool quiet = false;
+    bool pretty = false;
+    std::string config;
+    unsigned seed = 42;
+    int threads = 1;
+    double timeout_s = 0;
+    std::int64_t max_search_nodes = 200000;
+    std::string output;
+    std::string report;
+    std::string board;
+};
+
+void warn(const Flags& f, const std::string& msg) {
+    if (!f.quiet) std::cerr << "router: " << msg << "\n";
+}
+
+bool read_file(const std::string& path, std::string& out, std::string& err) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        err = "cannot open file: " + path;
+        return false;
+    }
+    std::ostringstream ss;
+    ss << file.rdbuf();
+    out = ss.str();
+    return true;
+}
+
+bool write_file(const std::string& path, const std::string& data, std::string& err) {
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file) {
+        err = "cannot write file: " + path;
+        return false;
+    }
+    file << data;
+    if (!file) {
+        err = "failed writing file: " + path;
+        return false;
+    }
+    return true;
+}
+
+void emit_json(const Flags& f, const JsonValue& v) {
+    std::cout << serialize_json(v, f.pretty);
+    if (!f.pretty) std::cout << "\n";
+}
+
+JsonValue error_json(const std::string& code, const std::string& message) {
+    JsonValue o = JsonValue::object();
+    o["schema"] = "copperline/error/1";
+    o["code"] = code;
+    o["message"] = message;
+    return o;
+}
+
+int fail(const Flags& f, int code, const std::string& err_code, const std::string& msg) {
+    if (f.json) emit_json(f, error_json(err_code, msg));
+    else std::cerr << "router: error: " << msg << "\n";
+    return code;
+}
+
+bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags& f,
+                 std::string& err) {
+    auto need_value = [&](std::size_t i, const std::string& name, std::string& out) -> bool {
+        if (i + 1 >= args.size()) {
+            err = name + " needs a value";
+            return false;
+        }
+        out = args[i + 1];
+        return true;
+    };
+    for (std::size_t i = start; i < args.size();) {
+        const std::string& a = args[i];
+        std::string v;
+        if (a == "--json") f.json = true;
+        else if (a == "--quiet") f.quiet = true;
+        else if (a == "--pretty") f.pretty = true;
+        else if (a == "--config") {
+            if (!need_value(i, "--config", v)) return false;
+            f.config = v;
+            ++i;
+        } else if (a == "--seed") {
+            if (!need_value(i, "--seed", v)) return false;
+            try {
+                f.seed = static_cast<unsigned>(std::stoul(v));
+            } catch (...) {
+                err = "bad --seed value";
+                return false;
+            }
+            ++i;
+        } else if (a == "--threads") {
+            if (!need_value(i, "--threads", v)) return false;
+            try {
+                f.threads = std::stoi(v);
+            } catch (...) {
+                err = "bad --threads value";
+                return false;
+            }
+            if (f.threads < 1) {
+                err = "--threads must be >= 1";
+                return false;
+            }
+            ++i;
+        } else if (a == "--timeout") {
+            if (!need_value(i, "--timeout", v)) return false;
+            try {
+                f.timeout_s = std::stod(v);
+            } catch (...) {
+                err = "bad --timeout value";
+                return false;
+            }
+            if (f.timeout_s < 0) {
+                err = "--timeout must be >= 0";
+                return false;
+            }
+            ++i;
+        } else if (a == "--max-search-nodes") {
+            if (!need_value(i, "--max-search-nodes", v)) return false;
+            try {
+                f.max_search_nodes = std::stoll(v);
+            } catch (...) {
+                err = "bad --max-search-nodes value";
+                return false;
+            }
+            if (f.max_search_nodes < 1) {
+                err = "--max-search-nodes must be >= 1";
+                return false;
+            }
+            ++i;
+        } else if (a == "--output") {
+            if (!need_value(i, "--output", v)) return false;
+            f.output = v;
+            ++i;
+        } else if (a == "--report") {
+            if (!need_value(i, "--report", v)) return false;
+            f.report = v;
+            ++i;
+        } else if (!a.empty() && a[0] == '-') {
+            err = "unknown flag: " + a;
+            return false;
+        } else {
+            if (!f.board.empty()) {
+                err = "unexpected argument: " + a;
+                return false;
+            }
+            f.board = a;
+        }
+        ++i;
+    }
+    return true;
+}
+
+struct LoadedBoard {
+    Board board;
+    std::vector<std::string> warnings;
+};
+
+bool load_board(const Flags& f, LoadedBoard& out, int& code, std::string& err_code,
+                std::string& msg) {
+    if (f.board.empty()) {
+        code = kInvalidInput;
+        err_code = "missing_board";
+        msg = "no board file given";
+        return false;
+    }
+    try {
+        ImportResult r = import_board_auto(f.board);
+        out.board = std::move(r.board);
+        out.warnings = std::move(r.warnings);
+        return true;
+    } catch (const BoardError& e) {
+        code = e.kind == InputKind::kRule ? kBadRules : kInvalidInput;
+        err_code = e.kind == InputKind::kRule ? "malformed_rules" : "invalid_input";
+        msg = e.what();
+        return false;
+    }
+}
+
+bool load_resolver(const Flags& f, const Board& board, RuleResolver& out, std::string& msg) {
+    try {
+        if (f.config.empty()) {
+            out = RuleResolver::defaults_for(board);
+        } else {
+            std::string text, err;
+            if (!read_file(f.config, text, err)) {
+                msg = err;
+                return false;
+            }
+            JsonValue cfg;
+            try {
+                cfg = parse_json(text);
+            } catch (const std::exception& e) {
+                msg = std::string("bad config JSON: ") + e.what();
+                return false;
+            }
+            out = RuleResolver::from_config(board, cfg);
+        }
+        return true;
+    } catch (const BoardError& e) {
+        msg = e.what();
+        return false;
+    }
+}
+
+JsonValue capabilities_json() {
+    JsonValue r = JsonValue::object();
+    r["schema"] = "copperline/capabilities/1";
+    r["name"] = "copperline";
+    r["version"] = COPPERLINE_VERSION;
+    r["phase"] = "prompt-1-foundation";
+    JsonValue cmds = JsonValue::array();
+    for (const char* c : {"capabilities", "analyze", "verify", "route"})
+        cmds.as_array().push_back(JsonValue(c));
+    r["commands"] = cmds;
+    JsonValue planned = JsonValue::array();
+    for (const char* c : {"escape", "benchmark", "explain-failure"})
+        planned.as_array().push_back(JsonValue(c));
+    r["planned_commands"] = planned;
+    JsonValue formats = JsonValue::object();
+    JsonValue sup = JsonValue::array();
+    for (const auto& s : supported_formats()) sup.as_array().push_back(JsonValue(s));
+    formats["supported"] = sup;
+    JsonValue fut = JsonValue::array();
+    for (const char* c : {"dsn", "ses", "ipc-2581", "gerber"})
+        fut.as_array().push_back(JsonValue(c));
+    formats["planned"] = fut;
+    r["formats"] = formats;
+    JsonValue codes = JsonValue::object();
+    codes["0"] = "success";
+    codes["2"] = "invalid_input";
+    codes["3"] = "malformed_rules";
+    codes["4"] = "routing_incomplete";
+    codes["5"] = "hard_rule_violation";
+    codes["6"] = "internal_failure";
+    codes["7"] = "search_budget_exhausted";
+    r["exit_codes"] = codes;
+    JsonValue feat = JsonValue::object();
+    feat["single_thread_astar"] = true;
+    feat["current_aware"] = true;
+    feat["voltage_aware"] = true;
+    feat["pin_density"] = true;
+    feat["parallel_routing"] = false;
+    feat["fine_pitch_escape"] = false;
+    feat["ripup_reroute"] = false;
+    feat["optimizer"] = false;
+    r["features"] = feat;
+    return r;
+}
+
+int cmd_capabilities(const Flags& f) {
+    if (f.json) {
+        emit_json(f, capabilities_json());
+    } else if (!f.quiet) {
+        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-1 foundation)\n"
+                  << "commands: capabilities, analyze, verify, route\n"
+                  << "planned: escape, benchmark, explain-failure\n"
+                  << "formats: json, kicad_pcb (.kicad_pcb)\n"
+                  << "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
+                  << "            5 rule violation, 6 internal failure, 7 budget exhausted\n";
+    }
+    return kOk;
+}
+
+int cmd_analyze(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (!f.config.empty()) {
+        if (!load_resolver(f, lb.board, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                        "malformed_rules", msg);
+    }
+    ElectricalContext ctx;
+    AnalysisResult a = analyze_board(lb.board, resolver, ctx, lb.warnings);
+    if (f.json) {
+        emit_json(f, a.data);
+    } else if (!f.quiet) {
+        const Board& b = lb.board;
+        std::cout << "board: " << nm_to_mm(b.width_nm) << " x " << nm_to_mm(b.height_nm) << "mm, "
+                  << b.layers.size() << " layers, " << b.nets.size() << " nets, "
+                  << b.terminals.size() << " terminals\n";
+        std::cout << serialize_json(a.data, true);
+    }
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    return kOk;
+}
+
+int cmd_verify(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (!f.config.empty()) {
+        if (!load_resolver(f, lb.board, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                        "malformed_rules", msg);
+    }
+    ElectricalContext ctx;
+    BoardVerifier verifier;
+    VerifyResult r = verifier.verify(lb.board, resolver, ctx);
+    if (f.json) {
+        emit_json(f, r.to_json());
+    } else if (!f.quiet) {
+        std::cout << (r.ok ? "PASS" : "FAIL") << ": "
+                  << (r.connected ? "connected" : "NOT connected") << ", "
+                  << (r.legal ? "legal" : "VIOLATIONS") << " (" << r.unconnected.size()
+                  << " unconnected, " << r.violations.size() << " violations)\n";
+        for (const auto& u : r.unconnected)
+            std::cout << "  unconnected: net " << u.net_name << " terminal " << u.terminal << "\n";
+        for (const auto& v : r.violations) std::cout << "  " << v.type << ": " << v.detail << "\n";
+    }
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    if (!r.legal) return kViolation;
+    if (!r.connected) return kIncomplete;
+    return kOk;
+}
+
+int cmd_route(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (!f.config.empty()) {
+        if (!load_resolver(f, lb.board, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                        "malformed_rules", msg);
+    }
+    if (f.threads > 1) warn(f, "phase-1 engine is single-threaded; using 1 thread");
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+
+    EngineOptions opt;
+    opt.seed = f.seed;
+    opt.threads = f.threads;
+    opt.timeout_s = f.timeout_s;
+    opt.astar.max_expansions = f.max_search_nodes;
+    RouterEngine engine(std::move(lb.board), std::move(resolver), opt);
+    RouteReport report = engine.run();
+
+    JsonValue rj = report.to_json();
+    JsonValue params = JsonValue::object();
+    params["seed"] = static_cast<double>(f.seed);
+    params["threads_requested"] = static_cast<double>(f.threads);
+    params["timeout_s"] = f.timeout_s;
+    params["max_search_nodes"] = static_cast<double>(f.max_search_nodes);
+    rj["params"] = params;
+
+    const Board& routed = engine.committed();
+    if (!f.output.empty()) {
+        std::string err;
+        if (!write_file(f.output, serialize_json(board_to_json(routed), true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        rj["output"] = f.output;
+    } else {
+        rj["board"] = board_to_json(routed);
+    }
+    if (!f.report.empty()) {
+        std::string err;
+        if (!write_file(f.report, serialize_json(rj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+    }
+    if (f.json) {
+        emit_json(f, rj);
+    } else if (!f.quiet) {
+        std::cout << "route: " << report.status << " (" << report.connected_terminals << "/"
+                  << report.total_terminals << " terminals, " << report.stats.tasks_routed << "/"
+                  << report.stats.tasks_total << " tasks, " << report.stats.via_count << " vias, "
+                  << nm_to_mm(report.stats.length_nm) << "mm, " << report.stats.expansions_total
+                  << " expansions, " << report.stats.time_ms << "ms)\n";
+        for (const auto& fl : report.failures)
+            std::cout << "  failed: net " << fl.net_name << " (" << fl.reason << ")\n";
+    }
+
+    if (report.status == "COMPLETE") return kOk;
+    if (report.status == "BUDGET_EXHAUSTED" || report.status == "TIMEOUT") return kBudget;
+    return kIncomplete;
+}
+
+int run(const std::vector<std::string>& args) {
+    if (args.size() < 2) {
+        std::cerr << "usage: router <capabilities|analyze|verify|route> [board] [flags]\n"
+                     "       router --help | router --version\n";
+        return kInvalidInput;
+    }
+    if (args[1] == "--help" || args[1] == "-h" || args[1] == "help") {
+        std::cout << "copperline " << COPPERLINE_VERSION
+                  << " - headless PCB autorouter for agents\n\n"
+                     "  router capabilities [--json]\n"
+                     "  router analyze <board> [--json] [--config cfg.json]\n"
+                     "  router verify <board> [--json] [--config cfg.json]\n"
+                     "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
+                     "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
+                     "                       [--output routed.json] [--report report.json]\n\n"
+                     "boards: .json (native) or .kicad_pcb\n";
+        return kOk;
+    }
+    if (args[1] == "--version") {
+        std::cout << COPPERLINE_VERSION << "\n";
+        return kOk;
+    }
+    const std::string cmd = args[1];
+    Flags f;
+    std::string err;
+    if (!parse_flags(args, 2, f, err)) {
+        Flags jf;
+        for (const auto& a : args)
+            if (a == "--json") jf.json = true;
+        return fail(jf, kInvalidInput, "bad_flags", err);
+    }
+    try {
+        if (cmd == "capabilities") return cmd_capabilities(f);
+        if (cmd == "analyze") return cmd_analyze(f);
+        if (cmd == "verify") return cmd_verify(f);
+        if (cmd == "route") return cmd_route(f);
+        if (cmd == "escape" || cmd == "benchmark" || cmd == "explain-failure")
+            return fail(f, kInvalidInput, "not_implemented",
+                         "command '" + cmd + "' lands in Prompt " +
+                             (cmd == "escape" ? "2" : (cmd == "benchmark" ? "3" : "5")));
+        return fail(f, kInvalidInput, "unknown_command",
+                    "unknown command '" + cmd + "' (see router --help)");
+    } catch (const BoardError& e) {
+        return fail(f, e.kind == InputKind::kRule ? kBadRules : kInvalidInput,
+                    e.kind == InputKind::kRule ? "malformed_rules" : "invalid_input", e.what());
+    } catch (const std::exception& e) {
+        return fail(f, kInternal, "internal_failure", e.what());
+    }
+}
+
+}  // namespace
+}  // namespace copperline
+
+int main(int argc, char** argv) {
+    std::vector<std::string> args(argv, argv + argc);
+    return copperline::run(args);
+}
