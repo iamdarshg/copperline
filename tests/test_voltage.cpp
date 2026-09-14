@@ -179,4 +179,119 @@ CT_TEST(unknown_voltage_falls_back_to_default) {
     CT_CHECK(source == "board_default");
 }
 
+CT_TEST(pair_rule_below_floor_raised_to_floor) {
+    // Issue #6: explicit pair rule must not undercut either net's floor.
+    Board b = voltage_board();
+    b.nets[0].has_min_clearance = true;
+    b.nets[0].min_clearance_nm = mm_to_nm(1.5);
+    JsonValue cfg = voltage_config();
+    JsonValue pairs = JsonValue::array();
+    JsonValue p = JsonValue::object();
+    p["a"] = "HV";
+    p["b"] = "LOGIC";
+    p["clearance_mm"] = 0.2;  // below the 1.5mm floor
+    pairs.as_array().push_back(p);
+    cfg["pair_rules"] = pairs;
+    RuleResolver r = RuleResolver::from_config(b, cfg);
+    ElectricalContext ctx;
+    std::string source;
+    Coord c = r.requiredClearance(0, 1, 0, ctx, &source);
+    CT_CHECK(c == mm_to_nm(1.5));
+    CT_CHECK(source == "net_floor");
+    ClearanceResolution res = r.clearanceResolution(0, 1, 0, ctx);
+    CT_CHECK(res.value_nm == mm_to_nm(1.5));
+    CT_CHECK(res.candidate_nm == mm_to_nm(0.2));
+    CT_CHECK(res.candidate_source == "pair_rule");
+    CT_CHECK(res.floor_nm == mm_to_nm(1.5));
+    CT_CHECK(res.floor_applied);
+}
+
+CT_TEST(pair_rule_below_both_floors_raised_to_larger) {
+    Board b = voltage_board();
+    b.nets[0].has_min_clearance = true;
+    b.nets[0].min_clearance_nm = mm_to_nm(1.0);
+    b.nets[1].has_min_clearance = true;
+    b.nets[1].min_clearance_nm = mm_to_nm(2.0);
+    JsonValue cfg = voltage_config();
+    JsonValue pairs = JsonValue::array();
+    JsonValue p = JsonValue::object();
+    p["a"] = "HV";
+    p["b"] = "LOGIC";
+    p["clearance_mm"] = 0.2;
+    pairs.as_array().push_back(p);
+    cfg["pair_rules"] = pairs;
+    RuleResolver r = RuleResolver::from_config(b, cfg);
+    ElectricalContext ctx;
+    Coord c = r.requiredClearance(0, 1, 0, ctx, nullptr);
+    CT_CHECK(c == mm_to_nm(2.0));
+    ClearanceResolution res = r.clearanceResolution(0, 1, 0, ctx);
+    CT_CHECK(res.candidate_source == "pair_rule");
+    CT_CHECK(res.floor_applied);
+    CT_CHECK(res.floor_nm == mm_to_nm(2.0));
+}
+
+CT_TEST(pair_rule_above_floors_unchanged) {
+    Board b = voltage_board();
+    b.nets[0].has_min_clearance = true;
+    b.nets[0].min_clearance_nm = mm_to_nm(0.5);
+    JsonValue cfg = voltage_config();
+    JsonValue pairs = JsonValue::array();
+    JsonValue p = JsonValue::object();
+    p["a"] = "HV";
+    p["b"] = "LOGIC";
+    p["clearance_mm"] = 2.0;  // above the floor
+    pairs.as_array().push_back(p);
+    cfg["pair_rules"] = pairs;
+    RuleResolver r = RuleResolver::from_config(b, cfg);
+    ElectricalContext ctx;
+    std::string source;
+    Coord c = r.requiredClearance(0, 1, 0, ctx, &source);
+    CT_CHECK(c == mm_to_nm(2.0));
+    CT_CHECK(source == "pair_rule");
+    ClearanceResolution res = r.clearanceResolution(0, 1, 0, ctx);
+    CT_CHECK(!res.floor_applied);
+    CT_CHECK(res.candidate_source == "pair_rule");
+}
+
+CT_TEST(floor_enforced_verifier_and_astar_agree) {
+    // Same resolved clearance must gate both search legality and verification.
+    Board b = voltage_board();
+    b.nets[0].has_min_clearance = true;
+    b.nets[0].min_clearance_nm = mm_to_nm(1.0);
+    JsonValue cfg = voltage_config();
+    JsonValue pairs = JsonValue::array();
+    JsonValue p = JsonValue::object();
+    p["a"] = "HV";
+    p["b"] = "LOGIC";
+    p["clearance_mm"] = 0.2;  // floored to 1.0mm
+    pairs.as_array().push_back(p);
+    cfg["pair_rules"] = pairs;
+    // Two parallel traces 0.5mm apart: legal under the raw pair rule (0.2mm)
+    // but illegal once the 1.0mm floor is enforced.
+    add_terminal(b, 0, 1.0, 5.0);
+    add_terminal(b, 0, 3.0, 5.0);
+    add_terminal(b, 1, 1.0, 6.0);
+    add_terminal(b, 1, 3.0, 6.0);
+    TraceSeg s0{0, 0, {mm_to_nm(1.0), mm_to_nm(5.0)}, {mm_to_nm(3.0), mm_to_nm(5.0)}, mm_to_nm(0.15)};
+    TraceSeg s1{1, 0, {mm_to_nm(1.0), mm_to_nm(5.5)}, {mm_to_nm(3.0), mm_to_nm(5.5)}, mm_to_nm(0.15)};
+    b.traces.push_back(s0);
+    b.traces.push_back(s1);
+    RuleResolver r = RuleResolver::from_config(b, cfg);
+    ElectricalContext ctx;
+    // Resolver reports the floored value with both stages visible.
+    ClearanceResolution res = r.clearanceResolution(0, 1, 0, ctx);
+    CT_CHECK(res.value_nm == mm_to_nm(1.0));
+    CT_CHECK(res.candidate_source == "pair_rule");
+    CT_CHECK(res.floor_applied);
+    // Verifier uses the same resolver result, so it must flag the pair.
+    BoardVerifier v;
+    VerifyResult vr = v.verify(b, r, ctx);
+    CT_CHECK(!vr.ok);
+    bool found = false;
+    for (const auto& x : vr.violations) {
+        if (x.type == "clearance" && x.rule == "net_floor") found = true;
+    }
+    CT_CHECK(found);
+}
+
 int main() { return copperline::test::run_all_tests(); }

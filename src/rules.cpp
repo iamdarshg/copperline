@@ -123,50 +123,73 @@ void VoltageClearanceModel::add_net_pair(const std::string& a_net, const std::st
     net_pairs_.push_back({{a_net, b_net}, clearance_nm});
 }
 
+ClearanceResolution VoltageClearanceModel::resolve(
+    double v_a, bool has_a, const std::string& class_a, const std::string& name_a, double v_b,
+    bool has_b, const std::string& class_b, const std::string& name_b, const NetInfo* info_a,
+    const NetInfo* info_b) const {
+    // Stage 1: candidate selection with fixed precedence
+    //   explicit pair rule > class pair > voltage-difference table > board default.
+    ClearanceResolution r;
+    bool have_pair = false;
+    Coord pair_c = 0;
+    for (const auto& [pair, c] : net_pairs_) {
+        if ((pair.first == name_a && pair.second == name_b) ||
+            (pair.first == name_b && pair.second == name_a)) {
+            have_pair = true;
+            pair_c = c;
+            break;
+        }
+    }
+    if (have_pair) {
+        r.candidate_nm = pair_c;
+        r.candidate_source = "pair_rule";
+    } else {
+        Coord c = default_nm_;
+        std::string src = "board_default";
+        if (has_a && has_b && !table_.empty()) {
+            // The voltage-difference table is authoritative when both voltages are
+            // known: most specific applicable rule wins over the board default.
+            double delta = std::fabs(v_a - v_b);
+            const VoltageTableEntry* best = nullptr;
+            for (const auto& e : table_) {
+                if (delta >= e.delta_v_min) best = &e;
+            }
+            if (best) {
+                c = best->clearance_nm;
+                src = "voltage_table";
+            }
+        }
+        if (!class_a.empty() && !class_b.empty()) {
+            auto it = class_pairs_.find(std::minmax(class_a, class_b));
+            if (it != class_pairs_.end()) {
+                c = it->second;
+                src = "class_pair";
+            }
+        }
+        r.candidate_nm = c;
+        r.candidate_source = src;
+    }
+    // Stage 2: hard-floor enforcement. Neither net's explicit minimum may be
+    // undercut, regardless of which stage-1 source was selected.
+    Coord floor = 0;
+    if (info_a && info_a->has_min_clearance) floor = std::max(floor, info_a->min_clearance_nm);
+    if (info_b && info_b->has_min_clearance) floor = std::max(floor, info_b->min_clearance_nm);
+    r.floor_nm = floor;
+    r.floor_applied = (floor > r.candidate_nm);
+    r.value_nm = r.floor_applied ? floor : r.candidate_nm;
+    r.source = r.floor_applied ? "net_floor" : r.candidate_source;
+    return r;
+}
+
 Coord VoltageClearanceModel::required(double v_a, bool has_a, const std::string& class_a,
                                       const std::string& name_a, double v_b, bool has_b,
                                       const std::string& class_b, const std::string& name_b,
                                       const NetInfo* info_a, const NetInfo* info_b,
                                       std::string& source) const {
-    for (const auto& [pair, c] : net_pairs_) {
-        if ((pair.first == name_a && pair.second == name_b) ||
-            (pair.first == name_b && pair.second == name_a)) {
-            source = "pair_rule";
-            return c;
-        }
-    }
-    Coord c = default_nm_;
-    source = "board_default";
-    if (has_a && has_b && !table_.empty()) {
-        // The voltage-difference table is authoritative when both voltages are
-        // known: most specific applicable rule wins over the board default.
-        double delta = std::fabs(v_a - v_b);
-        const VoltageTableEntry* best = nullptr;
-        for (const auto& e : table_) {
-            if (delta >= e.delta_v_min) best = &e;
-        }
-        if (best) {
-            c = best->clearance_nm;
-            source = "voltage_table";
-        }
-    }
-    if (!class_a.empty() && !class_b.empty()) {
-        auto it = class_pairs_.find(std::minmax(class_a, class_b));
-        if (it != class_pairs_.end()) {
-            c = it->second;
-            source = "class_pair";
-        }
-    }
-    // Per-net KiCad-style floors act conservatively (max wins).
-    if (info_a && info_a->has_min_clearance && info_a->min_clearance_nm > c) {
-        c = info_a->min_clearance_nm;
-        source = "net_floor";
-    }
-    if (info_b && info_b->has_min_clearance && info_b->min_clearance_nm > c) {
-        c = info_b->min_clearance_nm;
-        source = "net_floor";
-    }
-    return c;
+    ClearanceResolution r = resolve(v_a, has_a, class_a, name_a, v_b, has_b, class_b, name_b,
+                                    info_a, info_b);
+    source = r.source;
+    return r.value_nm;
 }
 
 RuleResolver::RuleResolver(const Board* board, CurrentCapacitySystem current,
@@ -303,19 +326,22 @@ Coord RuleResolver::requiredTraceWidth(NetId net, LayerId layer, const Electrica
     return w;
 }
 
-Coord RuleResolver::requiredClearance(NetId a, NetId b, LayerId layer, const ElectricalContext& ctx,
-                                      std::string* source_out) const {
+ClearanceResolution RuleResolver::clearanceResolution(NetId a, NetId b, LayerId layer,
+                                                      const ElectricalContext& ctx) const {
     (void)layer;
     (void)ctx;
     const NetInfo* na = board_->find_net(a);
     const NetInfo* nb = board_->find_net(b);
     if (!na || !nb) throw std::runtime_error("requiredClearance: unknown net");
-    std::string source;
-    Coord c = voltage_.required(na->voltage_v, na->has_voltage, na->voltage_class, na->name,
-                                nb->voltage_v, nb->has_voltage, nb->voltage_class, nb->name, na,
-                                nb, source);
-    if (source_out) *source_out = source;
-    return c;
+    return voltage_.resolve(na->voltage_v, na->has_voltage, na->voltage_class, na->name,
+                            nb->voltage_v, nb->has_voltage, nb->voltage_class, nb->name, na, nb);
+}
+
+Coord RuleResolver::requiredClearance(NetId a, NetId b, LayerId layer, const ElectricalContext& ctx,
+                                      std::string* source_out) const {
+    ClearanceResolution r = clearanceResolution(a, b, layer, ctx);
+    if (source_out) *source_out = r.source;
+    return r.value_nm;
 }
 
 std::vector<ViaStyle> RuleResolver::allowedVias(NetId net, LayerSpan span) const {

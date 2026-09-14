@@ -335,6 +335,14 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
                 v.detail = "clearance " + std::to_string(gap_mm) + "mm below " +
                            std::to_string(nm_to_mm(need)) + "mm between " +
                            (na ? na->name : "?") + " and " + (nb ? nb->name : "?");
+                // Explainability (issue #6): when a per-net floor raised the
+                // stage-1 candidate, report both so agents can see why.
+                ClearanceResolution res = resolver.clearanceResolution(a.net, b.net, 0, ctx);
+                if (res.floor_applied) {
+                    v.detail += " [candidate=" + res.candidate_source + " " +
+                                std::to_string(nm_to_mm(res.candidate_nm)) + "mm floor=" +
+                                std::to_string(nm_to_mm(res.floor_nm)) + "mm]";
+                }
                 Point rep = elem_rep(a, b);
                 v.x_mm = nm_to_mm(rep.x);
                 v.y_mm = nm_to_mm(rep.y);

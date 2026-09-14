@@ -145,6 +145,22 @@ struct VoltageTableEntry {
     Coord clearance_nm = 0;
 };
 
+// Two-stage clearance resolution (issue #6):
+//   Stage 1 (source selection): pair_rule > class_pair > voltage_table >
+//     board_default selects a candidate clearance.
+//   Stage 2 (hard-floor enforcement): final = max(candidate,
+//     netA.min_clearance, netB.min_clearance).
+// The resolution carries both the selected candidate source and whether a
+// per-net floor raised the result, so diagnostics stay explainable.
+struct ClearanceResolution {
+    Coord value_nm = 0;              // final enforced clearance
+    Coord candidate_nm = 0;          // stage-1 candidate before floors
+    std::string candidate_source;    // "pair_rule" | "class_pair" | "voltage_table" | "board_default"
+    Coord floor_nm = 0;              // max(netA floor, netB floor), 0 when neither net has one
+    bool floor_applied = false;      // true when floor_nm > candidate_nm
+    std::string source;              // final source: "net_floor" when floored, else candidate_source
+};
+
 class VoltageClearanceModel {
   public:
     VoltageClearanceModel();
@@ -155,6 +171,11 @@ class VoltageClearanceModel {
     void add_net_pair(const std::string& a_net, const std::string& b_net, Coord clearance_nm);
 
     // Pair-aware clearance from BOTH nets' voltages/classes/names.
+    // Two stages: candidate selection, then per-net floor enforcement.
+    ClearanceResolution resolve(double v_a, bool has_a, const std::string& class_a,
+                                const std::string& name_a, double v_b, bool has_b,
+                                const std::string& class_b, const std::string& name_b,
+                                const NetInfo* info_a, const NetInfo* info_b) const;
     Coord required(double v_a, bool has_a, const std::string& class_a, const std::string& name_a,
                    double v_b, bool has_b, const std::string& class_b, const std::string& name_b,
                    const NetInfo* info_a, const NetInfo* info_b,
@@ -188,6 +209,10 @@ class RuleResolver {
                              std::string* source_out = nullptr) const;
     Coord requiredClearance(NetId a, NetId b, LayerId layer, const ElectricalContext& ctx,
                             std::string* source_out = nullptr) const;
+    // Full two-stage resolution: candidate source + floor info alongside the
+    // final value. All router/verifier callers share this path.
+    ClearanceResolution clearanceResolution(NetId a, NetId b, LayerId layer,
+                                            const ElectricalContext& ctx) const;
     std::vector<ViaStyle> allowedVias(NetId net, LayerSpan span) const;
     bool select_via(NetId net, LayerSpan span, ViaStyle& out) const;
     // Named style lookup across ALL configured styles (legal or not), so the
