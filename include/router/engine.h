@@ -49,6 +49,11 @@ struct RouteFailure {
     std::string width_model;
     double copper_weight_oz = 1.0;
     double temp_rise_c = 20.0;
+    // Parallel-via diagnostics (issue #5, mirrors CandidateRoute).
+    double required_current_a = 0.0;
+    std::string via_style;
+    int vias_required = 1;
+    std::string via_reason = "ok";
     int ripup_attempts = 0;
     std::vector<std::string> modes_attempted;
     FrontierDiag frontier;

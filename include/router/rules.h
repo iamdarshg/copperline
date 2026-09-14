@@ -318,6 +318,7 @@ class RuleResolver {
     const Board* board() const { return board_; }
     const CurrentCapacitySystem& current() const { return current_; }
     const VoltageClearanceModel& voltage() const { return voltage_; }
+    const std::vector<ViaStyle>& via_styles() const { return via_styles_; }
     bool default_current_used(NetId net) const;
 
   private:

@@ -11,12 +11,15 @@ Coord WidthClassModel::evaluate(const NetInfo& net, const BoardDefaults& def,
     if (net.width_class.empty()) return -1;
     auto it = classes_.find(net.width_class);
     if (it == classes_.end()) return -1;
-    bool dummy = false;
-    // Width classes carry their own current ceiling; current still flows from
-    // the net so that reporting stays honest.
-    (void)def;
+    // Width classes carry their own current ceiling (issue #5): a class whose
+    // max_current_a sits below the net's design current must not be selected.
+    // Current still flows from the net so that reporting stays honest; nets
+    // without stated current fall back to the board default.
+    double current = def.default_current_a;
+    if (net.has_peak) current = net.peak_a;
+    else if (net.has_current) current = net.current_a;
     (void)ctx;
-    (void)dummy;
+    if (current > it->second.max_current_a) return -1;
     return it->second.min_width_nm;
 }
 

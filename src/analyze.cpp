@@ -7,6 +7,7 @@
 #include "router/density.h"
 #include "router/escape.h"
 #include "router/route_tree.h"
+#include "router/via_bundle.h"
 
 namespace copperline {
 
@@ -64,6 +65,27 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         o["copper_thickness_mm"] = wd.copper_weight_oz * 0.0348;
         o["temp_rise_c"] = wd.temp_rise_c;
         o["width_internal_layer"] = wd.internal_layer;
+        // Parallel-via diagnostics (issue #5): the current each layer
+        // transition must carry and how many parallel vias that needs.
+        {
+            LayerSpan full{board.layers.front().id, board.layers.back().id};
+            auto ordered = ViaBundlePlanner::ordered_styles(resolver, n.id, full);
+            ViaStyle single;
+            if (resolver.select_via(n.id, full, single)) {
+                o["via_style"] = single.name;
+                o["vias_required"] = 1.0;
+                o["via_reason"] = "ok";
+            } else if (!ordered.empty()) {
+                o["via_style"] = ordered.front().name;
+                o["vias_required"] = static_cast<double>(
+                    ViaBundlePlanner::required_count(resolver, ordered.front(), n.id));
+                o["via_reason"] = "needs_parallel_bundle";
+            } else {
+                o["via_style"] = "";
+                o["vias_required"] = 1.0;
+                o["via_reason"] = "no_via_class";
+            }
+        }
         double peak = 0;
         for (TermId tid : n.terminals) {
             auto it = term_dens.find(tid);

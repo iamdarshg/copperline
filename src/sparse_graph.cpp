@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <map>
 
+#include "router/via_bundle.h"
+
 namespace copperline {
 
 int direction_of(Point from, Point to) {
@@ -297,35 +299,22 @@ SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleR
     }
 
     // ---- 5. Via edges between layer copies of the same base ----
-    ViaStyle style;
-    LayerSpan full{committed.layers.front().id, committed.layers.back().id};
-    bool have_via = resolver.select_via(net, full, style);
-    if (have_via) {
+    // Bundle-aware gate (issue #5): a transition exists only when the full
+    // parallel-via bundle for this net fits legally around the base point
+    // (all barrels + star stubs clear foreign copper under pair clearance).
+    // The planner is deterministic, so candidate materialization replays the
+    // identical bundle for the committed edge.
+    if (!committed.layers.empty()) {
         for (const auto& [bi, per_layer] : node_of) {
             std::vector<std::pair<LayerId, int>> copies(per_layer.begin(), per_layer.end());
             for (std::size_t i = 0; i < copies.size(); ++i) {
                 for (std::size_t j = 0; j < copies.size(); ++j) {
                     if (i == j) continue;
                     Point p = g.nodes_[copies[i].second].p;
-                    // Via disc must clear foreign copper on every spanned layer.
-                    Rect via_rect =
-                        Rect::from_center_size(p, style.outer_nm, style.outer_nm);
-                    bool ok = true;
-                    Rect bnds = committed.bounds();
-                    if (!bnds.contains(via_rect)) {
-                        ok = false;
-                    } else {
-                        LayerId lo = std::min(copies[i].first, copies[j].first);
-                        LayerId hi = std::max(copies[i].first, copies[j].first);
-                        for (const auto& o : obstacles) {
-                            if (o.layer != kAllLayers && (o.layer < lo || o.layer > hi)) continue;
-                            if (rect_gap(via_rect, o.raw) < o.dist_min_nm - half_w) {
-                                ok = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (!ok) continue;
+                    LayerSpan span{copies[i].first, copies[j].first};
+                    ViaBundle bundle = ViaBundlePlanner::plan(
+                        committed, resolver, net, p, span, route_width_nm, ctx);
+                    if (!bundle.feasible) continue;
                     SparseEdge e;
                     e.to = copies[j].second;
                     e.len_nm = 0;

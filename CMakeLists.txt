@@ -24,6 +24,7 @@ add_library(router_core
   src/route_tree.cpp
   src/sparse_graph.cpp
   src/astar.cpp
+  src/via_bundle.cpp
   src/escape.cpp
   src/parallel.cpp
   src/recovery.cpp
@@ -53,6 +54,7 @@ endfunction()
 
 copperline_test(test_geometry)
 copperline_test(test_current)
+copperline_test(test_via_bundle)
 copperline_test(test_ampacity)
 copperline_test(test_voltage)
 copperline_test(test_density)

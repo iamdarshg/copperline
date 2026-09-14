@@ -11,6 +11,7 @@
 #include "router/route_tree.h"
 #include "router/sparse_graph.h"
 #include "router/verifier.h"
+#include "router/via_bundle.h"
 
 namespace copperline {
 
@@ -67,6 +68,11 @@ JsonValue RouteReport::to_json() const {
         o["width_model"] = f.width_model.empty() ? f.width_source : f.width_model;
         o["copper_weight_oz"] = f.copper_weight_oz;
         o["temp_rise_c"] = f.temp_rise_c;
+        // Parallel-via diagnostics (issue #5).
+        o["required_current_a"] = f.required_current_a;
+        o["via_style"] = f.via_style;
+        o["vias_required"] = static_cast<double>(f.vias_required);
+        o["via_reason"] = f.via_reason;
         o["ripup_attempts"] = static_cast<double>(f.ripup_attempts);
         JsonValue ma = JsonValue::array();
         for (const auto& m : f.modes_attempted) ma.as_array().push_back(JsonValue(m));
@@ -277,6 +283,19 @@ RouteReport RouterEngine::run() {
                 f.a = tasks[i].a;
                 f.b = tasks[i].b;
                 f.reason = "timeout";
+                if (n) {
+                    bool dummy = false;
+                    f.required_current_a =
+                        resolver_.current().effective_current(*n, board_.defaults, dummy);
+                    auto ordered = ViaBundlePlanner::ordered_styles(
+                        resolver_, tasks[i].net,
+                        LayerSpan{board_.layers.front().id, board_.layers.back().id});
+                    if (!ordered.empty()) {
+                        f.via_style = ordered.front().name;
+                        f.vias_required = ViaBundlePlanner::required_count(
+                            resolver_, ordered.front(), tasks[i].net);
+                    }
+                }
                 report.failures.push_back(f);
                 int ni = net_index(tasks[i].net);
                 if (ni >= 0) net_ok[ni] = 0;
@@ -701,14 +720,36 @@ RouteReport RouterEngine::run() {
         const CandidateRoute* last = it != last_attempt.end() ? &it->second : nullptr;
         if (!last) {
             f.reason = "unattempted";
+            if (n) {
+                bool dummy = false;
+                f.required_current_a =
+                    resolver_.current().effective_current(*n, board_.defaults, dummy);
+                auto ordered = ViaBundlePlanner::ordered_styles(
+                    resolver_, task.net,
+                    LayerSpan{board_.layers.front().id, board_.layers.back().id});
+                if (!ordered.empty()) {
+                    f.via_style = ordered.front().name;
+                    f.vias_required =
+                        ViaBundlePlanner::required_count(resolver_, ordered.front(),
+                                                         task.net);
+                }
+            }
         } else if (last && !last->found) {
             f.reason = last->fail_reason.empty() ? "unreachable" : last->fail_reason;
             if (f.reason == "budget_exhausted") budget_hit = true;
             f.expansions = last->expansions;
+            f.required_current_a = last->required_current_a;
+            f.via_style = last->via_style;
+            f.vias_required = last->vias_required;
+            f.via_reason = last->via_reason;
             f.frontier = diagnose_task(task, *last);
             f.has_frontier = true;
         } else if (last && last->found) {
             f.reason = "conflict";
+            f.required_current_a = last->required_current_a;
+            f.via_style = last->via_style;
+            f.vias_required = last->vias_required;
+            f.via_reason = last->via_reason;
             f.frontier = diagnose_task(task, *last);
             f.has_frontier = true;
         } else {

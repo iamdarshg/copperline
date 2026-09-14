@@ -141,6 +141,7 @@ struct CandidateRoute {
     double difficulty = 0;
     bool found = false;
     std::string fail_reason;  // "unreachable" | "budget_exhausted" | ...
+                              // "via_bundle_infeasible" | "no_via_class" | ...
     std::int64_t expansions = 0;
     Coord cost_nm = 0;
     std::vector<TraceSeg> traces;
@@ -149,6 +150,14 @@ struct CandidateRoute {
     Point gate_b{};
     int closest_node = -1;
     Coord closest_goal_dist_nm = 0;
+    // Parallel-via diagnostics (issue #5): the current the transition must
+    // carry, the style selected for it, the parallel count and the bundle
+    // outcome ("ok" | "bundle_blocked" | "no_via_class"). Set for every
+    // candidate, including failures, so the engine can report them.
+    double required_current_a = 0.0;
+    std::string via_style;
+    int vias_required = 1;
+    std::string via_reason = "ok";
 };
 
 // Route one task against an immutable snapshot. Reads snapshot/resolver only;

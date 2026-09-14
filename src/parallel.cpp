@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <thread>
 
+#include "router/via_bundle.h"
+
 namespace copperline {
 
 namespace {
@@ -356,30 +358,102 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     cand.expansions = res.expansions;
     cand.closest_node = res.closest_node;
     cand.closest_goal_dist_nm = res.closest_goal_dist_nm;
+    // Baseline via diagnostics from the ordered selection (no geometry).
+    {
+        const NetInfo* ninfo = snapshot.find_net(task.net);
+        bool dummy = false;
+        cand.required_current_a =
+            ninfo ? resolver.current().effective_current(*ninfo, snapshot.defaults, dummy)
+                  : 0.0;
+        auto ordered = ViaBundlePlanner::ordered_styles(
+            resolver, task.net,
+            LayerSpan{snapshot.layers.front().id, snapshot.layers.back().id});
+        if (!ordered.empty()) {
+            cand.via_style = ordered.front().name;
+            cand.vias_required = ViaBundlePlanner::required_count(resolver, ordered.front(),
+                                                                  task.net);
+        } else {
+            cand.via_style.clear();
+            cand.vias_required = 1;
+            cand.via_reason = "no_via_class";
+        }
+    }
     if (!res.found) {
         cand.fail_reason = res.fail_reason == "budget_exhausted" ? "budget_exhausted" : "unreachable";
+        // Explicit bundle infeasibility (issue #5): a layer-changing task on
+        // a graph with zero via edges can never transition. Distinguish a
+        // blocked parallel bundle from a plain maze failure so agents get a
+        // stable reason category.
+        if (ta->layer != tb->layer) {
+            int via_edges = 0;
+            for (std::size_t ni = 0; ni < graph.nodes().size(); ++ni)
+                for (const auto& e : graph.edges(static_cast<int>(ni)))
+                    if (e.is_via) ++via_edges;
+            if (via_edges == 0) {
+                LayerSpan span{ta->layer, tb->layer};
+                ViaBundle probe = ViaBundlePlanner::plan(snapshot, resolver, task.net,
+                                                         ta->pos, span, width, ctx);
+                cand.via_style = probe.via_class;
+                cand.vias_required = std::max(1, probe.count);
+                cand.required_current_a = probe.required_current_a;
+                if (!probe.feasible) {
+                    cand.via_reason = probe.reason;
+                    cand.fail_reason = probe.reason == "no_via_class"
+                                           ? "no_via"
+                                           : "via_bundle_infeasible";
+                }
+            }
+        }
         return cand;
     }
     cand.found = true;
     cand.cost_nm = res.cost_nm;
-    ViaStyle style;
-    LayerSpan full{snapshot.layers.front().id, snapshot.layers.back().id};
-    resolver.select_via(task.net, full, style);
+    // Materialize every A* layer transition as one atomic bundle (issue #5):
+    // all barrels plus both layers' star stubs, or the whole candidate
+    // fails with an explicit reason. Never half-build a transition.
+    bool saw_via = false;
     for (std::size_t i = 0; i < res.edge_path.size(); ++i) {
         int u = res.node_path[i];
         const SparseEdge& e = graph.edges(u)[res.edge_path[i]];
         const SparseNode& nu = graph.nodes()[u];
         const SparseNode& nv = graph.nodes()[e.to];
         if (e.is_via) {
-            Via v;
-            v.net = task.net;
-            v.pos = nu.p;
-            v.top_layer = std::min(nu.layer, nv.layer);
-            v.bottom_layer = std::max(nu.layer, nv.layer);
-            v.outer_d_nm = style.outer_nm;
-            v.hole_d_nm = style.hole_nm;
-            v.via_class = style.name;
-            cand.vias.push_back(v);
+            LayerSpan span{nu.layer, nv.layer};
+            ViaBundle bundle = ViaBundlePlanner::plan(snapshot, resolver, task.net, nu.p,
+                                                      span, width, ctx);
+            if (!bundle.feasible) {
+                cand.found = false;
+                cand.traces.clear();
+                cand.vias.clear();
+                cand.via_style = bundle.via_class;
+                cand.vias_required = std::max(1, bundle.count);
+                cand.required_current_a = bundle.required_current_a;
+                cand.via_reason = bundle.reason;
+                cand.fail_reason =
+                    bundle.reason == "no_via_class" ? "no_via" : "via_bundle_infeasible";
+                return cand;
+            }
+            if (!saw_via) {
+                cand.via_style = bundle.style.name;
+                cand.vias_required = bundle.count;
+                cand.via_reason = "ok";
+                cand.required_current_a = bundle.required_current_a;
+                saw_via = true;
+            } else {
+                cand.vias_required = std::max(cand.vias_required, bundle.count);
+            }
+            for (auto p : bundle.positions) {
+                Via v;
+                v.net = task.net;
+                v.pos = p;
+                v.top_layer = std::min(nu.layer, nv.layer);
+                v.bottom_layer = std::max(nu.layer, nv.layer);
+                v.outer_d_nm = bundle.style.outer_nm;
+                v.hole_d_nm = bundle.style.hole_nm;
+                v.via_class = bundle.style.name;
+                cand.vias.push_back(v);
+            }
+            for (const auto& s : bundle.stubs) cand.traces.push_back(s);
         } else if (e.dir2 >= 0) {
             cand.traces.push_back({task.net, nu.layer, nu.p, e.elbow, width});
             if (!(e.elbow == nv.p)) cand.traces.push_back({task.net, nu.layer, e.elbow, nv.p, width});
@@ -387,6 +461,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
             if (!(nu.p == nv.p)) cand.traces.push_back({task.net, nu.layer, nu.p, nv.p, width});
         }
     }
+    if (!saw_via) cand.via_reason = "ok";
     return cand;
 }
 

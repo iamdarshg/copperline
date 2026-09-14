@@ -5,6 +5,7 @@
 #include <numeric>
 
 #include "router/spatial_index.h"
+#include "router/via_bundle.h"
 
 namespace copperline {
 
@@ -283,24 +284,71 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
             x.y_mm = nm_to_mm(v.pos.y);
             out.violations.push_back(x);
         } else if (!have_style) {
+            // No single via carries this current. Routed bundles always name
+            // their class (see the cluster check below), so class-less copper
+            // here is user input: report the parallel count the net needs.
+            int need = 1;
+            std::string best;
+            for (const auto& s : resolver.via_styles()) {
+                bool dummy2 = false;
+                double ic = resolver.current().effective_current(*n, board.defaults, dummy2);
+                int k = s.max_current_a > 0
+                            ? std::max(1, static_cast<int>(
+                                              std::ceil(ic / s.max_current_a)))
+                            : 1;
+                if (best.empty() || k < need) {
+                    need = k;
+                    best = s.name;
+                }
+            }
             Violation x;
             x.type = "via_current";
             x.net_a = v.net;
             x.rule = "via_current_class";
-            x.detail = "no via class meets " + std::to_string(current) + "A for net " + n->name;
+            x.detail = "no via class meets " + std::to_string(current) + "A for net " +
+                       n->name + " (needs " + std::to_string(need) +
+                       " parallel vias of '" + best + "')";
             x.x_mm = nm_to_mm(v.pos.x);
             x.y_mm = nm_to_mm(v.pos.y);
             out.violations.push_back(x);
         } else if (current > style.max_current_a) {
-            Violation x;
-            x.type = "via_current";
-            x.net_a = v.net;
-            x.rule = "via_current_class";
-            x.detail = "via class '" + style.name + "' carries " + std::to_string(current) +
-                       "A over " + std::to_string(style.max_current_a) + "A limit";
-            x.x_mm = nm_to_mm(v.pos.x);
-            x.y_mm = nm_to_mm(v.pos.y);
-            out.violations.push_back(x);
+            // Parallel-bundle allowance (issue #5): a via over its single
+            // limit still passes when it sits inside a full same-net bundle
+            // of its class (enough neighbours within the bundle diameter to
+            // share the current). An isolated over-current via still fails.
+            bool dummy3 = false;
+            double ic = resolver.current().effective_current(*n, board.defaults, dummy3);
+            int need = style.max_current_a > 0
+                           ? std::max(1, static_cast<int>(
+                                             std::ceil(ic / style.max_current_a)))
+                           : 1;
+            int nearby = 0;
+            if (need > 1) {
+                Coord window = 2 * via_bundle_radius(style, need);
+                LayerId lo = std::min(v.top_layer, v.bottom_layer);
+                LayerId hi = std::max(v.top_layer, v.bottom_layer);
+                for (const auto& w : board.vias) {
+                    if (w.net != v.net) continue;
+                    if (w.via_class != v.via_class) continue;
+                    if (w.bottom_layer < lo || w.top_layer > hi) continue;
+                    if (manhattan(w.pos, v.pos) <= window) ++nearby;
+                }
+            }
+            if (need <= 1 || nearby < need) {
+                Violation x;
+                x.type = "via_current";
+                x.net_a = v.net;
+                x.rule = "via_current_class";
+                x.detail = "via class '" + style.name + "' carries " +
+                           std::to_string(current) + "A over " +
+                           std::to_string(style.max_current_a) + "A limit";
+                if (need > 1)
+                    x.detail += " (needs " + std::to_string(need) + " in parallel, found " +
+                                std::to_string(nearby) + " nearby)";
+                x.x_mm = nm_to_mm(v.pos.x);
+                x.y_mm = nm_to_mm(v.pos.y);
+                out.violations.push_back(x);
+            }
         }
     }
 
