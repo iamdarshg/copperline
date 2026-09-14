@@ -1,0 +1,1698 @@
+{
+  "schema": "copperline/board/1",
+  "board": {
+    "width_mm": 20.0,
+    "height_mm": 20.0
+  },
+  "layers": [
+    {
+      "id": 0,
+      "name": "Top"
+    },
+    {
+      "id": 1,
+      "name": "In1"
+    },
+    {
+      "id": 2,
+      "name": "In2"
+    },
+    {
+      "id": 3,
+      "name": "Bottom"
+    }
+  ],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0,
+      "name": "U1_A1",
+      "terminals": [
+        {
+          "id": 0,
+          "x_mm": 7.2,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A1"
+        },
+        {
+          "id": 1,
+          "x_mm": 2.9574,
+          "y_mm": 2.9574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T0",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "U1_B1",
+      "terminals": [
+        {
+          "id": 2,
+          "x_mm": 7.2,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B1"
+        },
+        {
+          "id": 3,
+          "x_mm": 2.3176,
+          "y_mm": 4.5126,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T1",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "U1_C1",
+      "terminals": [
+        {
+          "id": 4,
+          "x_mm": 7.2,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C1"
+        },
+        {
+          "id": 5,
+          "x_mm": 1.6851,
+          "y_mm": 6.4365,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T2",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "U1_D1",
+      "terminals": [
+        {
+          "id": 6,
+          "x_mm": 7.2,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D1"
+        },
+        {
+          "id": 7,
+          "x_mm": 1.2603,
+          "y_mm": 8.7515,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T3",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "U1_E1",
+      "terminals": [
+        {
+          "id": 8,
+          "x_mm": 7.2,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E1"
+        },
+        {
+          "id": 9,
+          "x_mm": 1.2603,
+          "y_mm": 11.2485,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T4",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "U1_F1",
+      "terminals": [
+        {
+          "id": 10,
+          "x_mm": 7.2,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F1"
+        },
+        {
+          "id": 11,
+          "x_mm": 1.6851,
+          "y_mm": 13.5635,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T5",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "U1_G1",
+      "terminals": [
+        {
+          "id": 12,
+          "x_mm": 7.2,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G1"
+        },
+        {
+          "id": 13,
+          "x_mm": 2.3176,
+          "y_mm": 15.4874,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T6",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "U1_H1",
+      "terminals": [
+        {
+          "id": 14,
+          "x_mm": 7.2,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H1"
+        },
+        {
+          "id": 15,
+          "x_mm": 2.9574,
+          "y_mm": 17.0426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T7",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "U1_A2",
+      "terminals": [
+        {
+          "id": 16,
+          "x_mm": 8.0,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A2"
+        },
+        {
+          "id": 17,
+          "x_mm": 4.5126,
+          "y_mm": 2.3176,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T8",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "U1_B2",
+      "terminals": [
+        {
+          "id": 18,
+          "x_mm": 8.0,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B2"
+        },
+        {
+          "id": 19,
+          "x_mm": 3.7574,
+          "y_mm": 3.7574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T9",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "U1_C2",
+      "terminals": [
+        {
+          "id": 20,
+          "x_mm": 8.0,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C2"
+        },
+        {
+          "id": 21,
+          "x_mm": 2.855,
+          "y_mm": 5.713,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T10",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "U1_D2",
+      "terminals": [
+        {
+          "id": 22,
+          "x_mm": 8.0,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D2"
+        },
+        {
+          "id": 23,
+          "x_mm": 2.1165,
+          "y_mm": 8.4233,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T11",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "U1_E2",
+      "terminals": [
+        {
+          "id": 24,
+          "x_mm": 8.0,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E2"
+        },
+        {
+          "id": 25,
+          "x_mm": 2.1165,
+          "y_mm": 11.5767,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T12",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "U1_F2",
+      "terminals": [
+        {
+          "id": 26,
+          "x_mm": 8.0,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F2"
+        },
+        {
+          "id": 27,
+          "x_mm": 2.855,
+          "y_mm": 14.287,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T13",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "U1_G2",
+      "terminals": [
+        {
+          "id": 28,
+          "x_mm": 8.0,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G2"
+        },
+        {
+          "id": 29,
+          "x_mm": 3.7574,
+          "y_mm": 16.2426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T14",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "U1_H2",
+      "terminals": [
+        {
+          "id": 30,
+          "x_mm": 8.0,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H2"
+        },
+        {
+          "id": 31,
+          "x_mm": 4.5126,
+          "y_mm": 17.6824,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T15",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "U1_A3",
+      "terminals": [
+        {
+          "id": 32,
+          "x_mm": 8.8,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A3"
+        },
+        {
+          "id": 33,
+          "x_mm": 6.4365,
+          "y_mm": 1.6851,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T16",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "U1_B3",
+      "terminals": [
+        {
+          "id": 34,
+          "x_mm": 8.8,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B3"
+        },
+        {
+          "id": 35,
+          "x_mm": 5.713,
+          "y_mm": 2.855,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T17",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "U1_C3",
+      "terminals": [
+        {
+          "id": 36,
+          "x_mm": 8.8,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C3"
+        },
+        {
+          "id": 37,
+          "x_mm": 4.5574,
+          "y_mm": 4.5574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T18",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "U1_D3",
+      "terminals": [
+        {
+          "id": 38,
+          "x_mm": 8.8,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D3"
+        },
+        {
+          "id": 39,
+          "x_mm": 3.1079,
+          "y_mm": 7.7026,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T19",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "U1_E3",
+      "terminals": [
+        {
+          "id": 40,
+          "x_mm": 8.8,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E3"
+        },
+        {
+          "id": 41,
+          "x_mm": 3.1079,
+          "y_mm": 12.2974,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T20",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "U1_F3",
+      "terminals": [
+        {
+          "id": 42,
+          "x_mm": 8.8,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F3"
+        },
+        {
+          "id": 43,
+          "x_mm": 4.5574,
+          "y_mm": 15.4426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T21",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "U1_G3",
+      "terminals": [
+        {
+          "id": 44,
+          "x_mm": 8.8,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G3"
+        },
+        {
+          "id": 45,
+          "x_mm": 5.713,
+          "y_mm": 17.145,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T22",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "U1_H3",
+      "terminals": [
+        {
+          "id": 46,
+          "x_mm": 8.8,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H3"
+        },
+        {
+          "id": 47,
+          "x_mm": 6.4365,
+          "y_mm": 18.3149,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T23",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "U1_A4",
+      "terminals": [
+        {
+          "id": 48,
+          "x_mm": 9.6,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A4"
+        },
+        {
+          "id": 49,
+          "x_mm": 8.7515,
+          "y_mm": 1.2603,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T24",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "name": "U1_B4",
+      "terminals": [
+        {
+          "id": 50,
+          "x_mm": 9.6,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B4"
+        },
+        {
+          "id": 51,
+          "x_mm": 8.4233,
+          "y_mm": 2.1165,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T25",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "name": "U1_C4",
+      "terminals": [
+        {
+          "id": 52,
+          "x_mm": 9.6,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C4"
+        },
+        {
+          "id": 53,
+          "x_mm": 7.7026,
+          "y_mm": 3.1079,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T26",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "name": "U1_D4",
+      "terminals": [
+        {
+          "id": 54,
+          "x_mm": 9.6,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D4"
+        },
+        {
+          "id": 55,
+          "x_mm": 5.3574,
+          "y_mm": 5.3574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T27",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "name": "U1_E4",
+      "terminals": [
+        {
+          "id": 56,
+          "x_mm": 9.6,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E4"
+        },
+        {
+          "id": 57,
+          "x_mm": 5.3574,
+          "y_mm": 14.6426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T28",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "name": "U1_F4",
+      "terminals": [
+        {
+          "id": 58,
+          "x_mm": 9.6,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F4"
+        },
+        {
+          "id": 59,
+          "x_mm": 7.7026,
+          "y_mm": 16.8921,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T29",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "name": "U1_G4",
+      "terminals": [
+        {
+          "id": 60,
+          "x_mm": 9.6,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G4"
+        },
+        {
+          "id": 61,
+          "x_mm": 8.4233,
+          "y_mm": 17.8835,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T30",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "name": "U1_H4",
+      "terminals": [
+        {
+          "id": 62,
+          "x_mm": 9.6,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H4"
+        },
+        {
+          "id": 63,
+          "x_mm": 8.7515,
+          "y_mm": 18.7397,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T31",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "name": "U1_A5",
+      "terminals": [
+        {
+          "id": 64,
+          "x_mm": 10.4,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A5"
+        },
+        {
+          "id": 65,
+          "x_mm": 11.2485,
+          "y_mm": 1.2603,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T32",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "name": "U1_B5",
+      "terminals": [
+        {
+          "id": 66,
+          "x_mm": 10.4,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B5"
+        },
+        {
+          "id": 67,
+          "x_mm": 11.5767,
+          "y_mm": 2.1165,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T33",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "name": "U1_C5",
+      "terminals": [
+        {
+          "id": 68,
+          "x_mm": 10.4,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C5"
+        },
+        {
+          "id": 69,
+          "x_mm": 12.2974,
+          "y_mm": 3.1079,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T34",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "name": "U1_D5",
+      "terminals": [
+        {
+          "id": 70,
+          "x_mm": 10.4,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D5"
+        },
+        {
+          "id": 71,
+          "x_mm": 14.6426,
+          "y_mm": 5.3574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T35",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "name": "U1_E5",
+      "terminals": [
+        {
+          "id": 72,
+          "x_mm": 10.4,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E5"
+        },
+        {
+          "id": 73,
+          "x_mm": 14.6426,
+          "y_mm": 14.6426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T36",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "name": "U1_F5",
+      "terminals": [
+        {
+          "id": 74,
+          "x_mm": 10.4,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F5"
+        },
+        {
+          "id": 75,
+          "x_mm": 12.2974,
+          "y_mm": 16.8921,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T37",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "name": "U1_G5",
+      "terminals": [
+        {
+          "id": 76,
+          "x_mm": 10.4,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G5"
+        },
+        {
+          "id": 77,
+          "x_mm": 11.5767,
+          "y_mm": 17.8835,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T38",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "name": "U1_H5",
+      "terminals": [
+        {
+          "id": 78,
+          "x_mm": 10.4,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H5"
+        },
+        {
+          "id": 79,
+          "x_mm": 11.2485,
+          "y_mm": 18.7397,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T39",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "name": "U1_A6",
+      "terminals": [
+        {
+          "id": 80,
+          "x_mm": 11.2,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A6"
+        },
+        {
+          "id": 81,
+          "x_mm": 13.5635,
+          "y_mm": 1.6851,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T40",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "name": "U1_B6",
+      "terminals": [
+        {
+          "id": 82,
+          "x_mm": 11.2,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B6"
+        },
+        {
+          "id": 83,
+          "x_mm": 14.287,
+          "y_mm": 2.855,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T41",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "name": "U1_C6",
+      "terminals": [
+        {
+          "id": 84,
+          "x_mm": 11.2,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C6"
+        },
+        {
+          "id": 85,
+          "x_mm": 15.4426,
+          "y_mm": 4.5574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T42",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "name": "U1_D6",
+      "terminals": [
+        {
+          "id": 86,
+          "x_mm": 11.2,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D6"
+        },
+        {
+          "id": 87,
+          "x_mm": 16.8921,
+          "y_mm": 7.7026,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T43",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "name": "U1_E6",
+      "terminals": [
+        {
+          "id": 88,
+          "x_mm": 11.2,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E6"
+        },
+        {
+          "id": 89,
+          "x_mm": 16.8921,
+          "y_mm": 12.2974,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T44",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "name": "U1_F6",
+      "terminals": [
+        {
+          "id": 90,
+          "x_mm": 11.2,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F6"
+        },
+        {
+          "id": 91,
+          "x_mm": 15.4426,
+          "y_mm": 15.4426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T45",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "name": "U1_G6",
+      "terminals": [
+        {
+          "id": 92,
+          "x_mm": 11.2,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G6"
+        },
+        {
+          "id": 93,
+          "x_mm": 14.287,
+          "y_mm": 17.145,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T46",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "name": "U1_H6",
+      "terminals": [
+        {
+          "id": 94,
+          "x_mm": 11.2,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H6"
+        },
+        {
+          "id": 95,
+          "x_mm": 13.5635,
+          "y_mm": 18.3149,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T47",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "name": "U1_A7",
+      "terminals": [
+        {
+          "id": 96,
+          "x_mm": 12.0,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A7"
+        },
+        {
+          "id": 97,
+          "x_mm": 15.4874,
+          "y_mm": 2.3176,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T48",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "name": "U1_B7",
+      "terminals": [
+        {
+          "id": 98,
+          "x_mm": 12.0,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B7"
+        },
+        {
+          "id": 99,
+          "x_mm": 16.2426,
+          "y_mm": 3.7574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T49",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "name": "U1_C7",
+      "terminals": [
+        {
+          "id": 100,
+          "x_mm": 12.0,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C7"
+        },
+        {
+          "id": 101,
+          "x_mm": 17.145,
+          "y_mm": 5.713,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T50",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "name": "U1_D7",
+      "terminals": [
+        {
+          "id": 102,
+          "x_mm": 12.0,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D7"
+        },
+        {
+          "id": 103,
+          "x_mm": 17.8835,
+          "y_mm": 8.4233,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T51",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "name": "U1_E7",
+      "terminals": [
+        {
+          "id": 104,
+          "x_mm": 12.0,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E7"
+        },
+        {
+          "id": 105,
+          "x_mm": 17.8835,
+          "y_mm": 11.5767,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T52",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "name": "U1_F7",
+      "terminals": [
+        {
+          "id": 106,
+          "x_mm": 12.0,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F7"
+        },
+        {
+          "id": 107,
+          "x_mm": 17.145,
+          "y_mm": 14.287,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T53",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "name": "U1_G7",
+      "terminals": [
+        {
+          "id": 108,
+          "x_mm": 12.0,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G7"
+        },
+        {
+          "id": 109,
+          "x_mm": 16.2426,
+          "y_mm": 16.2426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T54",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "name": "U1_H7",
+      "terminals": [
+        {
+          "id": 110,
+          "x_mm": 12.0,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H7"
+        },
+        {
+          "id": 111,
+          "x_mm": 15.4874,
+          "y_mm": 17.6824,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T55",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "name": "U1_A8",
+      "terminals": [
+        {
+          "id": 112,
+          "x_mm": 12.8,
+          "y_mm": 7.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "A8"
+        },
+        {
+          "id": 113,
+          "x_mm": 17.0426,
+          "y_mm": 2.9574,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T56",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "name": "U1_B8",
+      "terminals": [
+        {
+          "id": 114,
+          "x_mm": 12.8,
+          "y_mm": 8.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "B8"
+        },
+        {
+          "id": 115,
+          "x_mm": 17.6824,
+          "y_mm": 4.5126,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T57",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "name": "U1_C8",
+      "terminals": [
+        {
+          "id": 116,
+          "x_mm": 12.8,
+          "y_mm": 8.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "C8"
+        },
+        {
+          "id": 117,
+          "x_mm": 18.3149,
+          "y_mm": 6.4365,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T58",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "name": "U1_D8",
+      "terminals": [
+        {
+          "id": 118,
+          "x_mm": 12.8,
+          "y_mm": 9.6,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "D8"
+        },
+        {
+          "id": 119,
+          "x_mm": 18.7397,
+          "y_mm": 8.7515,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T59",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "name": "U1_E8",
+      "terminals": [
+        {
+          "id": 120,
+          "x_mm": 12.8,
+          "y_mm": 10.4,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "E8"
+        },
+        {
+          "id": 121,
+          "x_mm": 18.7397,
+          "y_mm": 11.2485,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T60",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "name": "U1_F8",
+      "terminals": [
+        {
+          "id": 122,
+          "x_mm": 12.8,
+          "y_mm": 11.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "F8"
+        },
+        {
+          "id": 123,
+          "x_mm": 18.3149,
+          "y_mm": 13.5635,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T61",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "name": "U1_G8",
+      "terminals": [
+        {
+          "id": 124,
+          "x_mm": 12.8,
+          "y_mm": 12.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "G8"
+        },
+        {
+          "id": 125,
+          "x_mm": 17.6824,
+          "y_mm": 15.4874,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T62",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "name": "U1_H8",
+      "terminals": [
+        {
+          "id": 126,
+          "x_mm": 12.8,
+          "y_mm": 12.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "U1",
+          "pin": "H8"
+        },
+        {
+          "id": 127,
+          "x_mm": 17.0426,
+          "y_mm": 17.0426,
+          "layer": 3,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T63",
+          "pin": "1"
+        }
+      ]
+    }
+  ]
+}

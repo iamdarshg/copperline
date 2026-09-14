@@ -1,0 +1,290 @@
+{
+  "schema": "copperline/board/1",
+  "board": {
+    "width_mm": 20.0,
+    "height_mm": 20.0
+  },
+  "layers": [
+    {
+      "id": 0,
+      "name": "Top"
+    },
+    {
+      "id": 1,
+      "name": "Bottom"
+    }
+  ],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0,
+      "name": "UX_A1",
+      "terminals": [
+        {
+          "id": 0,
+          "x_mm": 9.2,
+          "y_mm": 9.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "A1"
+        },
+        {
+          "id": 1,
+          "x_mm": 4.2503,
+          "y_mm": 4.2503,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T0",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "UX_B1",
+      "terminals": [
+        {
+          "id": 2,
+          "x_mm": 9.2,
+          "y_mm": 10.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "B1"
+        },
+        {
+          "id": 3,
+          "x_mm": 2.2,
+          "y_mm": 10.0,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T1",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "UX_C1",
+      "terminals": [
+        {
+          "id": 4,
+          "x_mm": 9.2,
+          "y_mm": 10.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "C1"
+        },
+        {
+          "id": 5,
+          "x_mm": 4.2503,
+          "y_mm": 15.7497,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T2",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "UX_A2",
+      "terminals": [
+        {
+          "id": 6,
+          "x_mm": 10.0,
+          "y_mm": 9.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "A2"
+        },
+        {
+          "id": 7,
+          "x_mm": 10.0,
+          "y_mm": 2.2,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T3",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "UX_B2",
+      "terminals": [
+        {
+          "id": 8,
+          "x_mm": 10.0,
+          "y_mm": 10.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "B2"
+        },
+        {
+          "id": 9,
+          "x_mm": 17.0,
+          "y_mm": 10.0,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T4",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "UX_C2",
+      "terminals": [
+        {
+          "id": 10,
+          "x_mm": 10.0,
+          "y_mm": 10.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "C2"
+        },
+        {
+          "id": 11,
+          "x_mm": 10.0,
+          "y_mm": 17.8,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T5",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "UX_A3",
+      "terminals": [
+        {
+          "id": 12,
+          "x_mm": 10.8,
+          "y_mm": 9.2,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "A3"
+        },
+        {
+          "id": 13,
+          "x_mm": 15.7497,
+          "y_mm": 4.2503,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T6",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "UX_B3",
+      "terminals": [
+        {
+          "id": 14,
+          "x_mm": 10.8,
+          "y_mm": 10.0,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "B3"
+        },
+        {
+          "id": 15,
+          "x_mm": 17.8,
+          "y_mm": 10.0,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T7",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "UX_C3",
+      "terminals": [
+        {
+          "id": 16,
+          "x_mm": 10.8,
+          "y_mm": 10.8,
+          "layer": 0,
+          "pad_w_mm": 0.4,
+          "pad_h_mm": 0.4,
+          "component": "UX",
+          "pin": "C3"
+        },
+        {
+          "id": 17,
+          "x_mm": 15.7497,
+          "y_mm": 15.7497,
+          "layer": 0,
+          "pad_w_mm": 0.5,
+          "pad_h_mm": 0.5,
+          "component": "T8",
+          "pin": "1"
+        }
+      ]
+    }
+  ],
+  "keepouts": [
+    {
+      "x1_mm": 6.5,
+      "y1_mm": 6.5,
+      "x2_mm": 13.5,
+      "y2_mm": 7.5,
+      "reason": "wall_south"
+    },
+    {
+      "x1_mm": 6.5,
+      "y1_mm": 12.5,
+      "x2_mm": 13.5,
+      "y2_mm": 13.5,
+      "reason": "wall_north"
+    },
+    {
+      "x1_mm": 6.5,
+      "y1_mm": 7.5,
+      "x2_mm": 7.5,
+      "y2_mm": 12.5,
+      "reason": "wall_west"
+    },
+    {
+      "x1_mm": 12.5,
+      "y1_mm": 7.5,
+      "x2_mm": 13.5,
+      "y2_mm": 12.5,
+      "reason": "wall_east"
+    }
+  ]
+}

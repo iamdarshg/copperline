@@ -201,4 +201,25 @@ CT_TEST(route_is_deterministic) {
     CT_CHECK(serialize_json(v1) == serialize_json(v2));
 }
 
+CT_TEST(escape_bga_json) {
+    int rc = 0;
+    std::string out = run_cli("escape " + fixture("bga_4x4.json") + " --json", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("schema") == "copperline/escape-report/1");
+    CT_CHECK(!v.find("footprints")->as_array().empty());
+    const JsonValue& fp = v.find("footprints")->as_array().front();
+    CT_CHECK(fp.has("eligibility_order"));
+    CT_CHECK(fp.has("commit_order"));
+    CT_CHECK(!fp.find("pads")->as_array().empty());
+}
+
+CT_TEST(escape_impossible_reports_incomplete) {
+    int rc = 0;
+    std::string out = run_cli("escape " + fixture("impossible_escape.json") + " --json", rc);
+    CT_CHECK(rc == 4);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "INCOMPLETE");
+}
+
 int main() { return copperline::test::run_all_tests(); }

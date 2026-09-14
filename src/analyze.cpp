@@ -5,6 +5,7 @@
 #include <set>
 
 #include "router/density.h"
+#include "router/escape.h"
 #include "router/route_tree.h"
 
 namespace copperline {
@@ -81,6 +82,29 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         fps.as_array().push_back(o);
     }
     r["dense_footprints"] = fps;
+
+    // Fine-pitch escape inputs (Prompt 2): which components deserve dedicated
+    // escape handling, with pitch/channel/depth context for agents.
+    {
+        FinePitchDetector detector;
+        CentreDepthAnalyzer cda;
+        JsonValue fe = JsonValue::array();
+        for (const auto& fp : detector.detect(board, resolver, ctx)) {
+            JsonValue o = JsonValue::object();
+            o["component"] = fp.component;
+            o["pins"] = static_cast<double>(fp.pad_count);
+            o["pitch_mm"] = nm_to_mm(fp.pitch_nm);
+            o["channel_count"] = static_cast<double>(fp.channel_count);
+            o["pins_per_mm2"] = fp.pins_per_mm2;
+            o["reason"] = fp.reason;
+            auto depth = cda.analyze(board, fp);
+            int max_d = 0;
+            for (const auto& [tid, d] : depth) max_d = std::max(max_d, d);
+            o["max_centre_depth"] = static_cast<double>(max_d);
+            fe.as_array().push_back(o);
+        }
+        r["fine_pitch"] = fe;
+    }
 
     JsonValue cc = JsonValue::array();
     for (const auto& c : current_classes) cc.as_array().push_back(JsonValue(c));

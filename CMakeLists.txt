@@ -24,6 +24,7 @@ add_library(router_core
   src/route_tree.cpp
   src/sparse_graph.cpp
   src/astar.cpp
+  src/escape.cpp
   src/engine.cpp
   src/verifier.cpp
   src/analyze.cpp
@@ -52,4 +53,5 @@ copperline_test(test_voltage)
 copperline_test(test_density)
 copperline_test(test_engine)
 copperline_test(test_verifier)
+copperline_test(test_escape)
 copperline_test(test_cli)

@@ -6,8 +6,9 @@ EDA pipelines: every important operation has a stable machine-readable JSON
 representation, documented nonzero exit codes, and deterministic output for a
 given `(board, rules, seed)`.
 
-> Status: **Prompt 1 foundation** (`0.1.0`) — core geometry, electrical rules,
-> CLI contract and single-threaded router. Fine-pitch escape (P2), parallel
+> Status: **Prompt 2 escape** (`0.2.0`) — fine-pitch centre-out escape stage
+> (`FinePitchDetector`, `CentreDepthAnalyzer`, `EscapeBoundary`, K-best
+> constrained A*, `router escape`) on top of the Prompt 1 foundation. Parallel
 > routing (P3), rip-up/meta-search (P4) and adapters/optimizer/release (P5)
 > are explicitly planned and reported as such by `router capabilities`.
 
@@ -18,7 +19,7 @@ given `(board, rules, seed)`.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# Run the full test suite (42 cases, 7 binaries)
+# Run the full test suite (61 cases, 8 binaries; test_escape takes ~3 min)
 ctest --test-dir build --output-on-failure
 
 # Route a board, machine-readable
@@ -34,6 +35,11 @@ ctest --test-dir build --output-on-failure
 
 # Analyze difficulty, density, bottlenecks
 ./build/router analyze board.json --json
+
+# Plan fine-pitch escapes (centre-out, K-best, JSON diagnostics)
+./build/router escape fixtures/bga_4x4.json --json
+./build/router escape fixtures/bga_8x8.json --json --report escape.json
+# rc 4 + "INCOMPLETE" when any pad carries an infeasibility record
 
 # Ingest a KiCad board directly
 ./build/router analyze fixtures/minimal.kicad_pcb --json
@@ -59,8 +65,9 @@ ctest --test-dir build --output-on-failure
 | 6 | internal failure (unexpected exception) |
 | 7 | search budget exhausted (`--max-search-nodes` / `--timeout` hit) |
 
-Future commands (`escape`, `benchmark`, `explain-failure`) exit 2 with
-`"code": "not_implemented"` until their prompt lands.
+Future commands (`benchmark`, `explain-failure`) exit 2 with
+`"code": "not_implemented"` until their prompt lands. `escape` returns 4
+when any pad ends infeasible (records included in the JSON report).
 
 ## Electrical awareness
 
@@ -126,21 +133,49 @@ order legal alternatives.
 ```
 include/router  geometry.h  json.h  sexpr.h  board.h  rules.h
                 spatial_index.h  density.h  route_tree.h
-                sparse_graph.h  astar.h  engine.h  verifier.h  analyze.h
+                sparse_graph.h  astar.h  escape.h  engine.h  verifier.h
+                analyze.h
 src             json/sexpr/board/kicad/rules/spatial_index/density/...
-                route_tree/sparse_graph/astar/engine/verifier/analyze/main(CLI)
-tests           7 binaries, 42 cases (no third-party framework)
-fixtures        5 JSON boards + rules sidecar + KiCad sample + violation board
+                route_tree/sparse_graph/astar/escape/engine/verifier/analyze/main(CLI)
+tests           8 binaries, 61 cases (no third-party framework)
+fixtures        5 Prompt-1 JSON boards + 9 fine-pitch golden boards
+                (bga_4x4, bga_8x8, bga_8x8_via, irregular_array, dense_qfn,
+                high_current_bga, mixed_voltage_bga, greedy_outside_first,
+                impossible_escape) + rules sidecar + KiCad sample + violation board
 ```
 
 Global acceptance is lexicographic (connectivity > hard violations >
 resource overuse > electrical geometry > vias > length > bends >
 congestion) and enforced by the engine/verifier split.
 
-## Known limitations (Prompt 1)
+## Fine-pitch escape (Prompt 2)
+
+BGA/LGA/dense-array routing is structurally **centre-out**: deeper pads are
+planned before shallower ones — not a centrality bonus, but an eligibility
+order enforced by the planner. A shallower pad is never committed while a
+deeper eligible pad has neither a viable candidate nor an explicit
+temporary-infeasibility record (`router escape --json` reports
+`eligibility_order`, `commit_order`, per-pad `centre_depth`, `candidate_count`,
+`candidate_portals`, `via_decisions` and `infeasibility_reason`/`blockers`
+under schema `copperline/escape-report/1`; exit 4 when any pad is infeasible).
+
+Within equal centre depth: fewest legal exits → fewest via sites → highest
+density → highest downstream difficulty → stable terminal id. Candidates are
+K-best with distinct signatures
+(`portal|direction|layer-strategy|via-class|bottleneck`); strategies cover
+`same-layer`, `dogbone`, `via-first` (legal neckdown honoured, never invented)
+and `multilayer`. The engine routes fine-pitch tasks centre-out via a depth
+difficulty boost. `router analyze --json` gains a `fine_pitch` section.
+
+## Known limitations (Prompt 2)
 
 - Single-threaded engine (`--threads N>1` is accepted, logged, and runs 1).
-- No fine-pitch escape stage, no rip-up/reroute, no optimizer — greedy
-  sequential A*; impossible boards report `INCOMPLETE` with blocker hints.
+- No rip-up/reroute, no optimizer — greedy sequential A* + escape stubs;
+  impossible boards report `INCOMPLETE` with blocker hints.
+- Escape is complete on 4x4/QFN/irregular fixtures; ultra-dense 8x8
+  (0.8 mm pitch, zero same-layer channels) escapes 48/64 with explicit
+  infeasibility records for the rest — recovery is Prompt 4 work.
+- Escape planner + `test_escape` are slow on 8x8 (~1 min/plan, ~3 min suite):
+  accepted for this phase, profiling/optimization handed to the next agent.
 - No DSN/SES export yet; routed output is native JSON (Prompt 5).
-- `router escape|benchmark|explain-failure` are stubs by design.
+- `router benchmark|explain-failure` are stubs by design.

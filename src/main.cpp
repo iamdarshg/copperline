@@ -22,6 +22,7 @@
 #include "router/analyze.h"
 #include "router/board.h"
 #include "router/engine.h"
+#include "router/escape.h"
 #include "router/rules.h"
 #include "router/verifier.h"
 
@@ -251,13 +252,13 @@ JsonValue capabilities_json() {
     r["schema"] = "copperline/capabilities/1";
     r["name"] = "copperline";
     r["version"] = COPPERLINE_VERSION;
-    r["phase"] = "prompt-1-foundation";
+    r["phase"] = "prompt-2-escape";
     JsonValue cmds = JsonValue::array();
-    for (const char* c : {"capabilities", "analyze", "verify", "route"})
+    for (const char* c : {"capabilities", "analyze", "verify", "route", "escape"})
         cmds.as_array().push_back(JsonValue(c));
     r["commands"] = cmds;
     JsonValue planned = JsonValue::array();
-    for (const char* c : {"escape", "benchmark", "explain-failure"})
+    for (const char* c : {"benchmark", "explain-failure"})
         planned.as_array().push_back(JsonValue(c));
     r["planned_commands"] = planned;
     JsonValue formats = JsonValue::object();
@@ -284,7 +285,7 @@ JsonValue capabilities_json() {
     feat["voltage_aware"] = true;
     feat["pin_density"] = true;
     feat["parallel_routing"] = false;
-    feat["fine_pitch_escape"] = false;
+    feat["fine_pitch_escape"] = true;
     feat["ripup_reroute"] = false;
     feat["optimizer"] = false;
     r["features"] = feat;
@@ -295,9 +296,9 @@ int cmd_capabilities(const Flags& f) {
     if (f.json) {
         emit_json(f, capabilities_json());
     } else if (!f.quiet) {
-        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-1 foundation)\n"
-                  << "commands: capabilities, analyze, verify, route\n"
-                  << "planned: escape, benchmark, explain-failure\n"
+        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-2 escape)\n"
+                  << "commands: capabilities, analyze, verify, route, escape\n"
+                  << "planned: benchmark, explain-failure\n"
                   << "formats: json, kicad_pcb (.kicad_pcb)\n"
                   << "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
                   << "            5 rule violation, 6 internal failure, 7 budget exhausted\n";
@@ -360,6 +361,44 @@ int cmd_verify(const Flags& f) {
     if (!r.legal) return kViolation;
     if (!r.connected) return kIncomplete;
     return kOk;
+}
+
+int cmd_escape(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (!f.config.empty()) {
+        if (!load_resolver(f, lb.board, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                        "malformed_rules", msg);
+    }
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    ElectricalContext ctx;
+    EscapePlanner planner;
+    EscapeResult r = planner.plan(lb.board, resolver, ctx);
+    JsonValue rj = r.to_json();
+    if (!f.report.empty()) {
+        std::string err;
+        if (!write_file(f.report, serialize_json(rj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        rj["report"] = f.report;
+    }
+    if (f.json) {
+        emit_json(f, rj);
+    } else if (!f.quiet) {
+        std::cout << "escape: " << rj.get_string("status") << " (" << r.pads_with_candidates
+                  << "/" << r.pads_total << " pads, " << r.footprints.size() << " footprints)\n";
+        for (const auto& fp : r.footprints) {
+            std::cout << "  footprint " << fp.footprint.component << " (" << fp.footprint.pad_count
+                      << " pads, pitch " << nm_to_mm(fp.footprint.pitch_nm) << "mm): ";
+            for (TermId tid : fp.eligibility_order) std::cout << tid << " ";
+            std::cout << "\n";
+        }
+    }
+    if (r.pads_total == 0) return kOk;  // no fine-pitch: nothing to escape
+    return r.pads_infeasible == 0 ? kOk : kIncomplete;
 }
 
 int cmd_route(const Flags& f) {
@@ -425,7 +464,7 @@ int cmd_route(const Flags& f) {
 
 int run(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "usage: router <capabilities|analyze|verify|route> [board] [flags]\n"
+        std::cerr << "usage: router <capabilities|analyze|verify|route|escape> [board] [flags]\n"
                      "       router --help | router --version\n";
         return kInvalidInput;
     }
@@ -435,9 +474,10 @@ int run(const std::vector<std::string>& args) {
                      "  router capabilities [--json]\n"
                      "  router analyze <board> [--json] [--config cfg.json]\n"
                      "  router verify <board> [--json] [--config cfg.json]\n"
-                     "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
-                     "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
-                     "                       [--output routed.json] [--report report.json]\n\n"
+                      "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
+                      "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
+                      "                       [--output routed.json] [--report report.json]\n"
+                      "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n\n"
                      "boards: .json (native) or .kicad_pcb\n";
         return kOk;
     }
@@ -459,10 +499,11 @@ int run(const std::vector<std::string>& args) {
         if (cmd == "analyze") return cmd_analyze(f);
         if (cmd == "verify") return cmd_verify(f);
         if (cmd == "route") return cmd_route(f);
-        if (cmd == "escape" || cmd == "benchmark" || cmd == "explain-failure")
+        if (cmd == "escape") return cmd_escape(f);
+        if (cmd == "benchmark" || cmd == "explain-failure")
             return fail(f, kInvalidInput, "not_implemented",
                          "command '" + cmd + "' lands in Prompt " +
-                             (cmd == "escape" ? "2" : (cmd == "benchmark" ? "3" : "5")));
+                             (cmd == "benchmark" ? "3" : "5"));
         return fail(f, kInvalidInput, "unknown_command",
                     "unknown command '" + cmd + "' (see router --help)");
     } catch (const BoardError& e) {

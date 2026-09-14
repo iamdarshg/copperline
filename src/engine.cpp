@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 #include "router/density.h"
+#include "router/escape.h"
 #include "router/route_tree.h"
 #include "router/sparse_graph.h"
 
@@ -71,6 +73,24 @@ RouteReport RouterEngine::run() {
         for (auto& t : tree.tasks) {
             t.difficulty = task_difficulty(board_, resolver_, t, ctx, density.terminal_density);
             tasks.push_back(t);
+        }
+    }
+    // Centre-out boost (Prompt 2): tasks touching deeper fine-pitch pads
+    // route first. Depth outranks density but never overrides legality: it
+    // only biases the deterministic difficulty order.
+    {
+        FinePitchDetector detector;
+        CentreDepthAnalyzer cda;
+        std::map<TermId, int> depth_of;
+        for (const auto& fp : detector.detect(board_, resolver_, ctx)) {
+            for (const auto& [tid, d] : cda.analyze(board_, fp)) depth_of[tid] = d;
+        }
+        if (!depth_of.empty()) {
+            for (auto& t : tasks) {
+                int da = depth_of.count(t.a) ? depth_of.at(t.a) : 0;
+                int db = depth_of.count(t.b) ? depth_of.at(t.b) : 0;
+                t.difficulty += 5.0 * static_cast<double>(std::max(da, db));
+            }
         }
     }
     sort_tasks_deterministic(tasks);
