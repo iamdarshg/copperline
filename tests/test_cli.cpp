@@ -303,4 +303,31 @@ CT_TEST(escape_impossible_reports_incomplete) {
     CT_CHECK(v.get_string("status") == "INCOMPLETE");
 }
 
+CT_TEST(route_illegal_copper_refuses_success) {
+    // Issue #2: pre-existing clearance violation must not route COMPLETE.
+    // The route report must carry the independent verification and the
+    // process must exit with the hard-rule-violation code, never 0.
+    int rc = 0;
+    std::string out = run_cli("route " + fixture("violation_board.json") + " --json", rc);
+    CT_CHECK(rc == 5);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "VIOLATION");
+    CT_CHECK(v.get_bool("verifier_ok", true) == false);
+    CT_CHECK(v.get_bool("verifier_legal", true) == false);
+    CT_CHECK(v.has("verification"));
+    CT_CHECK(!v.find("verification")->find("violations")->as_array().empty());
+}
+
+CT_TEST(route_complete_carries_verifier_ok) {
+    int rc = 0;
+    std::string out =
+        run_cli("route " + fixture("open_2layer.json") + " --json --seed 7", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    CT_CHECK(v.get_bool("verifier_ok", false));
+    CT_CHECK(v.has("verification"));
+    CT_CHECK(v.find("verification")->get_bool("ok", false));
+}
+
 int main() { return copperline::test::run_all_tests(); }

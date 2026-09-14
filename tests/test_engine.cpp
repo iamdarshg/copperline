@@ -210,4 +210,100 @@ CT_TEST(engine_report_carries_stats_and_hash) {
     CT_CHECK(j.find("stats")->get_number("epochs", 0) >= 1);
 }
 
+CT_TEST(verifier_gate_keeps_clean_complete) {
+    Board b = open_board();
+    RuleResolver r = RuleResolver::defaults_for(b);
+    EngineOptions opt;
+    RouterEngine engine(std::move(b), std::move(r), opt);
+    RouteReport rep = engine.run();
+    CT_CHECK(rep.status == "COMPLETE");
+    CT_CHECK(rep.verification.ok);
+    CT_CHECK(rep.verification.connected);
+    CT_CHECK(rep.verification.legal);
+    JsonValue j = rep.to_json();
+    CT_CHECK(j.has("verification"));
+    CT_CHECK(j.get_bool("verifier_ok", false));
+}
+
+CT_TEST(verifier_gate_refuses_bookkeeping_lie_disconnected) {
+    // Inject a COMPLETE report whose bookkeeping claims success while the
+    // independent verifier reports a disconnected pad: success must be refused.
+    RouteReport rep;
+    rep.status = "COMPLETE";
+    rep.result_category = "COMPLETE";
+    rep.total_terminals = 2;
+    rep.connected_terminals = 2;
+    VerifyResult vr;
+    vr.ok = false;
+    vr.connected = false;
+    vr.legal = true;
+    Unconnected u;
+    u.net = 0;
+    u.net_name = "SIG";
+    u.terminal = 1;
+    u.component = "U1";
+    u.pin = "2";
+    vr.unconnected.push_back(u);
+    apply_verifier_gate(rep, vr);
+    CT_CHECK(rep.status == "INCOMPLETE");
+    CT_CHECK(!rep.failures.empty());
+    CT_CHECK(rep.failures.front().reason == "verifier_unconnected");
+    CT_CHECK(rep.connected_terminals == 1);
+    CT_CHECK(!rep.verification.ok);
+}
+
+CT_TEST(verifier_gate_escalates_hard_violation) {
+    // A bookkeeping-COMPLETE report with illegal copper must become VIOLATION
+    // with a hard-rule-violation category, never stay COMPLETE.
+    RouteReport rep;
+    rep.status = "COMPLETE";
+    rep.result_category = "COMPLETE";
+    rep.total_terminals = 2;
+    rep.connected_terminals = 2;
+    VerifyResult vr;
+    vr.ok = false;
+    vr.connected = true;
+    vr.legal = false;
+    Violation v;
+    v.type = "clearance";
+    v.net_a = 0;
+    v.net_b = 1;
+    v.rule = "board_default";
+    v.detail = "injected clearance hit";
+    vr.violations.push_back(v);
+    apply_verifier_gate(rep, vr);
+    CT_CHECK(rep.status == "VIOLATION");
+    CT_CHECK(rep.result_category == "HARD_RULE_VIOLATION");
+    CT_CHECK(!rep.failures.empty());
+}
+
+CT_TEST(engine_with_illegal_fixed_copper_never_complete) {
+    // Fixed user copper already violates clearance; even if routing tasks
+    // succeed the final report must not claim COMPLETE.
+    Board b = base_2layer();
+    NetInfo a = make_net(0, "A");
+    b.nets.push_back(a);
+    NetInfo n1 = make_net(1, "B");
+    b.nets.push_back(n1);
+    add_terminal(b, 0, 1.0, 5.0);
+    add_terminal(b, 0, 5.0, 5.0);
+    add_terminal(b, 1, 1.0, 5.1);
+    add_terminal(b, 1, 5.0, 5.1);
+    // Pre-existing illegal pair: 0.1mm apart with 0.15mm default clearance.
+    b.traces.push_back({0, 0, b.terminals[0].pos, b.terminals[1].pos, mm_to_nm(0.2)});
+    b.traces.push_back({1, 0, b.terminals[2].pos, b.terminals[3].pos, mm_to_nm(0.2)});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    EngineOptions opt;
+    opt.enable_ripup = false;
+    RouterEngine engine(std::move(b), std::move(r), opt);
+    RouteReport rep = engine.run();
+    CT_CHECK(rep.status != "COMPLETE");
+    CT_CHECK(!rep.verification.ok);
+    CT_CHECK(!rep.verification.legal);
+    CT_CHECK(!rep.verification.violations.empty());
+    JsonValue j = rep.to_json();
+    CT_CHECK(j.has("verification"));
+    CT_CHECK(j.get_bool("verifier_ok", true) == false);
+}
+
 int main() { return copperline::test::run_all_tests(); }

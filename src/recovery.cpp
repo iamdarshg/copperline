@@ -439,6 +439,7 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
                             const std::vector<OwnedRoute>& surviving,
                             const std::vector<int>& to_route, int failed_ti,
                             const std::vector<ConnectionTask>& tasks,
+                            const std::vector<int>& gen_remaining,
                             const std::vector<Corridor>& corridors,
                             const RuleResolver& resolver, const ElectricalContext& ctx,
                             const std::vector<double>& layer_mult, const AStarConfig& astar_cfg,
@@ -542,9 +543,20 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
     }
     out.length_nm = len;
     out.via_count = vias;
-    // Hash the branch outcome (copper only; remaining derived by caller, but
-    // copper alone is enough to order ties deterministically).
-    out.hash = state_hash128(work, tasks, {});
+    // Exact unfinished set: (gen_remaining ∪ to_route) \ newly_done, sorted.
+    // No transposition access here (workers never touch the table); the
+    // arbiter prunes/records serially after join using this exact identity.
+    {
+        std::set<int> done_set(done.begin(), done.end());
+        std::set<int> rest(gen_remaining.begin(), gen_remaining.end());
+        for (int ti : to_route) rest.insert(ti);
+        std::vector<int> rem;
+        for (int ti : rest)
+            if (!done_set.count(ti)) rem.push_back(ti);
+        std::sort(rem.begin(), rem.end());
+        out.remaining_task_ids = rem;
+        out.hash = state_hash128(work, tasks, rem);
+    }
     return out;
 }
 
@@ -564,6 +576,7 @@ JsonValue RecoveryInfo::to_json() const {
 
 std::string result_category(const std::string& status) {
     if (status == "COMPLETE") return "COMPLETE";
+    if (status == "VIOLATION") return "HARD_RULE_VIOLATION";
     if (status == "BUDGET_EXHAUSTED") return "SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS";
     if (status == "TIMEOUT") return "TIMEOUT";
     return "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET";

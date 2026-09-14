@@ -29,6 +29,7 @@
 #include "router/parallel.h"
 #include "router/recovery.h"
 #include "router/rules.h"
+#include "router/verifier.h"
 
 namespace copperline {
 
@@ -66,6 +67,7 @@ struct RouteReport {
     std::string board_hash;  // geometry_hash() of committed copper
     StateHash128 state_hash{};
     RecoveryInfo recovery;
+    VerifyResult verification;  // independent BoardVerifier gate on final copper
     JsonValue to_json() const;
 };
 
@@ -93,5 +95,11 @@ class RouterEngine {
     RuleResolver resolver_;
     EngineOptions options_;
 };
+
+// Post-P4 issue #2: gate COMPLETE on BoardVerifier. Downgrades a
+// bookkeeping-COMPLETE report when independent verification of the committed
+// copper disagrees, and escalates any illegal final board to VIOLATION so the
+// CLI maps it to the hard-rule-violation exit code. Never upgrades a report.
+void apply_verifier_gate(RouteReport& report, const VerifyResult& vr);
 
 }  // namespace copperline

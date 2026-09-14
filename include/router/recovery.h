@@ -166,6 +166,9 @@ StateHash128 state_hash128(const Board& board, const std::vector<ConnectionTask>
 
 // ---- Transposition table ----
 
+// Single-threaded only: all should_prune/record calls must happen on the
+// deterministic arbiter thread after speculative workers join, in move-index
+// order. Never call from worker threads (unsynchronized unordered_map).
 class TranspositionTable {
   public:
     // True when this (hash, remaining-count) was already reached with an
@@ -221,13 +224,19 @@ struct BranchResult {
     int total_tasks = 0;
     Coord length_nm = 0;
     int via_count = 0;
-    StateHash128 hash;
+    StateHash128 hash;  // exact state hash over (copper, remaining_task_ids)
     std::string mode;
     RipupMove move;
     // Resulting copper when this branch wins (fixed + surviving + rerouted).
     Board board;
     std::vector<OwnedRoute> owned;
     std::vector<int> newly_done;  // task positions routed in this branch
+    // Exact unfinished task positions after this branch
+    // (sorted; (gen_remaining ∪ to_route) \ newly_done). State identity is
+    // (hash, remaining_task_ids): two branches with identical copper but
+    // different unfinished sets must NOT alias. Filled by reroute_branch;
+    // consumed serially by the arbiter for transposition pruning.
+    std::vector<int> remaining_task_ids;
     std::int64_t expansions = 0;
 };
 
@@ -239,14 +248,21 @@ bool branch_better(const BranchResult& a, const BranchResult& b);
 // Reroute one speculative branch sequentially (deterministic, single-thread
 // body; branches run concurrently in the driver via indexed slots).
 // `surviving` + `fixed_*` form the base copper; `to_route` are task positions
-// (failed + ripped) retried under `astar_cfg`. Order change after stalls is
-// itself a meta-search decision: the failed task (`failed_ti`) goes first,
-// then difficulty order with stable (net, a, b) tie-breaks.
+// (failed + ripped) retried under `astar_cfg`. `gen_remaining` is the full
+// unfinished set at generation start, used to derive the exact
+// remaining_task_ids ((gen_remaining ∪ to_route) \ newly_done) and the exact
+// state hash. Performs NO transposition-table access: the worker only returns
+// the branch outcome + exact unfinished IDs; the arbiter hashes (already done
+// here, purely) and prunes/records serially in move-index order after join.
+// Order change after stalls is itself a meta-search decision: the failed
+// task (`failed_ti`) goes first, then difficulty order with stable
+// (net, a, b) tie-breaks.
 BranchResult reroute_branch(const Board& base_template, const std::vector<TraceSeg>& fixed_traces,
                             const std::vector<Via>& fixed_vias,
                             const std::vector<OwnedRoute>& surviving,
                             const std::vector<int>& to_route, int failed_ti,
                             const std::vector<ConnectionTask>& tasks,
+                            const std::vector<int>& gen_remaining,
                             const std::vector<Corridor>& corridors,
                             const RuleResolver& resolver, const ElectricalContext& ctx,
                             const std::vector<double>& layer_mult, const AStarConfig& astar_cfg,
@@ -267,9 +283,9 @@ struct RecoveryInfo {
 };
 
 // Result-category strings for agents (stable, machine-readable).
-// COMPLETE stays COMPLETE; budget exhaustion maps to
-// SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS; other incompletes map to
-// UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET.
+// COMPLETE stays COMPLETE; VIOLATION maps to HARD_RULE_VIOLATION; budget
+// exhaustion maps to SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS;
+// other incompletes map to UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET.
 std::string result_category(const std::string& status);
 
 }  // namespace copperline

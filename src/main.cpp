@@ -434,6 +434,29 @@ int cmd_route(const Flags& f) {
     RouterEngine engine(std::move(lb.board), std::move(resolver), opt);
     RouteReport report = engine.run();
 
+    // Issue #2: independent CLI-side gate. No `router route` may exit 0
+    // unless BoardVerifier.ok on the final committed copper, even if the
+    // engine's bookkeeping claimed COMPLETE.
+    {
+        RuleResolver verify_resolver = RuleResolver::defaults_for(engine.committed());
+        if (!f.config.empty()) {
+            std::string cfg_text, cfg_err;
+            if (read_file(f.config, cfg_text, cfg_err)) {
+                try {
+                    verify_resolver =
+                        RuleResolver::from_config(engine.committed(), parse_json(cfg_text));
+                } catch (...) {
+                    // Config already validated above; keep defaults on
+                    // unexpected re-parse failure (engine gate already ran).
+                }
+            }
+        }
+        ElectricalContext verify_ctx;
+        BoardVerifier verifier;
+        VerifyResult independent = verifier.verify(engine.committed(), verify_resolver, verify_ctx);
+        apply_verifier_gate(report, independent);
+    }
+
     JsonValue rj = report.to_json();
     JsonValue params = JsonValue::object();
     params["seed"] = static_cast<double>(f.seed);
@@ -470,7 +493,20 @@ int cmd_route(const Flags& f) {
             std::cout << "  failed: net " << fl.net_name << " (" << fl.reason << ")\n";
     }
 
-    if (report.status == "COMPLETE") return kOk;
+    if (report.status == "COMPLETE") {
+        // Belt-and-braces: the report already carries the engine + CLI gates,
+        // but never trust bookkeeping alone for the process exit code.
+        if (!report.verification.ok) {
+            if (!report.verification.legal) return kViolation;
+            return kIncomplete;
+        }
+        return kOk;
+    }
+    if (report.status == "VIOLATION") return kViolation;
+    // A non-COMPLETE report can still carry illegal copper (e.g. pre-existing
+    // user copper): surface the hard-rule-violation code first, matching
+    // `router verify` precedence (legal before connected).
+    if (!report.verification.legal) return kViolation;
     if (report.status == "BUDGET_EXHAUSTED" || report.status == "TIMEOUT") return kBudget;
     return kIncomplete;
 }

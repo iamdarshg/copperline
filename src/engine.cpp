@@ -10,6 +10,7 @@
 #include "router/escape.h"
 #include "router/route_tree.h"
 #include "router/sparse_graph.h"
+#include "router/verifier.h"
 
 namespace copperline {
 
@@ -75,6 +76,10 @@ JsonValue RouteReport::to_json() const {
     }
     r["failures"] = fails;
     r["recovery"] = recovery.to_json();
+    r["verification"] = verification.to_json();
+    r["verifier_ok"] = verification.ok;
+    r["verifier_connected"] = verification.connected;
+    r["verifier_legal"] = verification.legal;
     r["result_category"] = result_category;
     r["state_hash"] = state_hash.to_hex();
     return r;
@@ -100,6 +105,60 @@ std::vector<std::string> attribute_blockers(const Board& board, const Connection
 }
 
 }  // namespace
+
+void apply_verifier_gate(RouteReport& report, const VerifyResult& vr) {
+    report.verification = vr;
+    if (vr.ok) return;
+    // Hard legality failure always escalates: illegal copper must surface as
+    // the hard-rule-violation status, never as COMPLETE/INCOMPLETE/BUDGET.
+    if (!vr.legal) {
+        if (report.status != "VIOLATION") {
+            report.status = "VIOLATION";
+            report.result_category = result_category(report.status);
+        }
+        // Ensure failures explain the violation even when bookkeeping was
+        // COMPLETE (failures empty). One synthetic entry per violation keeps
+        // per-net attribution for agents.
+        if (report.failures.empty()) {
+            for (const auto& v : vr.violations) {
+                RouteFailure f;
+                f.net = v.net_a;
+                f.a = -1;
+                f.b = -1;
+                f.reason = "hard_violation:" + v.type;
+                f.blockers.push_back(v.detail);
+                report.failures.push_back(f);
+            }
+        }
+        // Illegal boards are also disconnected in general; keep the terminal
+        // count truthful when bookkeeping claimed full connectivity.
+        if (!vr.unconnected.empty()) {
+            int un = static_cast<int>(vr.unconnected.size());
+            report.connected_terminals =
+                std::max(0, report.total_terminals - un);
+        }
+        return;
+    }
+    // Connectivity-only failure: refuse COMPLETE (or empty-failure success).
+    if (report.status == "COMPLETE" || report.failures.empty()) {
+        report.status = "INCOMPLETE";
+        report.result_category = result_category(report.status);
+        if (report.failures.empty()) {
+            for (const auto& u : vr.unconnected) {
+                RouteFailure f;
+                f.net = u.net;
+                f.net_name = u.net_name;
+                f.a = u.terminal;
+                f.b = -1;
+                f.reason = "verifier_unconnected";
+                report.failures.push_back(f);
+            }
+        }
+        int un = static_cast<int>(vr.unconnected.size());
+        report.connected_terminals =
+            std::max(0, report.total_terminals - un);
+    }
+}
 
 RouteReport RouterEngine::run() {
     auto t0 = std::chrono::steady_clock::now();
@@ -455,24 +514,13 @@ RouteReport RouterEngine::run() {
                     int failed_ti = remaining[m.failed_pos];
                     BranchResult r = reroute_branch(
                         board_, fixed_traces, fixed_vias, surviving, to_route, failed_ti,
-                        tasks, corridors, resolver_, ctx, layer_mult, mode_cfg, congestion,
-                        mode_name, m);
-                    // Transposition prune inside the slot (counted, deterministic:
-                    // pruned branches simply never win).
-                    int left_after = (int)remaining.size() - r.connected_tasks +
-                                     (int)m.owned_idx.size();
-                    // Remaining after = old remaining - newly connected (failed
-                    // tasks reconnect) ... approximate by tasks still undone:
-                    // total undone = remaining + ripped - done.
-                    int undone = (int)remaining.size() + (int)m.owned_idx.size() -
-                                 r.connected_tasks;
-                    if (transposition.should_prune(r.hash, undone)) {
-                        r.pruned = true;
-                    } else {
-                        transposition.record(r.hash, undone);
-                    }
+                        tasks, remaining, corridors, resolver_, ctx, layer_mult, mode_cfg,
+                        congestion, mode_name, m);
+                    // Issue #18: no transposition access on worker threads.
+                    // The worker returns the outcome + exact remaining_task_ids
+                    // and exact hash; pruning/recording happens serially on
+                    // the arbiter after join, in move-index order.
                     results[b] = r;
-                    (void)left_after;
                 }
             };
             if (workers == 1) {
@@ -481,6 +529,18 @@ RouteReport RouterEngine::run() {
                 std::vector<std::thread> pool;
                 for (int w = 0; w < workers; ++w) pool.emplace_back(branch_fn, w);
                 for (auto& th : pool) th.join();
+            }
+            // Deterministic single-thread transposition pass, in move-index
+            // order, using the exact (hash, remaining-set) state identity.
+            for (int b = 0; b < branch_n; ++b) {
+                BranchResult& r = results[b];
+                if (!r.evaluated) continue;
+                int undone = (int)r.remaining_task_ids.size();
+                if (transposition.should_prune(r.hash, undone)) {
+                    r.pruned = true;
+                } else {
+                    transposition.record(r.hash, undone);
+                }
             }
             rec.branches_evaluated += branch_n;
             int pruned = 0;
@@ -694,6 +754,13 @@ RouteReport RouterEngine::run() {
         report.status = "INCOMPLETE";
     }
     report.result_category = result_category(report.status);
+    // Issue #2: independently verify committed copper before returning
+    // COMPLETE. Bookkeeping alone must never declare success.
+    {
+        BoardVerifier verifier;
+        VerifyResult vr = verifier.verify(board_, resolver_, ctx);
+        apply_verifier_gate(report, vr);
+    }
     if (options_.progress) {
         JsonValue done = JsonValue::object();
         done["event"] = "done";

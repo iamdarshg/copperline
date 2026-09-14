@@ -8,6 +8,8 @@
 // via a different allocation, connect everything and pass the verifier.
 #include <algorithm>
 #include <map>
+#include <set>
+#include <thread>
 
 #include "helpers.h"
 #include "router/board.h"
@@ -341,6 +343,130 @@ CT_TEST(impossible_board_reports_budget_category_honestly) {
              rep.result_category == "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET");
     CT_CHECK(!rep.failures.empty());
     CT_CHECK(!rep.failures[0].blockers.empty());
+}
+
+// ---- Issue #18: deterministic single-thread transposition + exact state ----
+
+CT_TEST(transposition_same_count_different_set_no_alias) {
+    // Identical copper + same remaining COUNT but different unfinished sets
+    // must hash differently and must not mutually prune.
+    Board b = trap_board();
+    ConnectionTask t0{0, b.nets[0].terminals[0], b.nets[0].terminals[1], 0, 0};
+    ConnectionTask t1{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 0};
+    std::vector<ConnectionTask> tasks = {t0, t1};
+    StateHash128 h0 = state_hash128(b, tasks, {0});
+    StateHash128 h1 = state_hash128(b, tasks, {1});
+    CT_CHECK(!(h0 == h1));  // same count (1), different sets: no alias
+    TranspositionTable tt;
+    tt.record(h0, 1);
+    CT_CHECK(!tt.should_prune(h1, 1));  // different state: keep
+    CT_CHECK(tt.should_prune(h0, 1));   // identical state: prune
+}
+
+CT_TEST(branch_result_carries_exact_remaining_ids) {
+    // reroute_branch must report the exact unfinished set
+    // ((gen_remaining union to_route) minus newly_done, sorted) and hash
+    // exactly that set, never an empty placeholder.
+    Board b = trap_board();
+    ConnectionTask t0{0, b.nets[0].terminals[0], b.nets[0].terminals[1], 0, 1.0};
+    ConnectionTask t1{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 2.0};
+    std::vector<ConnectionTask> tasks = {t0, t1};
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    std::vector<Corridor> corridors = {probable_corridor(b, r, tasks[0], ctx),
+                                       probable_corridor(b, r, tasks[1], ctx)};
+    std::vector<double> layer_mult = {1.0};
+    AStarConfig cfg;
+    CongestionMap congestion;
+    congestion.init(b);
+    RipupMove m;
+    m.failed_pos = 0;
+    m.failed_task = t1;
+    std::vector<int> gen_remaining = {1};
+    std::vector<int> to_route = {0, 1};
+    BranchResult out = reroute_branch(b, {}, {}, {}, to_route, 1, tasks, gen_remaining,
+                                      corridors, r, ctx, layer_mult, cfg, congestion,
+                                      "FAST", m);
+    CT_CHECK(out.evaluated);
+    std::set<int> done(out.newly_done.begin(), out.newly_done.end());
+    std::set<int> uni(gen_remaining.begin(), gen_remaining.end());
+    for (int ti : to_route) uni.insert(ti);
+    std::vector<int> expect;
+    for (int ti : uni)
+        if (!done.count(ti)) expect.push_back(ti);
+    std::sort(expect.begin(), expect.end());
+    CT_CHECK(out.remaining_task_ids == expect);
+    CT_CHECK(out.hash == state_hash128(out.board, tasks, out.remaining_task_ids));
+    if (!out.remaining_task_ids.empty())
+        CT_CHECK(!(out.hash == state_hash128(out.board, tasks, {})));
+}
+
+CT_TEST(transposition_deterministic_across_thread_counts) {
+    // TT is arbiter-serial in move-index order: threads 1/2/4 yield identical
+    // copper, state hashes and transposition accounting.
+    RouteReport r1 = run_board(trap_board(), 1, true);
+    RouteReport r2 = run_board(trap_board(), 2, true);
+    RouteReport r4 = run_board(trap_board(), 4, true);
+    CT_CHECK(r1.status == "COMPLETE");
+    CT_CHECK(r2.status == "COMPLETE");
+    CT_CHECK(r4.status == "COMPLETE");
+    CT_CHECK(r1.board_hash == r2.board_hash);
+    CT_CHECK(r1.board_hash == r4.board_hash);
+    CT_CHECK(r1.state_hash.to_hex() == r2.state_hash.to_hex());
+    CT_CHECK(r1.state_hash.to_hex() == r4.state_hash.to_hex());
+    CT_CHECK(r1.recovery.generations == r2.recovery.generations);
+    CT_CHECK(r1.recovery.generations == r4.recovery.generations);
+    CT_CHECK(r1.recovery.transposition_hits == r2.recovery.transposition_hits);
+    CT_CHECK(r1.recovery.transposition_hits == r4.recovery.transposition_hits);
+    CT_CHECK(r1.recovery.branches_pruned == r4.recovery.branches_pruned);
+}
+
+CT_TEST(speculative_branches_concurrent_no_race) {
+    // The branch worker body performs no shared mutation: 8 threads x 4
+    // distinct branches must match serial results exactly (no race/crash).
+    Board b = trap_board();
+    ConnectionTask t0{0, b.nets[0].terminals[0], b.nets[0].terminals[1], 0, 1.0};
+    ConnectionTask t1{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 2.0};
+    std::vector<ConnectionTask> tasks = {t0, t1};
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    std::vector<Corridor> corridors = {probable_corridor(b, r, tasks[0], ctx),
+                                       probable_corridor(b, r, tasks[1], ctx)};
+    std::vector<double> layer_mult = {1.0};
+    AStarConfig cfg;
+    CongestionMap congestion;
+    congestion.init(b);
+    const std::vector<std::vector<int>> to_routes = {{1}, {0, 1}, {0}, {1}};
+    const std::vector<int> failed = {1, 1, 0, 1};
+    const std::vector<int> gen_remaining = {0, 1};
+    std::vector<BranchResult> ref(4);
+    for (int i = 0; i < 4; ++i) {
+        RipupMove m;
+        m.failed_task = tasks[failed[i]];
+        ref[i] = reroute_branch(b, {}, {}, {}, to_routes[i], failed[i], tasks,
+                                gen_remaining, corridors, r, ctx, layer_mult, cfg,
+                                congestion, "FAST", m);
+    }
+    std::vector<std::vector<BranchResult>> par(8, std::vector<BranchResult>(4));
+    std::vector<std::thread> pool;
+    for (int w = 0; w < 8; ++w)
+        pool.emplace_back([&, w] {
+            for (int i = 0; i < 4; ++i) {
+                RipupMove m;
+                m.failed_task = tasks[failed[i]];
+                par[w][i] = reroute_branch(b, {}, {}, {}, to_routes[i], failed[i],
+                                           tasks, gen_remaining, corridors, r, ctx,
+                                           layer_mult, cfg, congestion, "FAST", m);
+            }
+        });
+    for (auto& th : pool) th.join();
+    for (int w = 0; w < 8; ++w)
+        for (int i = 0; i < 4; ++i) {
+            CT_CHECK(par[w][i].hash == ref[i].hash);
+            CT_CHECK(par[w][i].connected_tasks == ref[i].connected_tasks);
+            CT_CHECK(par[w][i].newly_done == ref[i].newly_done);
+            CT_CHECK(par[w][i].remaining_task_ids == ref[i].remaining_task_ids);
+        }
 }
 
 int main() { return copperline::test::run_all_tests(); }
