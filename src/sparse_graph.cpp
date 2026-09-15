@@ -33,6 +33,16 @@ struct Obstacle {
     // Issue #16: foreign planes keep exact polygon geometry (raw is the
     // bbox, used only for corridor pre-checks); legality uses the polygon.
     const std::vector<Point>* poly = nullptr;
+    // Issue #1: traces are first-class Segment+width obstacles. raw stays
+    // the copper bbox (trace bounds expanded by floor(trace_width/2)) for
+    // broadphase/index filing; exact legality uses the centerline segment
+    // with the verifier-exact 4*d2 >= (2*clear+cand_width+trace_width)^2
+    // predicate (see SegLegalityCtx::segment_legal in simplify.cpp).
+    bool is_trace = false;
+    Segment trace_seg{{0, 0}, {0, 0}};
+    Coord trace_width_nm = 0;  // full foreign trace width
+    Coord trace_clear_nm = 0;  // pair clearance c (without half width)
+    Coord cand_width_nm = 0;   // candidate (route) full width
 };
 
 bool layer_match(LayerId obstacle_layer, LayerId query_layer) {
@@ -46,6 +56,18 @@ bool layer_match(LayerId obstacle_layer, LayerId query_layer) {
 bool seg_legal_vs(const Segment& s, const Obstacle& o) {
     if (!s.bounds().expanded(o.dist_min_nm).intersects(o.raw)) return true;
     __int128 d2;
+    if (o.is_trace) {
+        // Issue #1: verifier-exact trace predicate. The bbox precheck above
+        // (raw = trace bbox expanded by floor(trace_width/2), dist_min =
+        // clear + floor(cand_width/2)) is conservative on the integer grid:
+        // any centerline pair violating 4*d2 < rhs^2 has per-axis bbox gaps
+        // within the truncated need, so it always reaches the exact check.
+        __int128 rhs = (__int128)2 * o.trace_clear_nm + o.cand_width_nm +
+                       o.trace_width_nm;
+        d2 = seg_seg_dist2(s, o.trace_seg);
+        __int128 need = rhs * rhs;
+        return (__int128)4 * d2 >= need;
+    }
     if (o.poly) {
         // Issue #16: exact centerline distance to the pour polygon, not its
         // bbox, so legal corridors beside plane corners survive.
@@ -88,7 +110,15 @@ struct ObstacleIndex {
         ny = std::max(1, static_cast<int>((h + bucket - 1) / bucket));
         cells.assign(static_cast<std::size_t>(nx) * ny, {});
         for (std::size_t oi = 0; oi < obs.size(); ++oi) {
-            Rect r = obs[oi].raw.expanded(obs[oi].dist_min_nm);
+            // Issue #1: trace filing is raw.expanded(dist_min+1). raw already
+            // holds floor(trace_width/2) and dist_min holds clear +
+            // floor(cand_width/2); the exact capsule need from the trace
+            // centerline is clear + (cand+trace)/2 which can exceed the
+            // truncated sum by 1nm when both widths are odd. The +1nm keeps
+            // filing conservative (superset, exact predicate still decides).
+            Rect r = obs[oi].is_trace
+                         ? obs[oi].raw.expanded(obs[oi].dist_min_nm + 1)
+                         : obs[oi].raw.expanded(obs[oi].dist_min_nm);
             int ix0 = std::clamp(static_cast<int>((r.x1 - b.x1) / bucket), 0, nx - 1);
             int ix1 = std::clamp(static_cast<int>((r.x2 - b.x1) / bucket), 0, nx - 1);
             int iy0 = std::clamp(static_cast<int>((r.y1 - b.y1) / bucket), 0, ny - 1);
@@ -187,9 +217,24 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         if (t.net == net) continue;
         const NetInfo* on = committed.find_net(t.net);
         std::string nm = on ? on->name : "?";
-        Rect raw = t.segment().bounds().expanded(t.width_nm / 2);
-        push_obstacle(raw, t.layer, clearance_to(t.net, t.layer) + half_w, t.net, "trace",
-                      "trace:net=" + nm);
+        Segment bseg = t.segment();
+        Rect raw = bseg.bounds().expanded(t.width_nm / 2);
+        if (raw.x2 < raw.x1 || raw.y2 < raw.y1) continue;
+        Coord c = clearance_to(t.net, t.layer);
+        Obstacle o;
+        o.raw = raw;
+        o.layer = t.layer;
+        o.dist_min_nm = c + half_w;
+        o.net = t.net;
+        o.kind = "trace";
+        o.desc = "trace:net=" + nm;
+        o.poly = nullptr;
+        o.is_trace = true;
+        o.trace_seg = bseg;
+        o.trace_width_nm = t.width_nm;
+        o.trace_clear_nm = c;
+        o.cand_width_nm = route_width_nm;
+        obstacles.push_back(std::move(o));
     }
     for (const auto& v : committed.vias) {
         if (v.net == net) continue;
@@ -267,7 +312,24 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     bases.push_back(src);
     for (const auto& d : dsts) bases.push_back(d.p);
     for (const auto& o : obstacles) {
-        if (!o.raw.expanded(o.dist_min_nm).intersects(corridor)) continue;
+        if (o.is_trace) {
+            // Issue #1: diagonal traces must not be over-culled by their
+            // bbox. Keep the obstacle when EITHER the legacy bbox check hits
+            // (superset, preserves all previously emitted corners) OR the
+            // exact segment capsule (ceil need, covers odd-width 1nm band)
+            // reaches the corridor. Emission stays bbox corners; legality is
+            // unaffected (all obstacles participate regardless).
+            bool keep = o.raw.expanded(o.dist_min_nm).intersects(corridor);
+            if (!keep) {
+                Coord need_ceil =
+                    o.trace_clear_nm + (o.cand_width_nm + o.trace_width_nm + 1) / 2;
+                __int128 d2 = seg_rect_dist2(o.trace_seg, corridor);
+                keep = d2 <= (__int128)need_ceil * need_ceil;
+            }
+            if (!keep) continue;
+        } else {
+            if (!o.raw.expanded(o.dist_min_nm).intersects(corridor)) continue;
+        }
         Rect exp = o.raw.expanded(o.dist_min_nm);
         Point corners[4] = {{exp.x1, exp.y1}, {exp.x2, exp.y1}, {exp.x2, exp.y2}, {exp.x1, exp.y2}};
         for (auto c : corners) bases.push_back(c);
