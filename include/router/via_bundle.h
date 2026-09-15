@@ -28,6 +28,8 @@
 
 namespace copperline {
 
+struct ClearanceCache;  // router/simplify.h (pass by const-ref; defined there)
+
 // Compact manufacturing pitch between same-net bundle barrels:
 // barrel diameter plus one default-clearance step. Deterministic and shared
 // by the planner, the sparse-graph gate and the verifier's neighbour radius.
@@ -68,6 +70,15 @@ class ViaBundlePlanner {
                                      NetId net, Point center, LayerSpan span,
                                      const ViaStyle& style, int count,
                                      Coord route_width_nm, const ElectricalContext& ctx);
+    // Same layout, but reusing the caller's per-net clearance memo instead of
+    // refilling it per call. Exact: the memo is pure in (board, net pair),
+    // so shared values are identical to freshly resolved ones. Used by the
+    // sparse-graph via gate, which plans hundreds of bundles per build.
+    static ViaBundle plan_with_style(const Board& board, const RuleResolver& resolver,
+                                     NetId net, Point center, LayerSpan span,
+                                     const ViaStyle& style, int count,
+                                     Coord route_width_nm, const ElectricalContext& ctx,
+                                     const ClearanceCache& cc);
 
     // Ordered candidate styles for a net (preference first, then fewest vias,
     // smallest barrel, name). Exposed so the sparse graph, the candidate

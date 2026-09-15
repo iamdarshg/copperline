@@ -99,6 +99,11 @@ class SparseRoutingGraph {
     // is independent of visit/expansion order. Integer-nm throughout.
     static std::vector<GraphFrontierStat> aggregate_probes(
         const std::vector<SparseRejectedProbe>& probes);
+    // Same bounded aggregation over per-node probe sets directly (avoids a
+    // full copy of every probe). Identical result: per-key counts and the
+    // min-(x, y) representative are order-independent.
+    static std::vector<GraphFrontierStat> aggregate_probe_sets(
+        const std::vector<std::vector<SparseRejectedProbe>>& sets);
 
     // Builds the graph for one point-to-point task against the CURRENT
     // committed board state (pre-routed + already-routed copper).

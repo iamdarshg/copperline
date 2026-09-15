@@ -344,6 +344,20 @@ CT_TEST(escape_impossible_reports_incomplete) {
     CT_CHECK(v.get_string("status") == "INCOMPLETE");
 }
 
+CT_TEST(escape_threads_parity) {
+    // `escape --threads` wiring: explicit counts parallelize the fallback
+    // fan-out but must not change the committed geometry. The escape report
+    // carries no timing fields, so the JSON reports are byte-identical.
+    int rc1 = 0, rc16 = 0;
+    std::string o1 = run_cli("escape " + fixture("bga_8x8.json") + " --json --threads 1", rc1);
+    std::string o16 =
+        run_cli("escape " + fixture("bga_8x8.json") + " --json --threads 16", rc16);
+    CT_CHECK(rc1 == rc16);
+    JsonValue v1 = must_parse(o1), v16 = must_parse(o16);
+    CT_CHECK(v1.get_string("schema") == "copperline/escape-report/1");
+    CT_CHECK(o1 == o16);
+}
+
 CT_TEST(route_illegal_copper_refuses_success) {
     // Issue #2: pre-existing clearance violation must not route COMPLETE.
     // The route report must carry the independent verification and the

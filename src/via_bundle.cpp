@@ -177,10 +177,22 @@ int ViaBundlePlanner::required_count(const RuleResolver& resolver, const ViaStyl
 }
 
 ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolver& resolver,
-                                            NetId net, Point center, LayerSpan span,
-                                            const ViaStyle& style, int count,
-                                            Coord route_width_nm,
-                                            const ElectricalContext& ctx) {
+                                             NetId net, Point center, LayerSpan span,
+                                             const ViaStyle& style, int count,
+                                             Coord route_width_nm,
+                                             const ElectricalContext& ctx) {
+    // D4/S4: one plan-level clearance memo for every barrel + stub probe.
+    ClearanceCache cc(board, resolver, ctx, net);
+    return plan_with_style(board, resolver, net, center, span, style, count, route_width_nm,
+                           ctx, cc);
+}
+
+ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolver& resolver,
+                                             NetId net, Point center, LayerSpan span,
+                                             const ViaStyle& style, int count,
+                                             Coord route_width_nm,
+                                             const ElectricalContext& ctx,
+                                             const ClearanceCache& cc) {
     ViaBundle out;
     out.style = style;
     out.count = std::max(1, count);
@@ -196,8 +208,8 @@ ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolv
         out.reason = "no_via_class";
         return out;
     }
-    // D4/S4: one plan-level clearance memo for every barrel + stub probe.
-    ClearanceCache cc(board, resolver, ctx, net);
+    // cc is the caller's shared per-net clearance memo (pure in (board, net
+    // pair)); barrel + stub probes below hit it instead of refilling per call.
     Coord pitch = via_bundle_pitch(style);
     Coord half_w = route_width_nm / 2;
     LayerId top = std::min(span.top, span.bottom);

@@ -16,7 +16,9 @@
 // parallel, speedup ~5x, identical geometry. The exp_per_s floor below
 // therefore counts total search work (exact + coarse).
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
+#include <string>
 #include <thread>
 
 #include "helpers.h"
@@ -78,6 +80,54 @@ RouteReport run_n(Board b, int threads, double& wall_s) {
     auto t1 = std::chrono::steady_clock::now();
     wall_s = std::chrono::duration<double>(t1 - t0).count();
     return rep;
+}
+
+// Graph-identity hash (perf probe-audit gate): FNV-1a over every committed
+// node, edge (in stored order) and per-node rejected probe. Any change to the
+// built graph — nodes, edges, fields, or #23 frontier evidence — flips it.
+std::uint64_t graph_identity_hash(const SparseRoutingGraph& g) {
+    std::uint64_t h = 1469598103934665603ULL;
+    auto mix_u64 = [&](std::uint64_t v) {
+        h ^= v;
+        h *= 1099511628211ULL;
+    };
+    auto mix_str = [&](const std::string& s) {
+        for (unsigned char ch : s) {
+            h ^= ch;
+            h *= 1099511628211ULL;
+        }
+        mix_u64(s.size());
+    };
+    mix_u64(static_cast<std::uint64_t>(g.src_node()));
+    mix_u64(static_cast<std::uint64_t>(g.dst_node()));
+    for (int d : g.dst_nodes()) mix_u64(static_cast<std::uint64_t>(d + 2));
+    for (const auto& n : g.nodes()) {
+        mix_u64(static_cast<std::uint64_t>(n.p.x));
+        mix_u64(static_cast<std::uint64_t>(n.p.y));
+        mix_u64(static_cast<std::uint64_t>(n.layer));
+        mix_u64(static_cast<std::uint64_t>(n.base + 2));
+    }
+    for (std::size_t i = 0; i < g.nodes().size(); ++i) {
+        for (const auto& e : g.edges(static_cast<int>(i))) {
+            mix_u64(static_cast<std::uint64_t>(e.to));
+            mix_u64(static_cast<std::uint64_t>(e.len_nm));
+            mix_u64(static_cast<std::uint64_t>(e.dir1 + 8));
+            mix_u64(static_cast<std::uint64_t>(e.dir2 + 8));
+            mix_u64(static_cast<std::uint64_t>(e.elbow.x));
+            mix_u64(static_cast<std::uint64_t>(e.elbow.y));
+            mix_u64(e.is_via ? 1ULL : 0ULL);
+            mix_u64(static_cast<std::uint64_t>(e.penalty_nm));
+        }
+        for (const auto& p : g.rejected(static_cast<int>(i))) {
+            mix_u64(static_cast<std::uint64_t>(p.blocker_net + 2));
+            mix_str(p.kind);
+            mix_str(p.desc);
+            mix_u64(static_cast<std::uint64_t>(p.layer));
+            mix_u64(static_cast<std::uint64_t>(p.pos.x));
+            mix_u64(static_cast<std::uint64_t>(p.pos.y));
+        }
+    }
+    return h;
 }
 
 }  // namespace
@@ -159,9 +209,17 @@ CT_TEST(perf_graph_build_floor) {
                                   r.requiredTraceWidth(0, 0, ctx), ctx);
     auto t1 = std::chrono::steady_clock::now();
     double s = std::chrono::duration<double>(t1 - t0).count();
-    std::printf("  [perf] graph build: %.3fs, %d nodes, %d edges\n", s,
-                (int)g.nodes().size(), g.stats().edge_count);
+    std::uint64_t ident = graph_identity_hash(g);
+    std::printf("  [perf] graph build: %.3fs, %d nodes, %d edges, ident=0x%016llx\n", s,
+                (int)g.nodes().size(), g.stats().edge_count,
+                (unsigned long long)ident);
     CT_CHECK(g.src_node() >= 0 && g.dst_node() >= 0);
+    // Probe-audit identity gate: the committed graph (nodes, edges, #23
+    // rejected-probe evidence) must be bit-identical across probe-cut work.
+    CT_CHECK((int)g.nodes().size() == 768);
+    CT_CHECK(g.stats().edge_count == 42236);
+    // Probe-audit identity gate: pre-cut baseline ident=0x060c2fdf3f4510f3.
+    CT_CHECK(ident == 0x060c2fdf3f4510f3ULL);
     CT_CHECK(s < 5.0);  // corridor clipping keeps dense fields tractable
 }
 

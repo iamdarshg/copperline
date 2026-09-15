@@ -7,6 +7,7 @@
 #include <tuple>
 
 #include "router/via_bundle.h"
+#include "router/simplify.h"
 
 namespace copperline {
 
@@ -426,8 +427,28 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
 
     // ---- 4. Manhattan edges: aligned pairs + K nearest per node ----
     constexpr int kNearest = 16;
-    auto try_edge = [&](int from, int to) {
-        if (from == to) return;
+    // Probe-cut memo + colinear-chain inference (perf follow-up, exact):
+    // edge legality is a pure function of the segment geometry (board,
+    // resolver, net and width are fixed within one build), so a decided
+    // directed pair is never re-probed: the stored outcome is replayed
+    // bit-identically (same probes appended to the same source node, same
+    // edge appended). Non-adjacent aligned pairs additionally skip probing
+    // when every colinear chain link between them probed legal: a Manhattan
+    // segment is the point-set union of its contiguous colinear halves, so an
+    // obstacle (or the board bounds) violates the whole iff it violates a
+    // half, under the exact same predicates. Failures are always probed
+    // normally, so rejected-probe evidence (#23), determinism and the
+    // committed node/edge sets are unchanged. All scratch state is per-build
+    // (bounded, thread-local) and the memo is only ever queried by key, never
+    // iterated, so thread count cannot affect the result.
+    struct DecidedEdge {
+        bool has_edge = false;
+        SparseEdge edge{};
+        int n_probes = 0;
+        SparseRejectedProbe probes[2]{};  // <=1 for straight pairs, <=2 with elbows
+    };
+    auto decide_edge = [&](int from, int to, DecidedEdge& out) {
+        out = DecidedEdge{};
         const Point a = g.nodes_[from].p;
         const Point b = g.nodes_[to].p;
         if (g.nodes_[from].layer != g.nodes_[to].layer) return;
@@ -437,14 +458,16 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             Point elbow;
             bool has_elbow;
         };
-        std::vector<Cand> cands;
+        Cand cands[2];
+        int n_cands = 0;
         if (a.x == b.x || a.y == b.y) {
-            cands.push_back({{}, false});
+            cands[n_cands++] = {{}, false};
         } else {
-            cands.push_back({{b.x, a.y}, true});
-            cands.push_back({{a.x, b.y}, true});
+            cands[n_cands++] = {{b.x, a.y}, true};
+            cands[n_cands++] = {{a.x, b.y}, true};
         }
-        for (const auto& c : cands) {
+        for (int ci = 0; ci < n_cands; ++ci) {
+            const Cand& c = cands[ci];
             Segment s1{a, c.has_elbow ? c.elbow : b};
             Segment s2{c.has_elbow ? Segment{c.elbow, b} : Segment{b, b}};
             bool s2_empty = !c.has_elbow;
@@ -453,21 +476,21 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             // Issue #23: record the actual blocker on the SOURCE node only.
             // A* accumulates this probe iff it expands `from`.
             if (!seg_in_bounds(s1, committed.bounds(), half_w)) {
-                rej_per_node[from].push_back({-1, "bounds", "off_board", layer, rep1});
+                out.probes[out.n_probes++] = {-1, "bounds", "off_board", layer, rep1};
                 continue;
             }
             if (const Obstacle* o1 = first_blocker(s1, layer)) {
-                rej_per_node[from].push_back({o1->net, o1->kind, o1->desc, layer, rep1});
+                out.probes[out.n_probes++] = {o1->net, o1->kind, o1->desc, layer, rep1};
                 continue;
             }
             if (!s2_empty) {
                 Point rep2{(c.elbow.x + b.x) / 2, (c.elbow.y + b.y) / 2};
                 if (!seg_in_bounds(s2, committed.bounds(), half_w)) {
-                    rej_per_node[from].push_back({-1, "bounds", "off_board", layer, rep2});
+                    out.probes[out.n_probes++] = {-1, "bounds", "off_board", layer, rep2};
                     continue;
                 }
                 if (const Obstacle* o2 = first_blocker(s2, layer)) {
-                    rej_per_node[from].push_back({o2->net, o2->kind, o2->desc, layer, rep2});
+                    out.probes[out.n_probes++] = {o2->net, o2->kind, o2->desc, layer, rep2};
                     continue;
                 }
             }
@@ -479,10 +502,101 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             e.dir2 = c.has_elbow ? direction_of(c.elbow, b) : -1;
             e.elbow = c.elbow;
             e.is_via = false;
-            g.adj_[from].push_back(e);
+            out.edge = e;
+            out.has_edge = true;
             break;  // first legal elbow order wins (deterministic)
         }
     };
+    auto apply_edge = [&](int from, const DecidedEdge& d) {
+        for (int k = 0; k < d.n_probes; ++k) rej_per_node[from].push_back(d.probes[k]);
+        if (d.has_edge) g.adj_[from].push_back(d.edge);
+    };
+    auto try_edge = [&](int from, int to) {
+        if (from == to) return;
+        DecidedEdge d;
+        decide_edge(from, to, d);
+        apply_edge(from, d);
+    };
+    auto directed_key = [](int from, int to) {
+        return (static_cast<unsigned long long>(static_cast<unsigned int>(from)) << 32) |
+               static_cast<unsigned int>(to);
+    };
+    // Every decided aligned directed pair (probed or inferred). Consulted by
+    // the K-nearest pass so shared pairs replay instead of re-probing.
+    // Single-allocation open-addressing map: no per-entry mallocs that would
+    // contend across worker threads. find() results are consumed (applied)
+    // before the next insert, so outs growth never invalidates a live use.
+    struct OutcomeMap {
+        std::vector<unsigned long long> keys;  // stored key+1, 0 = empty
+        std::vector<unsigned int> slots;       // index into outs
+        std::vector<DecidedEdge> outs;
+        std::vector<unsigned long long> out_keys;  // key+1 per out index
+        std::size_t mask = 0;
+        void init(std::size_t want) {
+            std::size_t cap = 8;
+            while (cap < want * 2) cap *= 2;
+            keys.assign(cap, 0);
+            slots.assign(cap, 0);
+            outs.clear();
+            out_keys.clear();
+            outs.reserve(want);
+            out_keys.reserve(want);
+            mask = cap - 1;
+        }
+        void grow() {
+            std::size_t cap = keys.size() * 2;
+            keys.assign(cap, 0);
+            slots.assign(cap, 0);
+            mask = cap - 1;
+            // Re-insert in outs order: deterministic for a given insertion
+            // sequence (all inserts happen on this thread anyway).
+            for (std::size_t s = 0; s < outs.size(); ++s) {
+                std::size_t i = hash(out_keys[s]) & mask;
+                while (keys[i] != 0) i = (i + 1) & mask;
+                keys[i] = out_keys[s];
+                slots[i] = static_cast<unsigned int>(s);
+            }
+        }
+        static unsigned long long hash(unsigned long long k) {
+            k ^= k >> 33;
+            k *= 0xff51afd7ed558ccdULL;
+            k ^= k >> 33;
+            k *= 0xc4ceb9fe1a85ec53ULL;
+            k ^= k >> 33;
+            return k;
+        }
+        const DecidedEdge* find(unsigned long long key) const {
+            if (mask == 0) return nullptr;
+            unsigned long long k = key + 1;
+            std::size_t i = hash(k) & mask;
+            for (;;) {
+                if (keys[i] == 0) return nullptr;
+                if (keys[i] == k) return &outs[slots[i]];
+                i = (i + 1) & mask;
+            }
+        }
+        void insert(unsigned long long key, const DecidedEdge& d) {
+            // Keep load under 0.7 so find() always terminates quickly; growth
+            // re-inserts in outs order (deterministic for one insertion seq).
+            if ((outs.size() + 1) * 10 >= keys.size() * 7) grow();
+            unsigned long long k = key + 1;
+            std::size_t i = hash(k) & mask;
+            for (;;) {
+                if (keys[i] == 0) {
+                    keys[i] = k;
+                    slots[i] = static_cast<unsigned int>(outs.size());
+                    outs.push_back(d);
+                    out_keys.push_back(k);
+                    return;
+                }
+                // Keys are unique per build (each directed pair is decided
+                // exactly once), so a hit here is unreachable.
+                i = (i + 1) & mask;
+            }
+        }
+    };
+    OutcomeMap aligned_outcome;
+    aligned_outcome.init(g.nodes_.size() * 40 + 64);
     for (const auto& [layer, ids] : layer_nodes) {
         // Aligned pairs (shared x or y) preserve corridors at any distance.
         std::map<Coord, std::vector<int>> by_x, by_y;
@@ -490,9 +604,106 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             by_x[g.nodes_[i].p.x].push_back(i);
             by_y[g.nodes_[i].p.y].push_back(i);
         }
+        // Colinear chains for inference: members sorted along the line,
+        // link_ok[t] = both directed probes of (members[t], members[t+1])
+        // built an edge. Node ids are dense (0..N-1, all nodes exist by now),
+        // so chain slots live in plain vectors (no hash maps): xchain[node]
+        // is the node's x-chain index (-1 = none), xidx[node] its slot.
+        struct Chain {
+            std::vector<int> members;
+            std::vector<char> link_ok;
+        };
+        std::vector<Chain> chains;
+        chains.reserve(by_x.size() + by_y.size());
+        const int n_all_nodes = static_cast<int>(g.nodes_.size());
+        std::vector<int> xchain(n_all_nodes, -1), xidx(n_all_nodes, -1);
+        std::vector<int> ychain(n_all_nodes, -1), yidx(n_all_nodes, -1);
+        auto add_chain = [&](const std::map<Coord, std::vector<int>>& by, bool sort_by_y,
+                             std::vector<int>& chain_of, std::vector<int>& idx_of) {
+            for (const auto& [c, group] : by) {
+                (void)c;
+                if (group.size() < 2) continue;
+                Chain ch;
+                ch.members = group;
+                std::sort(ch.members.begin(), ch.members.end(), [&](int u, int v) {
+                    Coord au = sort_by_y ? g.nodes_[u].p.y : g.nodes_[u].p.x;
+                    Coord av = sort_by_y ? g.nodes_[v].p.y : g.nodes_[v].p.x;
+                    if (au != av) return au < av;
+                    return u < v;
+                });
+                ch.link_ok.assign(ch.members.size() - 1, 0);
+                int ci = static_cast<int>(chains.size());
+                for (std::size_t t = 0; t < ch.members.size(); ++t) {
+                    chain_of[ch.members[t]] = ci;
+                    idx_of[ch.members[t]] = static_cast<int>(t);
+                }
+                chains.push_back(std::move(ch));
+            }
+        };
+        add_chain(by_x, true, xchain, xidx);    // shared x: order along y
+        add_chain(by_y, false, ychain, yidx);   // shared y: order along x
+        // Pass 1: probe every adjacent chain link in both directions (pure
+        // decide, no mutation yet) so pass 2 appends in legacy order.
+        for (auto& ch : chains) {
+            for (std::size_t t = 0; t < ch.link_ok.size(); ++t) {
+                int u = ch.members[t], v = ch.members[t + 1];
+                DecidedEdge duv, dvu;
+                decide_edge(u, v, duv);
+                decide_edge(v, u, dvu);
+                // Success is symmetric (same segments); AND keeps the
+                // inference conservative under any future asymmetry.
+                ch.link_ok[t] = (duv.has_edge && dvu.has_edge) ? 1 : 0;
+                aligned_outcome.insert(directed_key(u, v), duv);
+                aligned_outcome.insert(directed_key(v, u), dvu);
+            }
+        }
+        auto chain_clean = [&](int from, int to, bool share_x) {
+            const std::vector<int>& chain_of = share_x ? xchain : ychain;
+            const std::vector<int>& idx_of = share_x ? xidx : yidx;
+            int cf = chain_of[from], ct = chain_of[to];
+            if (cf < 0 || cf != ct) return false;
+            const Chain& ch = chains[static_cast<std::size_t>(cf)];
+            int a = idx_of[from], b = idx_of[to];
+            if (a == b) return false;
+            if (a > b) std::swap(a, b);
+            if (b == a + 1) return false;  // adjacent: decided in pass 1
+            for (int t = a; t < b; ++t)
+                if (!ch.link_ok[static_cast<std::size_t>(t)]) return false;
+            return true;
+        };
+        auto aligned_attempt = [&](int from, int to) {
+            if (from == to) return;
+            unsigned long long key = directed_key(from, to);
+            if (const DecidedEdge* hit = aligned_outcome.find(key)) {
+                apply_edge(from, *hit);
+                return;
+            }
+            const Point a = g.nodes_[from].p, b = g.nodes_[to].p;
+            bool share_x = (a.x == b.x), share_y = (a.y == b.y);
+            if ((share_x != share_y) && chain_clean(from, to, share_x)) {
+                // Exact inference (see memo header comment): the whole chain
+                // probed legal with straight links, so this straight pair is
+                // legal with zero probes and an identical edge.
+                DecidedEdge d;
+                d.has_edge = true;
+                d.edge.to = to;
+                d.edge.len_nm = manhattan(a, b);
+                d.edge.dir1 = direction_of(a, b);
+                d.edge.dir2 = -1;
+                d.edge.elbow = Point{};
+                d.edge.is_via = false;
+                apply_edge(from, d);
+                aligned_outcome.insert(key, d);
+                return;
+            }
+            DecidedEdge d;
+            decide_edge(from, to, d);
+            apply_edge(from, d);
+            aligned_outcome.insert(key, d);
+        };
         for (int i : ids) {
-            for (int j : by_x[g.nodes_[i].p.x]) try_edge(i, j);
-            for (int j : by_y[g.nodes_[i].p.y]) try_edge(i, j);
+            for (int j : by_x[g.nodes_[i].p.x]) aligned_attempt(i, j);
+            for (int j : by_y[g.nodes_[i].p.y]) aligned_attempt(i, j);
         }
         // K nearest on the same layer (deterministic: (distance, node id)
         // order). partial_sort yields EXACTLY the full-sort head by
@@ -514,7 +725,12 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 std::sort(near.begin(), near.end());
             }
             for (const auto& pr : near) {
-                try_edge(i, pr.second);
+                unsigned long long key = directed_key(i, pr.second);
+                if (const DecidedEdge* hit = aligned_outcome.find(key)) {
+                    apply_edge(i, *hit);
+                } else {
+                    try_edge(i, pr.second);
+                }
             }
         }
     }
@@ -529,6 +745,59 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // S2: plan() is pure in (center, span) within one build (board, resolver,
     // net, width and ctx are fixed), so each copy-pair plans once and both
     // directions share it. Map key order keeps the result deterministic.
+    //
+    // Perf follow-up (exact): style selection is pure in (resolver, net,
+    // span) within one build, so the ordered (style, count) list is computed
+    // once per distinct layer pair instead of once per copy-pair plan. The
+    // per-pair loop replays ViaBundlePlanner::plan's sequence exactly
+    // (styles in order, first feasible wins, last failure kept, no-style
+    // fallback preserved), so bundles are bit-identical.
+    const NetInfo* task_net = committed.find_net(net);
+    // Perf follow-up (exact): one shared per-net clearance memo for every via
+    // bundle plan in this build. Clearances are pure in (board, net pair) —
+    // the resolver ignores layer/ctx — so the shared values are identical to
+    // per-call refills; the memo is per-build (thread-local) and only read
+    // after it is warm. Previously each of the ~hundreds of bundle plans
+    // refilled N nets × requiredClearance (2 linear find_net scans each).
+    ClearanceCache shared_cc(committed, resolver, ctx, net);
+    std::map<std::pair<LayerId, LayerId>, std::vector<std::pair<ViaStyle, int>>> style_cache;
+    auto styles_for = [&](LayerId a, LayerId b)
+        -> const std::vector<std::pair<ViaStyle, int>>& {
+        auto key = std::make_pair(a, b);
+        auto it = style_cache.find(key);
+        if (it != style_cache.end()) return it->second;
+        std::vector<std::pair<ViaStyle, int>> v;
+        if (task_net != nullptr) {
+            LayerSpan span{a, b};
+            for (const auto& style : ViaBundlePlanner::ordered_styles(resolver, net, span)) {
+                ElectricalContext c2 = ctx;
+                int need = resolver.current().vias_required(style, *task_net,
+                                                            committed.defaults, c2);
+                v.push_back({style, need});
+            }
+        }
+        return style_cache.emplace(key, std::move(v)).first->second;
+    };
+    auto plan_bundle = [&](Point p, LayerSpan span,
+                           const std::vector<std::pair<ViaStyle, int>>& styles) {
+        ViaBundle fail;
+        fail.reason = "no_via_class";
+        if (task_net == nullptr) return fail;
+        bool tried = false;
+        for (const auto& [style, need] : styles) {
+            tried = true;
+            ViaBundle b = ViaBundlePlanner::plan_with_style(committed, resolver, net, p, span,
+                                                            style, need, route_width_nm, ctx,
+                                                            shared_cc);
+            if (b.feasible) return b;
+            fail = b;  // keep the last deterministic reason (bundle_blocked)
+        }
+        if (!tried) {
+            fail.reason = "no_via_class";
+            fail.count = 0;
+        }
+        return fail;
+    };
     std::map<std::tuple<Coord, Coord, LayerId, LayerId>, ViaBundle> via_memo;
     auto bundle_for = [&](Point p, LayerId a, LayerId b) -> const ViaBundle& {
         LayerId lo = std::min(a, b), hi = std::max(a, b);
@@ -536,8 +805,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         auto it = via_memo.find(key);
         if (it != via_memo.end()) return it->second;
         LayerSpan span{a, b};
-        ViaBundle bundle = ViaBundlePlanner::plan(committed, resolver, net, p, span,
-                                                  route_width_nm, ctx);
+        ViaBundle bundle = plan_bundle(p, span, styles_for(a, b));
         return via_memo.emplace(key, std::move(bundle)).first->second;
     };
     if (!committed.layers.empty()) {
@@ -578,17 +846,16 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // Issue #21 legacy (diagnostics only): construction-wide aggregation over
     // all per-node probes. Attribution must use the A*-frontier-only path
     // (AStarResult::frontier_stats via frontier_stats_for_expanded).
-    {
-        std::vector<SparseRejectedProbe> all;
-        for (const auto& vec : g.rejected_)
-            for (const auto& p : vec) all.push_back(p);
-        g.frontier_stats_ = aggregate_probes(all);
-    }
+    // Perf follow-up (exact): aggregate over the per-node sets directly
+    // instead of copying every probe into one flat vector first. Identical
+    // result: the aggregation counts probes per key and keeps the min-(x, y)
+    // representative, both order-independent.
+    g.frontier_stats_ = aggregate_probe_sets(g.rejected_);
     return g;
 }
 
-std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
-    const std::vector<SparseRejectedProbe>& probes) {
+std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probe_sets(
+    const std::vector<std::vector<SparseRejectedProbe>>& sets) {
     struct Agg {
         NetId net = -1;
         std::string kind;
@@ -598,7 +865,7 @@ std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
         int count = 0;
     };
     std::map<std::string, Agg> agg;
-    for (const auto& p : probes) {
+    auto accum = [&](const SparseRejectedProbe& p) {
         std::string key =
             std::to_string(p.blocker_net) + "|" + p.kind + "|" + std::to_string(p.layer);
         auto it = agg.find(key);
@@ -618,7 +885,9 @@ std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
                 (p.pos.x == it->second.pos.x && p.pos.y < it->second.pos.y))
                 it->second.pos = p.pos;
         }
-    }
+    };
+    for (const auto& set : sets)
+        for (const auto& p : set) accum(p);
     std::vector<Agg> all;
     all.reserve(agg.size());
     for (auto& [k, v] : agg) all.push_back(v);
@@ -641,6 +910,11 @@ std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
         out.push_back(s);
     }
     return out;
+}
+
+std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
+    const std::vector<SparseRejectedProbe>& probes) {
+    return aggregate_probe_sets({probes});
 }
 
 std::vector<GraphFrontierStat> SparseRoutingGraph::frontier_stats_for_expanded(

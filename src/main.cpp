@@ -680,7 +680,13 @@ int cmd_escape(const Flags& f) {
     }
     for (const auto& w : lb.warnings) warn(f, "import: " + w);
     ElectricalContext ctx = resolver.defaultContext();
-    EscapePlanner planner;
+    // Prompt 5 / issue #3 idiom (same as route): explicit --threads wins,
+    // 0 = auto (resolved inside the planner via resolve_worker_threads).
+    // Footprint merge + candidate selection are worker-count independent,
+    // so --threads never changes the committed geometry.
+    EscapeOptions escape_options;
+    escape_options.threads = f.threads;
+    EscapePlanner planner(escape_options);
     EscapeResult r = planner.plan(lb.board, resolver, ctx);
     JsonValue rj = r.to_json();
     if (!f.report.empty()) {
@@ -1144,7 +1150,8 @@ int run(const std::vector<std::string>& args) {
                       "                       [--no-tuning] [--tuning-amplitude-mm A]\n"
                       "                       [--tuning-pitch-mm P] [--tuning-max-added-mm M]\n"
                       "                       [--no-board-echo]\n"
-                      "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n"
+                       "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n"
+                       "                       [--threads N]\n"
                       "  router benchmark <board> [--json] [--config cfg.json] [--seed N]\n"
                       "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
                       "  router explain-failure <route-report.json> [--json]\n\n"
