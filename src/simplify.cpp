@@ -1,6 +1,8 @@
 #include "router/simplify.h"
 
 #include <algorithm>
+#include <cmath>
+#include <map>
 
 namespace copperline {
 
@@ -136,32 +138,60 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
                                                LayerId layer, Coord width_nm,
                                                const Rect& corridor,
                                                const ElectricalContext& ctx,
-                                               std::size_t max_corners) {
+                                               std::size_t max_corners, Point src,
+                                               Point dst) {
     Coord hw = width_nm / 2;
     // S4: one shared clearance cache for all corner emissions.
     ClearanceCache cc(board, resolver, ctx, net);
-    std::vector<Point> out;
-    auto emit_expanded = [&](const Rect& raw, Coord dist) {
+    // (point, obstacle group). Groups give the per-obstacle guarantee in
+    // the cap below; every emission below assigns a fresh group id.
+    std::vector<std::pair<Point, int>> out;
+    auto emit_expanded = [&](const Rect& raw, Coord dist, int gid) {
         if (!raw.expanded(dist).intersects(corridor)) return;
         Rect e = raw.expanded(dist);
-        out.push_back({e.x1, e.y1});
-        out.push_back({e.x2, e.y1});
-        out.push_back({e.x2, e.y2});
-        out.push_back({e.x1, e.y2});
+        out.push_back({{e.x1, e.y1}, gid});
+        out.push_back({{e.x2, e.y1}, gid});
+        out.push_back({{e.x2, e.y2}, gid});
+        out.push_back({{e.x1, e.y2}, gid});
+    };
+    // Issue #10: plane legality is polygon-exact; emit expanded polygon
+    // vertices (radial offset by dist) alongside the bbox-corner fallback.
+    auto emit_expanded_poly = [&](const std::vector<Point>& poly, Coord dist, int gid) {
+        if (poly.empty()) return;
+        long double cx = 0, cy = 0;
+        for (const auto& v : poly) {
+            cx += static_cast<long double>(v.x);
+            cy += static_cast<long double>(v.y);
+        }
+        cx /= static_cast<long double>(poly.size());
+        cy /= static_cast<long double>(poly.size());
+        for (const auto& v : poly) {
+            Point q = v;
+            long double dx = static_cast<long double>(v.x) - cx;
+            long double dy = static_cast<long double>(v.y) - cy;
+            long double len = std::sqrt(dx * dx + dy * dy);
+            if (len > 0.5L && dist > 0) {
+                long double s = static_cast<long double>(dist) / len;
+                q.x = v.x + static_cast<Coord>(std::llround(dx * s));
+                q.y = v.y + static_cast<Coord>(std::llround(dy * s));
+            }
+            out.push_back({q, gid});
+        }
     };
     Coord max_clear = cc.max_clear();
+    int gid = 0;
     for (const auto& ko : board.keepouts) {
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
-        emit_expanded(ko.rect, max_clear + hw);
+        emit_expanded(ko.rect, max_clear + hw, gid++);
     }
     for (const auto& t : board.terminals) {
         if (t.net == net || t.layer != layer) continue;
-        emit_expanded(t.pad_rect(), cc.get(t.net, layer) + hw);
+        emit_expanded(t.pad_rect(), cc.get(t.net, layer) + hw, gid++);
     }
     for (const auto& t : board.traces) {
         if (t.net == net || t.layer != layer) continue;
         Coord need = cc.get(t.net, layer) + hw + t.width_nm / 2;
-        emit_expanded(t.segment().bounds(), need);
+        emit_expanded(t.segment().bounds(), need, gid++);
     }
     for (const auto& v : board.vias) {
         if (v.net == net) continue;
@@ -169,28 +199,121 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
             layer > std::max(v.top_layer, v.bottom_layer))
             continue;
         emit_expanded(Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm),
-                      cc.get(v.net, layer) + hw);
+                      cc.get(v.net, layer) + hw, gid++);
     }
     for (const auto& z : board.planes) {
         if (z.net == net || z.layer != layer) continue;
-        emit_expanded(z.bounds(), cc.get(z.net, layer) + hw);
+        Coord dist = cc.get(z.net, layer) + hw;
+        if (!z.bounds().expanded(dist).intersects(corridor)) continue;
+        int g = gid++;
+        emit_expanded(z.bounds(), dist, g);
+        emit_expanded_poly(z.poly, dist, g);
     }
     Rect inner = board.bounds().expanded(-hw);
+    // Per-group member indices after the inner/corridor filter + dedup, so
+    // the cap can guarantee representation even when groups share points.
+    std::map<Point, std::size_t, bool (*)(const Point&, const Point&)> index_of(
+        [](const Point& a, const Point& b) { return a < b; });
     std::vector<Point> kept;
-    kept.reserve(out.size());
-    for (auto p : out) {
+    std::vector<int> kept_gid;
+    std::vector<std::vector<std::size_t>> members(gid);
+    for (auto& [p, g] : out) {
         if (!inner.contains(p)) continue;
         if (!corridor.expanded(hw).contains(p)) continue;
-        kept.push_back(p);
+        auto it = index_of.find(p);
+        std::size_t idx;
+        if (it == index_of.end()) {
+            idx = kept.size();
+            index_of.emplace(p, idx);
+            kept.push_back(p);
+            kept_gid.push_back(g);
+        } else {
+            idx = it->second;
+            if (g < kept_gid[idx]) kept_gid[idx] = g;
+        }
+        if (g >= 0 && g < (int)members.size()) members[(std::size_t)g].push_back(idx);
     }
-    std::sort(kept.begin(), kept.end());
-    kept.erase(std::unique(kept.begin(), kept.end(),
-                           [](const Point& a, const Point& b) {
-                               return a.x == b.x && a.y == b.y;
-                           }),
-               kept.end());
-    if (kept.size() > max_corners) kept.resize(max_corners);
-    return kept;
+    // Dedup member lists (one obstacle can emit the same point twice).
+    for (auto& m : members) {
+        std::sort(m.begin(), m.end());
+        m.erase(std::unique(m.begin(), m.end()), m.end());
+    }
+    if (kept.size() <= max_corners) return kept;
+    // Issue #11: rank by detour cost / distance to Segment(src, dst),
+    // not lexicographic order. Score is (detour, perpendicular dist2,
+    // x, y); detour is the single-bend extra length via the corner.
+    Segment task{src, dst};
+    Coord base_len = euclid_len_nm(src, dst);
+    struct Score {
+        Coord detour = 0;
+        Coord d2 = 0;
+        Point p{};
+        std::size_t idx = 0;
+    };
+    std::vector<Score> scores;
+    scores.reserve(kept.size());
+    for (std::size_t i = 0; i < kept.size(); ++i) {
+        Coord detour = euclid_len_nm(src, kept[i]) + euclid_len_nm(kept[i], dst);
+        detour = (detour >= base_len) ? (detour - base_len) : 0;
+        scores.push_back({detour, point_seg_dist2(kept[i], task), kept[i], i});
+    }
+    auto cmp = [](const Score& a, const Score& b) {
+        if (a.detour != b.detour) return a.detour < b.detour;
+        if (a.d2 != b.d2) return a.d2 < b.d2;
+        if (a.p.x != b.p.x) return a.p.x < b.p.x;
+        return a.p.y < b.p.y;
+    };
+    std::vector<char> taken(kept.size(), 0);
+    std::vector<Score> chosen;
+    chosen.reserve(max_corners);
+    // Guarantee: best corner of each locally relevant obstacle first.
+    // Groups are ordered by their best score for determinism.
+    std::vector<Score> group_best;
+    for (auto& m : members) {
+        if (m.empty()) continue;
+        const Score* best = nullptr;
+        for (auto idx : m) {
+            const Score& s = scores[idx];
+            if (best == nullptr || cmp(s, *best)) best = &s;
+        }
+        if (best != nullptr) group_best.push_back(*best);
+    }
+    std::sort(group_best.begin(), group_best.end(), cmp);
+    for (auto& s : group_best) {
+        if (chosen.size() >= max_corners) break;
+        if (taken[s.idx]) continue;
+        taken[s.idx] = 1;
+        chosen.push_back(s);
+    }
+    if (chosen.size() < max_corners) {
+        std::vector<Score> rest = scores;
+        std::sort(rest.begin(), rest.end(), cmp);
+        for (auto& s : rest) {
+            if (chosen.size() >= max_corners) break;
+            if (taken[s.idx]) continue;
+            taken[s.idx] = 1;
+            chosen.push_back(s);
+        }
+    }
+    std::vector<Point> result;
+    result.reserve(chosen.size());
+    for (auto& s : chosen) result.push_back(s.p);
+    return result;
+}
+
+std::vector<Point> simplify_visibility_corners(const Board& board,
+                                               const RuleResolver& resolver, NetId net,
+                                               LayerId layer, Coord width_nm,
+                                               const Rect& corridor,
+                                               const ElectricalContext& ctx,
+                                               std::size_t max_corners) {
+    // Corridor-only fallback: score against the corridor diagonal so the
+    // cap still ranks by task-line proximity instead of lexicographic
+    // order. The polyline path below passes the exact endpoints.
+    return simplify_visibility_corners(board, resolver, net, layer, width_nm,
+                                       corridor, ctx, max_corners,
+                                       {corridor.x1, corridor.y1},
+                                       {corridor.x2, corridor.y2});
 }
 
 std::vector<Point> simplify_polyline(const Board& board, const RuleResolver& resolver,
@@ -226,7 +349,7 @@ std::vector<Point> simplify_polyline(const Board& board, const RuleResolver& res
             Rect corridor = Rect::from_points(src, dst).expanded(width_nm / 2 + mm_to_nm(0.5));
             std::vector<Point> corners =
                 simplify_visibility_corners(board, resolver, net, layer, width_nm,
-                                            corridor, ctx, opt.max_corners);
+                                            corridor, ctx, opt.max_corners, src, dst);
             Coord best_len = 0;
             Point best_c{};
             bool have = false;

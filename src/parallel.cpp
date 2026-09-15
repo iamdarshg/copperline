@@ -550,16 +550,40 @@ void CongestionMap::add_history_rect(const Rect& rect, double amount) {
 }
 
 void CongestionMap::add_history_segment(const Segment& seg, double amount) {
-    add_history_rect(seg.bounds(), amount);
+    // Issue #12: traverse only cells intersected by the segment capsule,
+    // not the entire bbox (a diagonal's bbox covers mostly empty cells).
+    if (history_.empty() || n_ <= 0) return;
+    Rect r = seg.bounds();
+    int x0 = cell_of_x(r.x1), x1 = cell_of_x(r.x2);
+    int y0 = cell_of_y(r.y1), y1 = cell_of_y(r.y2);
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            Rect cell{bounds_.x1 + (Coord)x * cell_w_, bounds_.y1 + (Coord)y * cell_h_,
+                      bounds_.x1 + (Coord)(x + 1) * cell_w_,
+                      bounds_.y1 + (Coord)(y + 1) * cell_h_};
+            if (!seg_intersects_rect(seg, cell)) continue;
+            history_[y * n_ + x] += amount;
+        }
+    }
 }
 
 Coord CongestionMap::penalty_for_segment(const Segment& seg) const {
+    // Issue #12: same capsule traversal as add_history_segment: only cells
+    // intersected by the centerline segment contribute, not the whole bbox.
+    if (present_.empty() || history_.empty() || n_ <= 0) return 0;
     Rect r = seg.bounds();
     int x0 = cell_of_x(r.x1), x1 = cell_of_x(r.x2);
     int y0 = cell_of_y(r.y1), y1 = cell_of_y(r.y2);
     double cost = 0.0;
-    for (int y = y0; y <= y1; ++y)
-        for (int x = x0; x <= x1; ++x) cost += present_[y * n_ + x] + 3.0 * history_[y * n_ + x];
+    for (int y = y0; y <= y1; ++y) {
+        for (int x = x0; x <= x1; ++x) {
+            Rect cell{bounds_.x1 + (Coord)x * cell_w_, bounds_.y1 + (Coord)y * cell_h_,
+                      bounds_.x1 + (Coord)(x + 1) * cell_w_,
+                      bounds_.y1 + (Coord)(y + 1) * cell_h_};
+            if (!seg_intersects_rect(seg, cell)) continue;
+            cost += present_[y * n_ + x] + 3.0 * history_[y * n_ + x];
+        }
+    }
     // 0.025mm per cost unit, capped: bounded distortion, never a hard lock.
     Coord p = static_cast<Coord>(cost * 25000.0);
     return std::min<Coord>(p, 1500000);

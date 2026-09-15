@@ -103,6 +103,18 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
                                                const ElectricalContext& ctx,
                                                std::size_t max_corners = 256);
 
+// Issue #11: scored overload with the exact task endpoints. Ranks by detour
+// cost / distance to Segment(src, dst) and keeps at least one corner per
+// locally relevant obstacle instead of lexicographic truncation. The
+// corridor-only overload above delegates with the corridor diagonal.
+std::vector<Point> simplify_visibility_corners(const Board& board,
+                                               const RuleResolver& resolver, NetId net,
+                                               LayerId layer, Coord width_nm,
+                                               const Rect& corridor,
+                                               const ElectricalContext& ctx,
+                                               std::size_t max_corners, Point src,
+                                               Point dst);
+
 // Simplify one same-layer integer waypoint run. Endpoints are fixed. Returns
 // the simplified waypoint list; on any legality failure returns the cleaned
 // input verbatim (deduplicated). Deterministic.

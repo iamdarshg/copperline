@@ -1,6 +1,7 @@
 #include "router/sparse_graph.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <string>
@@ -339,6 +340,32 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         Rect exp = o.raw.expanded(o.dist_min_nm);
         Point corners[4] = {{exp.x1, exp.y1}, {exp.x2, exp.y1}, {exp.x2, exp.y2}, {exp.x1, exp.y2}};
         for (auto c : corners) bases.push_back(c);
+        // Issue #10: plane legality is polygon-exact but discovery used bbox
+        // corners only. Emit expanded polygon vertices (radial offset by
+        // dist_min) alongside the bbox fallback; the inner-contains clamp
+        // below keeps everything on the legal centerline region.
+        if (o.poly != nullptr && !o.poly->empty() && o.dist_min_nm >= 0) {
+            const std::vector<Point>& poly = *o.poly;
+            long double cx = 0, cy = 0;
+            for (const auto& v : poly) {
+                cx += static_cast<long double>(v.x);
+                cy += static_cast<long double>(v.y);
+            }
+            cx /= static_cast<long double>(poly.size());
+            cy /= static_cast<long double>(poly.size());
+            for (const auto& v : poly) {
+                Point q = v;
+                long double dx = static_cast<long double>(v.x) - cx;
+                long double dy = static_cast<long double>(v.y) - cy;
+                long double len = std::sqrt(dx * dx + dy * dy);
+                if (len > 0.5L && o.dist_min_nm > 0) {
+                    long double s = static_cast<long double>(o.dist_min_nm) / len;
+                    q.x = v.x + static_cast<Coord>(std::llround(dx * s));
+                    q.y = v.y + static_cast<Coord>(std::llround(dy * s));
+                }
+                bases.push_back(q);
+            }
+        }
     }
     // Board corners (inset by half width) give border-hugging corridors.
     Rect inner = committed.bounds().expanded(-half_w);
