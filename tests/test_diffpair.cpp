@@ -360,4 +360,76 @@ CT_TEST(pair_ripup_is_atomic_and_deterministic) {
     }
 }
 
+CT_TEST(pair_gap_band_enforced_with_location) {
+    // Issue #26: coupled sections are banded [gap-tol, gap+tol], not just
+    // floored. Bare straight members, nominal 0.20 tol 0.05, width 0.2.
+    auto straight = [](double n_y_mm, LayerId layer = 0) {
+        std::vector<TraceSeg> tp, tn;
+        tp.push_back({0, layer, {mm_to_nm(2.0), mm_to_nm(10.0)},
+                      {mm_to_nm(18.0), mm_to_nm(10.0)}, mm_to_nm(0.2)});
+        tn.push_back({1, layer, {mm_to_nm(2.0), mm_to_nm(n_y_mm)},
+                      {mm_to_nm(18.0), mm_to_nm(n_y_mm)}, mm_to_nm(0.2)});
+        return std::pair<std::vector<TraceSeg>, std::vector<TraceSeg>>(tp, tn);
+    };
+    const Coord gap = mm_to_nm(0.2), tol = mm_to_nm(0.05);
+    {
+        // Nominal 0.20 edge: pass, zero error.
+        auto [tp, tn] = straight(10.4);
+        Coord worst = -1;
+        Point at{0, 0};
+        CT_CHECK(pair_gap_legal(tp, tn, gap, tol, worst, at));
+        CT_CHECK(worst == 0);
+    }
+    {
+        // Upper-bound edge 0.25: inclusive pass.
+        auto [tp, tn] = straight(10.45);
+        Coord worst = -1;
+        Point at{0, 0};
+        CT_CHECK(pair_gap_legal(tp, tn, gap, tol, worst, at));
+        CT_CHECK(worst == mm_to_nm(0.05));
+    }
+    {
+        // 0.26: first step past the band fails with a location.
+        auto [tp, tn] = straight(10.46);
+        Coord worst = 0;
+        Point at{0, 0};
+        CT_CHECK(!pair_gap_legal(tp, tn, gap, tol, worst, at));
+        CT_CHECK(worst == mm_to_nm(0.06));
+        Point want{mm_to_nm(2.0),
+                   (mm_to_nm(10.0) + mm_to_nm(10.46)) / 2};
+        CT_CHECK(at == want);
+    }
+    {
+        // Issue example: 0.20+-0.05 at 0.50 separation fails.
+        auto [tp, tn] = straight(10.7);
+        Coord worst = 0;
+        Point at{0, 0};
+        CT_CHECK(!pair_gap_legal(tp, tn, gap, tol, worst, at));
+        CT_CHECK(worst == mm_to_nm(0.30));
+    }
+    {
+        // Different layers: no coupled section, bare check passes
+        // (never-coupled uncoupling is the verifier's path, not this one).
+        auto [tp, tn] = straight(10.7, 0);
+        for (auto& s : tn) s.layer = 1;
+        Coord worst = 0;
+        Point at{0, 0};
+        CT_CHECK(pair_gap_legal(tp, tn, gap, tol, worst, at));
+    }
+    {
+        // Fanout exemption: the same 0.26 drift passes when both segments
+        // terminate at member pads (#12 pad-column stitching envelope),
+        // floor-checked only. Exemption is per segment: a bare trunk with
+        // no pad context stays strict (cases above).
+        auto [tp, tn] = straight(10.46);
+        std::vector<Point> fanout{tp.front().a, tn.front().a};
+        Coord worst = 0;
+        Point at{0, 0};
+        CT_CHECK(pair_gap_legal_fanout(tp, tn, gap, tol, fanout, worst, at));
+        // ...while the trunk-only middle of a longer run still fails (the
+        // verifier covers this end to end; here just the API contract).
+        CT_CHECK(!pair_gap_legal(tp, tn, gap, tol, worst, at));
+    }
+}
+
 int main() { return copperline::test::run_all_tests(); }

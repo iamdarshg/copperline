@@ -123,6 +123,69 @@ Board diagonal_pair_board(double dy_mm) {
     return b;
 }
 
+// Straight 3-segment pair board with nominal pad pitch. Pads sit at the
+// nominal 0.2 edge (P row y=10, N row y=10.4, 0.1 pads, 0.2 traces) so the
+// end segments are nominal fans; the middle sections (touching no pad) are
+// trunk and strictly banded. dy_mid_mm shifts only the N middle vertices,
+// controlling the trunk edge gap while keeping both members connected
+// pad-to-pad. The P middle (x 9..11) sits fully inside the N middle span
+// (x 8..12) with far (>1mm) corners, so the trunk nearest is unique: the
+// reported drift location never depends on a corner tiebreak.
+Board straight_trunk_board(double dy_mid_mm) {
+    Board b = base_2layer(20.0, 20.0);
+    b.defaults.trace_width_nm = mm_to_nm(0.2);
+    b.defaults.clearance_nm = mm_to_nm(0.15);
+    b.defaults.via_outer_nm = mm_to_nm(0.6);
+    b.defaults.via_hole_nm = mm_to_nm(0.3);
+    b.defaults.default_current_a = 0.5;
+    NetInfo p = make_net(0, "P");
+    p.current_a = 0.1;
+    p.has_current = true;
+    p.voltage_v = 3.3;
+    p.has_voltage = true;
+    NetInfo n = make_net(1, "N");
+    n.current_a = 0.1;
+    n.has_current = true;
+    n.voltage_v = 3.3;
+    n.has_voltage = true;
+    b.nets.push_back(p);
+    b.nets.push_back(n);
+    TermId p0 = add_terminal(b, 0, 2.0, 10.0, 0, 0.1, "J1", "1");
+    TermId p1 = add_terminal(b, 0, 18.0, 10.0, 0, 0.1, "J1", "2");
+    TermId n0 = add_terminal(b, 1, 2.0, 10.4, 0, 0.1, "J1", "3");
+    TermId n1 = add_terminal(b, 1, 18.0, 10.4, 0, 0.1, "J1", "4");
+    (void)p0;
+    (void)p1;
+    (void)n0;
+    (void)n1;
+    Coord w = mm_to_nm(0.2);
+    Point pp0{mm_to_nm(2.0), mm_to_nm(10.0)}, pp1{mm_to_nm(9.0), mm_to_nm(10.0)};
+    Point pp2{mm_to_nm(11.0), mm_to_nm(10.0)}, pp3{mm_to_nm(18.0), mm_to_nm(10.0)};
+    Point np0{mm_to_nm(2.0), mm_to_nm(10.4)}, np3{mm_to_nm(18.0), mm_to_nm(10.4)};
+    Point np1{mm_to_nm(8.0), mm_to_nm(10.4 + dy_mid_mm)};
+    Point np2{mm_to_nm(12.0), mm_to_nm(10.4 + dy_mid_mm)};
+    b.traces.push_back({0, 0, pp0, pp1, w});
+    b.traces.push_back({0, 0, pp1, pp2, w});
+    b.traces.push_back({0, 0, pp2, pp3, w});
+    b.traces.push_back({1, 0, np0, np1, w});
+    b.traces.push_back({1, 0, np1, np2, w});
+    b.traces.push_back({1, 0, np2, np3, w});
+    DiffPair pr;
+    pr.id = 0;
+    pr.name = "STRUNK";
+    pr.net_p = 0;
+    pr.net_n = 1;
+    pr.gap_nm = mm_to_nm(0.2);
+    pr.gap_tol_nm = mm_to_nm(0.05);
+    pr.has_width = true;
+    pr.width_nm = mm_to_nm(0.2);
+    pr.has_max_skew = true;
+    pr.max_skew_nm = mm_to_nm(1.0);
+    pr.via_policy = "paired";
+    b.diffpairs.push_back(pr);
+    return b;
+}
+
 }  // namespace
 
 CT_TEST(legal_pair_passes_with_full_metrics) {
@@ -144,8 +207,10 @@ CT_TEST(legal_pair_passes_with_full_metrics) {
     CT_CHECK(std::fabs(std::fabs(d->length_p_mm - d->length_n_mm) - d->skew_mm) < 1e-9);
     CT_CHECK(d->skew_mm <= 1.0 + 1e-9);
     // The straight corridor collapses to pad pitch (0.3 edge vs 0.2
-    // nominal): the floor-only tolerance accepts it while the error stays
-    // informational. Enforcement is the minimum, matching the materializer.
+    // nominal): both single-segment runs terminate at member pads, so the
+    // #26 pad-column fanout exemption floor-checks them while the error
+    // stays informational. Trunk copper with no pad context stays strictly
+    // banded (see trunk_drift_fails_as_coupled_too_far).
     CT_CHECK_NEAR(d->worst_gap_err_mm, 0.1, 1e-6);
     CT_CHECK(d->has_gap_location);
     CT_CHECK(d->via_mismatch.empty());
@@ -372,6 +437,109 @@ CT_TEST(pair_constraints_hold_after_cleanup_and_json) {
     CT_CHECK(vpj->as_array()[0].has("skew_mm"));
     CT_CHECK(vpj->as_array()[0].has("via_mismatch"));
     CT_CHECK(vpj->as_array()[0].has("status"));
+}
+
+CT_TEST(trunk_drift_fails_as_coupled_too_far) {
+    // Issue #26: coupled-but-drifting is a gap violation, not the uncoupled
+    // path. Trunk edge 0.26 (> 0.25) fails with an "above" detail and a
+    // trunk location; the uncoupled wording must not appear and no
+    // too_close/skew/via/one-sided failure rides along.
+    Board b = straight_trunk_board(0.06);
+    VerifyResult vr = verify_board(b);
+    CT_CHECK(!vr.ok && !vr.legal);
+    CT_CHECK(has_violation_type(vr, "diffpair_gap"));
+    CT_CHECK(violation_detail_has(vr, "diffpair_gap", "above"));
+    CT_CHECK(!violation_detail_has(vr, "diffpair_gap", "uncoupled"));
+    CT_CHECK(!violation_detail_has(vr, "diffpair_gap", "below"));
+    const PairVerifyDetail* d = find_pair(vr, 0);
+    CT_CHECK(d && !d->ok);
+    CT_CHECK(d->status.find("too_far") != std::string::npos);
+    CT_CHECK(d->status.find("too_close") == std::string::npos);
+    CT_CHECK(d->status.find("uncoupled") == std::string::npos);
+    CT_CHECK(d->has_gap_location);
+    CT_CHECK(d->gap_layer == 0);
+    // Unique trunk nearest: P middle (9..11, 10) fully overlapped by the N
+    // middle (8..12, 10.46); end corners sit >1mm away, so no tiebreak is
+    // involved: midpoint of the middles = (10, 10.23).
+    CT_CHECK_NEAR(d->gap_x_mm, 10.0, 1e-9);
+    CT_CHECK_NEAR(d->gap_y_mm, 10.23, 1e-9);
+    CT_CHECK_NEAR(d->worst_gap_err_mm, 0.06, 1e-9);
+    CT_CHECK(!has_violation_type(vr, "diffpair_skew"));
+    CT_CHECK(!has_violation_type(vr, "diffpair_via"));
+    CT_CHECK(!has_violation_type(vr, "diffpair_one_sided"));
+    CT_CHECK(!has_violation_type(vr, "diffpair_layer"));
+}
+
+CT_TEST(trunk_band_edges_pass) {
+    // Nominal 0.20 and upper-bound 0.25 trunk edges pass cleanly.
+    for (double dy : {0.0, 0.05}) {
+        Board b = straight_trunk_board(dy);
+        VerifyResult vr = verify_board(b);
+        CT_CHECK(vr.ok);
+        CT_CHECK(!has_violation_type(vr, "diffpair_gap"));
+        const PairVerifyDetail* d = find_pair(vr, 0);
+        CT_CHECK(d && d->ok && d->status == "OK");
+    }
+}
+
+CT_TEST(pad_column_fanout_exempt_from_ceiling) {
+    // Issue #26 exemption fixture: single pad-to-pad segments at pad pitch
+    // (0.3 edge vs 0.2 nominal, above gap+tol) still verify OK because both
+    // segments terminate at member pads -- the #12 pad-column stitching
+    // envelope, floor-checked only. The same bare copper with no pad
+    // context stays strictly banded (pair_gap_legal rejects it), pinning
+    // the exemption boundary: pads in scope = fanout, bare trunk = strict.
+    Board b = base_2layer(20.0, 20.0);
+    b.defaults.trace_width_nm = mm_to_nm(0.2);
+    b.defaults.clearance_nm = mm_to_nm(0.15);
+    b.defaults.default_current_a = 0.5;
+    NetInfo p = make_net(0, "P");
+    p.current_a = 0.1;
+    p.has_current = true;
+    p.voltage_v = 3.3;
+    p.has_voltage = true;
+    NetInfo n = make_net(1, "N");
+    n.current_a = 0.1;
+    n.has_current = true;
+    n.voltage_v = 3.3;
+    n.has_voltage = true;
+    b.nets.push_back(p);
+    b.nets.push_back(n);
+    add_terminal(b, 0, 2.0, 10.0, 0, 0.3, "J1", "1");
+    add_terminal(b, 0, 18.0, 10.0, 0, 0.3, "J1", "2");
+    add_terminal(b, 1, 2.0, 10.5, 0, 0.3, "J1", "3");
+    add_terminal(b, 1, 18.0, 10.5, 0, 0.3, "J1", "4");
+    Coord w = mm_to_nm(0.2);
+    b.traces.push_back(
+        {0, 0, {mm_to_nm(2.0), mm_to_nm(10.0)}, {mm_to_nm(18.0), mm_to_nm(10.0)}, w});
+    b.traces.push_back(
+        {1, 0, {mm_to_nm(2.0), mm_to_nm(10.5)}, {mm_to_nm(18.0), mm_to_nm(10.5)}, w});
+    DiffPair pr;
+    pr.id = 0;
+    pr.name = "FAN";
+    pr.net_p = 0;
+    pr.net_n = 1;
+    pr.gap_nm = mm_to_nm(0.2);
+    pr.gap_tol_nm = mm_to_nm(0.05);
+    pr.has_width = true;
+    pr.width_nm = mm_to_nm(0.2);
+    pr.via_policy = "paired";
+    b.diffpairs.push_back(pr);
+    VerifyResult vr = verify_board(b);
+    CT_CHECK(vr.ok);
+    CT_CHECK(!has_violation_type(vr, "diffpair_gap"));
+    const PairVerifyDetail* d = find_pair(vr, 0);
+    CT_CHECK(d && d->ok && d->status == "OK");
+    CT_CHECK_NEAR(d->worst_gap_err_mm, 0.1, 1e-9);
+    // Same copper, no pad context: strictly banded, rejects.
+    std::vector<TraceSeg> tp, tn;
+    for (const auto& t : b.traces) {
+        if (t.net == 0) tp.push_back(t);
+        if (t.net == 1) tn.push_back(t);
+    }
+    Coord worst = 0;
+    Point at{0, 0};
+    CT_CHECK(!pair_gap_legal(tp, tn, pr.gap_nm, pr.gap_tol_nm, worst, at));
 }
 
 int main() { return copperline::test::run_all_tests(); }

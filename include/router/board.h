@@ -71,6 +71,14 @@ struct TraceSeg {
     Point a{};
     Point b{};
     Coord width_nm = 0;
+    // Issue #15/#26: length-tuning tooth. The LengthTuner builds trombone
+    // teeth explicitly per the pair/single tuning spec; teeth are
+    // intentional skew-compensation jogs that legitimately leave the pair
+    // gap band, so the verifier floor-checks them like all copper but
+    // exempts them from the coupled-section ceiling. False for all
+    // router-placed and imported copper. Native JSON round-trips it;
+    // interchange exports (SES/KiCad/Gerber) do not carry it.
+    bool tuning_tooth = false;
     Segment segment() const { return {a, b}; }
 };
 

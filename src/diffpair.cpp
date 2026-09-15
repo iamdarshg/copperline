@@ -435,13 +435,26 @@ Coord pair_total_length(const std::vector<TraceSeg>& traces) {
     return total;
 }
 
-bool pair_gap_legal(const std::vector<TraceSeg>& traces_p,
-                    const std::vector<TraceSeg>& traces_n, Coord gap_nm,
-                    Coord tol_nm, Coord& worst_err_out, Point& at_out) {
+// Issue #26: the old floor-only check stored err=abs(edge-gap) but never
+// compared it to tol before returning true, so e.g. a 0.20+-0.05mm pair
+// passed at 0.50mm separation. The ceiling below closes that: trunk
+// sections are strictly banded [gap-tol, gap+tol] with location + error.
+bool pair_gap_legal_fanout(const std::vector<TraceSeg>& traces_p,
+                           const std::vector<TraceSeg>& traces_n, Coord gap_nm,
+                           Coord tol_nm, const std::vector<Point>& fanout_pts,
+                           Coord& worst_err_out, Point& at_out) {
     worst_err_out = 0;
     bool have = false;
     Point worst_at{};
-    // Minimum edge gap over all same-layer P/N pairs must clear gap - tol.
+    const Coord lo = gap_nm - tol_nm;
+    const Coord hi = gap_nm + tol_nm;
+    auto is_fanout = [&](const TraceSeg& s) {
+        for (const auto& q : fanout_pts) {
+            if (s.a == q || s.b == q) return true;
+        }
+        return false;
+    };
+    // Floor: minimum edge gap over all same-layer P/N pairs clears gap - tol.
     for (std::size_t ai = 0; ai < traces_p.size(); ++ai) {
         const auto& a = traces_p[ai];
         for (std::size_t bi = 0; bi < traces_n.size(); ++bi) {
@@ -450,7 +463,7 @@ bool pair_gap_legal(const std::vector<TraceSeg>& traces_p,
             __int128 d2 = seg_seg_dist2(a.segment(), b.segment());
             // Edge gap G = center - (wa+wb)/2 >= gap - tol  <=>
             // 4*d2 >= (2*(gap-tol) + wa + wb)^2 ; negative RHS always passes.
-            __int128 rhs = (__int128)2 * (gap_nm - tol_nm) + a.width_nm + b.width_nm;
+            __int128 rhs = (__int128)2 * lo + a.width_nm + b.width_nm;
             if (rhs < 0) continue;
             if ((__int128)4 * d2 < rhs * rhs) {
                 // Report worst shortfall location (midpoint of segment starts).
@@ -471,7 +484,69 @@ bool pair_gap_legal(const std::vector<TraceSeg>& traces_p,
         }
     }
     if (have) at_out = worst_at;
+    // Ceiling: every trunk (non-fanout) segment must keep a coupled neighbor
+    // within gap + tol. Nearest-neighbor rule -- a trunk segment passes when
+    // SOME same-layer opposite segment sits within hi; only a uniformly
+    // drifted segment (nearest already above hi) fails, so distant sections
+    // never penalize a coupled one. Segments with no same-layer opposite
+    // copper at all are not coupled sections (the verifier's uncoupled path
+    // owns that case). Exact integer predicate; float ranking for the report.
+    bool drift = false;
+    long double drift_dev = 0;  // (nearest edge - gap); strictly-greater wins
+    Point drift_at{};
+    auto scan_side = [&](const std::vector<TraceSeg>& self,
+                         const std::vector<TraceSeg>& opp) {
+        for (const auto& a : self) {
+            // Fanout (#12 pad columns/jogs) and tuning teeth (#15 trombones)
+            // are intentional, codebase-specified geometry: floor-checked
+            // above, never ceiling-checked here. Teeth still count as
+            // coupling neighbors for trunk segments (proximity is proximity).
+            if (is_fanout(a) || a.tuning_tooth) continue;
+            bool have_opp = false;
+            bool coupled = false;
+            long double best = 0;
+            Point best_at{};
+            for (const auto& b : opp) {
+                if (a.layer != b.layer) continue;
+                __int128 d2 = seg_seg_dist2(a.segment(), b.segment());
+                // Edge <= hi  <=>  4*d2 <= (2*hi + wa + wb)^2.
+                __int128 rhs = (__int128)2 * hi + a.width_nm + b.width_nm;
+                if (rhs >= 0 && (__int128)4 * d2 <= rhs * rhs) coupled = true;
+                long double d = std::sqrt((long double)d2);
+                long double edge = d - (a.width_nm + b.width_nm) / 2.0L;
+                Point at{(a.a.x + b.a.x) / 2, (a.a.y + b.a.y) / 2};
+                if (!have_opp || edge < best) {
+                    have_opp = true;
+                    best = edge;
+                    best_at = at;
+                }
+            }
+            if (!have_opp) continue;
+            if (!coupled) {
+                long double dev = best - (long double)gap_nm;
+                if (!drift || dev > drift_dev) {
+                    drift = true;
+                    drift_dev = dev;
+                    drift_at = best_at;
+                }
+            }
+        }
+    };
+    scan_side(traces_p, traces_n);
+    scan_side(traces_n, traces_p);
+    if (drift) {
+        worst_err_out = static_cast<Coord>(llround((double)drift_dev));
+        at_out = drift_at;
+        return false;
+    }
     return true;
+}
+
+bool pair_gap_legal(const std::vector<TraceSeg>& traces_p,
+                    const std::vector<TraceSeg>& traces_n, Coord gap_nm,
+                    Coord tol_nm, Coord& worst_err_out, Point& at_out) {
+    return pair_gap_legal_fanout(traces_p, traces_n, gap_nm, tol_nm, {},
+                                worst_err_out, at_out);
 }
 
 MaterializedPair materialize_pair(const Board& board_without_corridor,
@@ -993,13 +1068,21 @@ MaterializedPair materialize_pair(const Board& board_without_corridor,
                                 pair.net_p, s.layer, s.width_nm, s.segment(), ctx))
             return fail("illegal:n_trace");
     }
-    // Inter-member gap (exact): min edge gap >= gap - tol.
+    // Inter-member gap (exact, issue #26): coupled trunk sections banded
+    // [gap-tol, gap+tol]; pad-incident fanout (the stitching above drops the
+    // offset at pad columns and the jog inserts short perpendicular fans, so
+    // the fan legitimately spans pad pitch) is floor-checked only. The
+    // materializer offsets the trunk at nominal gap, so honest trunk copper
+    // passes while drifted trunk fails here before commit.
     {
         Coord worst = 0;
         Point at{};
         // Incremental check including sibling committed traces being built:
         // check P vs N final sets (both complete here).
-        if (!pair_gap_legal(tp_all, tn_all, pair.gap_nm, pair.gap_tol_nm, worst, at)) {
+        const std::vector<Point> fanout_pts{tpa->pos, tna->pos, tpb->pos,
+                                            tnb->pos};
+        if (!pair_gap_legal_fanout(tp_all, tn_all, pair.gap_nm, pair.gap_tol_nm,
+                                   fanout_pts, worst, at)) {
             out.worst_gap_err_nm = worst;
             out.gap_violation_at = at;
             out.has_gap_violation_at = true;

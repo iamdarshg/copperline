@@ -185,4 +185,76 @@ CT_TEST(via_current_violation_detected) {
     CT_CHECK(found);
 }
 
+// Issue #25: proximity is not current sharing. A second same-class via
+// inside the bundle radius but stitched to the transition on neither layer
+// must still report via_current; adding the planner's top+bottom star
+// stubs clears the violation.
+CT_TEST(nearby_unstitched_via_still_fails_via_current) {
+    Board b = base_2layer();
+    NetInfo p = make_net(0, "PWR");
+    p.has_current = true;
+    p.current_a = 1.5;  // SMALL carries 1A: needs 2 in parallel
+    b.nets.push_back(p);
+    add_terminal(b, 0, 2.0, 10.0, 0);
+    add_terminal(b, 0, 18.0, 10.0, 1);
+    JsonValue cfg = JsonValue::object();
+    JsonValue styles = JsonValue::array();
+    JsonValue s = JsonValue::object();
+    s["name"] = "SMALL";
+    s["outer_mm"] = 0.4;
+    s["hole_mm"] = 0.2;
+    s["max_current_a"] = 1.0;
+    styles.as_array().push_back(s);
+    cfg["via_classes"] = styles;
+    RuleResolver r0 = RuleResolver::from_config(b, cfg);
+    ElectricalContext ctx;
+    std::string src;
+    Coord w = r0.requiredTraceWidth(0, 0, ctx, &src);
+    Point v1pos{mm_to_nm(10.0), mm_to_nm(10.0)};
+    Point v2pos{mm_to_nm(10.5), mm_to_nm(10.0)};  // 0.5mm east: well inside
+                                                 // the 1.35mm bundle window
+    auto push_via = [&](Point pos) {
+        Via v;
+        v.net = 0;
+        v.pos = pos;
+        v.top_layer = 0;
+        v.bottom_layer = 1;
+        v.outer_d_nm = mm_to_nm(0.4);
+        v.hole_d_nm = mm_to_nm(0.2);
+        v.via_class = "SMALL";
+        b.vias.push_back(v);
+    };
+    push_via(v1pos);
+    push_via(v2pos);
+    const Terminal& ta = b.terminals.front();
+    const Terminal& tb = b.terminals.back();
+    // Main path through via1 only; via2 floats unstitched.
+    b.traces.push_back({0, 0, ta.pos, v1pos, w});
+    b.traces.push_back({0, 1, v1pos, tb.pos, w});
+    {
+        RuleResolver r = RuleResolver::from_config(b, cfg);
+        BoardVerifier ver;
+        VerifyResult vr = ver.verify(b, r, ctx);
+        CT_CHECK(vr.connected);
+        bool found = false;
+        for (const auto& x : vr.violations)
+            if (x.type == "via_current") found = true;
+        CT_CHECK(found);  // nearby != sharing: must still fail
+    }
+    // Planner star stubs tie via2 to the transition on both layers.
+    b.traces.push_back({0, 0, v1pos, v2pos, w});
+    b.traces.push_back({0, 1, v1pos, v2pos, w});
+    {
+        RuleResolver r = RuleResolver::from_config(b, cfg);
+        BoardVerifier ver;
+        VerifyResult vr = ver.verify(b, r, ctx);
+        bool found = false;
+        for (const auto& x : vr.violations)
+            if (x.type == "via_current") found = true;
+        CT_CHECK(!found);
+        CT_CHECK(vr.legal);
+        CT_CHECK(vr.ok);
+    }
+}
+
 int main() { return copperline::test::run_all_tests(); }

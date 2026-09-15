@@ -380,4 +380,53 @@ CT_TEST(tuning_deterministic_across_thread_counts) {
     }
 }
 
+CT_TEST(pair_tuning_teeth_marked_and_ceiling_exempt) {
+    // Issue #26 interplay with #15: trombone teeth are specified skew jogs
+    // that legitimately leave the gap band, so pair tuning marks them and
+    // the verifier floor-checks (never ceiling-checks) them. The skewed
+    // fixture tunes cleanly, the accordion carries the mark, re-verification
+    // passes, and native JSON round-trips the annotation.
+    Board b = skewed_committed_pair();
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx = r.defaultContext();
+    TuningConfig cfg;
+    LengthTuner tuner(&b, &r, &ctx, cfg);
+    TuningSummary sum = tuner.run(true);
+    CT_CHECK(sum.stage == "TUNING_COMPLETE");
+    int teeth = 0;
+    for (const auto& t : b.traces) {
+        if (t.net == 1) {
+            if (t.tuning_tooth) ++teeth;
+        } else {
+            CT_CHECK(!t.tuning_tooth);  // P untouched and unmarked
+        }
+    }
+    CT_CHECK(teeth > 0);
+    CT_CHECK(verify_board(b).ok);
+    // The mark is load-bearing, not vacuous: the same copper with marks
+    // stripped fails the strict bare check (teeth genuinely leave the band
+    // while the verifier accepts the marked accordion).
+    {
+        std::vector<TraceSeg> tp, tn;
+        for (const auto& t : b.traces) {
+            TraceSeg c = t;
+            c.tuning_tooth = false;
+            if (c.net == 0) tp.push_back(c);
+            if (c.net == 1) tn.push_back(c);
+        }
+        Coord worst = 0;
+        Point at{0, 0};
+        CT_CHECK(!pair_gap_legal(tp, tn, mm_to_nm(0.2), mm_to_nm(0.05), worst, at));
+    }
+    // Native JSON round-trip preserves the mark and still verifies.
+    JsonBoardImporter imp;
+    ImportResult rt = imp.import_value(board_to_json(b), "roundtrip");
+    int rt_teeth = 0;
+    for (const auto& t : rt.board.traces) {
+        if (t.tuning_tooth) ++rt_teeth;
+    }
+    CT_CHECK(rt_teeth == teeth);
+    CT_CHECK(verify_board(rt.board).ok);
+}
+
 int main() { return copperline::test::run_all_tests(); }

@@ -282,6 +282,46 @@ Point seg_mid(const Segment& s) {
     return {(s.a.x + s.b.x) / 2, (s.a.y + s.b.y) / 2};
 }
 
+// ---- Issue #25: parallel-bundle connectivity proof ----
+// Proximity alone never proves current sharing. An over-current via passes
+// only when >= need same-net/same-class vias (itself included) are tied
+// together on EVERY transition layer (lo and hi) through same-net
+// trace/via/pad copper on that layer. The planner's star stubs
+// (center -> satellite on both transition layers) satisfy this; a merely
+// nearby but unstitched via does not. Deterministic (elem-order DSU,
+// sorted pool) and bounded (per over-current via, per layer O(M^2) over
+// the same-net layer subset).
+bool elem_present_on(const Element& e, LayerId layer) {
+    if (e.kind == Element::Kind::kVia) return layer >= e.lo && layer <= e.hi;
+    return e.layer == layer;
+}
+
+// Geometric touch on one layer: like elem_touch but plane-plane pairs with
+// the same island id do NOT auto-unite (that stitch runs off-layer and
+// proves nothing about this layer's star). Callers ensure both elements
+// are present on the same layer.
+bool elem_layer_touch(const Element& a, const Element& b) {
+    const bool a_plane = a.kind == Element::Kind::kPlane;
+    const bool b_plane = b.kind == Element::Kind::kPlane;
+    if (a_plane && b_plane) {
+        if (!elem_layer_overlap(a, b) || !a.poly || !b.poly) return false;
+        for (const auto& p : *a.poly) {
+            if (plane_poly_contains(*b.poly, p)) return true;
+        }
+        for (const auto& p : *b.poly) {
+            if (plane_poly_contains(*a.poly, p)) return true;
+        }
+        std::size_t n = a.poly->size(), m = b.poly->size();
+        for (std::size_t i = 0; i < n; ++i)
+            for (std::size_t j = 0; j < m; ++j)
+                if (seg_intersects_seg({(*a.poly)[i], (*a.poly)[(i + 1) % n]},
+                                       {(*b.poly)[j], (*b.poly)[(j + 1) % m]}))
+                    return true;
+        return false;
+    }
+    return elem_touch(a, b);
+}
+
 // Verify one pair from committed copper only. Appends hard violations to
 // `violations` and returns the per-pair measurement for VerifyResult::pairs
 // and the route JSON. Deterministic: board order iteration, sorted vias.
@@ -436,10 +476,26 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
     // min_tt = closest trace-trace edge on a shared layer (coupling trunk).
     // min_all = closest edge over every same-span P/N copper pair
     // (trace-trace, trace-pad, trace-via, via-via, pad-pad).
-    // Too close (min_all < gap-tol) and too far (min_tt > gap+tol) fail
-    // independently; fanout divergence never masks the trunk minimum.
+    // Issue #26: the trunk is strictly banded [gap-tol, gap+tol]. Too close
+    // (any same-span edge < gap-tol, exact) and trunk drift (a non-fanout
+    // trace-trace section whose NEAREST opposite already exceeds gap+tol,
+    // exact) fail independently with their own locations. Endpoint fanout --
+    // trace segments incident to a member pad (#12 pad-end stitching at the
+    // pad columns + fanout-jog geometry, which legitimately span pad pitch
+    // rather than nominal) -- is floor-checked only, never ceiling-checked.
+    // Length-tuning teeth (TraceSeg::tuning_tooth, #15 trombones) are the
+    // same class: specified skew-compensation jogs, floor-checked only.
+    // Trace-pad, trace-via, via-via and pad-pad are terminations, not
+    // coupled sections, so they stay floor-only too. Never-coupled (both
+    // members own trace copper but share no layer) keeps the existing
+    // "uncoupled" too_far path; it never fires alongside drift (drift needs
+    // shared-layer sections), so the two excessive-gap readings cannot
+    // double-penalise or contradict: coupled-but-drifting = gap violation,
+    // never-coupled = uncoupled. Fanout divergence never masks the trunk
+    // minimum (measurement below stays over all trace-trace sections).
     if (has_p && has_n) {
         const Coord lo = pr.gap_nm - pr.gap_tol_nm;
+        const Coord hi = pr.gap_nm + pr.gap_tol_nm;
         bool have_tt = false, have_all = false;
         long double best_tt = 0, best_all = 0;  // edge approx, nm
         Point at_tt{0, 0}, at_all{0, 0};
@@ -578,12 +634,85 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
             }
         }
 
-        // Worst error + location track the trunk minimum when measurable.
+        // Issue #26 ceiling: every trunk (non-fanout) same-layer trace keeps
+        // a coupled neighbor within gap + tol. Nearest-neighbor rule, exact
+        // integer predicate (4*d2 <= (2*hi + wa + wb)^2); float ranking for
+        // the report only. A trunk segment with no same-layer opposite
+        // copper at all is not a coupled section (uncoupled path owns it).
+        bool drift = false;
+        long double drift_dev = 0;  // (nearest edge - gap); strictly-greater wins
+        Point drift_at{0, 0};
+        LayerId drift_layer = 0;
+        {
+            std::vector<Point> fanout_pts;
+            fanout_pts.reserve(pads_p.size() + pads_n.size());
+            for (const auto& p : pads_p) fanout_pts.push_back(p.pos);
+            for (const auto& p : pads_n) fanout_pts.push_back(p.pos);
+            auto is_fanout = [&](const TraceSeg& s) {
+                for (const auto& q : fanout_pts) {
+                    if (s.a == q || s.b == q) return true;
+                }
+                return false;
+            };
+            auto scan_side = [&](const std::vector<TraceSeg>& self,
+                                 const std::vector<TraceSeg>& opp) {
+                for (const auto& a : self) {
+                    // Fanout (#12 pad columns/jogs) and tuning teeth (#15
+                    // trombones) are intentional, codebase-specified
+                    // geometry: floor-checked, never ceiling-checked here.
+                    if (is_fanout(a) || a.tuning_tooth) continue;
+                    bool have_opp = false;
+                    bool coupled = false;
+                    long double best = 0;
+                    Point best_at{0, 0};
+                    for (const auto& b : opp) {
+                        if (a.layer != b.layer) continue;
+                        __int128 d2 = seg_seg_dist2(a.segment(), b.segment());
+                        __int128 rhs =
+                            (__int128)2 * hi + a.width_nm + b.width_nm;
+                        if (rhs >= 0 && (__int128)4 * d2 <= rhs * rhs)
+                            coupled = true;
+                        long double dc = std::sqrt((long double)d2);
+                        long double edge =
+                            dc - (a.width_nm + b.width_nm) / 2.0L;
+                        Point m1 = seg_mid(a.segment()),
+                              m2 = seg_mid(b.segment());
+                        Point at{(m1.x + m2.x) / 2, (m1.y + m2.y) / 2};
+                        if (!have_opp || edge < best) {
+                            have_opp = true;
+                            best = edge;
+                            best_at = at;
+                        }
+                    }
+                    if (!have_opp) continue;
+                    if (!coupled) {
+                        long double dev = best - (long double)pr.gap_nm;
+                        if (!drift || dev > drift_dev) {
+                            drift = true;
+                            drift_dev = dev;
+                            drift_at = best_at;
+                            drift_layer = a.layer;
+                        }
+                    }
+                }
+            };
+            scan_side(tp, tn);
+            scan_side(tn, tp);
+        }
+
+        // Worst error + location track the trunk minimum when measurable;
+        // a larger drift deviation (issue #26 ceiling) takes precedence so
+        // the report points at the worst coupled-section departure.
         long double ref_edge = have_tt ? best_tt : (have_all ? best_all : 0);
         Point ref_at = have_tt ? at_tt : at_all;
         LayerId ref_layer = have_tt ? layer_tt : layer_all;
         if (have_tt || have_all) {
             long double err = fabsl(ref_edge - (long double)pr.gap_nm);
+            if (drift && drift_dev > err) {
+                err = drift_dev;
+                ref_at = drift_at;
+                ref_layer = drift_layer;
+            }
             d.worst_gap_err_mm = (double)(err / 1e6L);
             d.has_gap_location = true;
             d.gap_x_mm = nm_to_mm(ref_at.x);
@@ -606,13 +735,33 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
             v.y_mm = nm_to_mm(close_at.y);
             v.layer = close_layer;
             violations.push_back(v);
+        }
+        if (drift) {
+            // Coupled-but-drifting (issue #26): shared-layer sections exist
+            // yet a trunk section's nearest opposite already exceeds gap +
+            // tol. Same status token as uncoupling (both are excessive gap)
+            // but the detail names the bound, never "uncoupled".
+            parts.push_back("GAP_VIOLATION:too_far");
+            Violation v;
+            v.type = "diffpair_gap";
+            v.net_a = pr.net_p;
+            v.net_b = pr.net_n;
+            v.rule = "diffpair:" + pr.name;
+            v.detail = "diffpair " + pr.name + " edge gap above " +
+                       std::to_string(nm_to_mm(hi)) + "mm (gap " +
+                       std::to_string(nm_to_mm(pr.gap_nm)) + "mm tol " +
+                       std::to_string(nm_to_mm(pr.gap_tol_nm)) + "mm)";
+            v.x_mm = nm_to_mm(drift_at.x);
+            v.y_mm = nm_to_mm(drift_at.y);
+            v.layer = drift_layer;
+            violations.push_back(v);
         } else if (!have_tt && !tp.empty() && !tn.empty()) {
             // Excessive gap as uncoupling: both members own trace copper
             // but share no layer, so no coupled section exists at all.
-            // (A finite same-layer minimum is governed by the gap floor
-            // above, matching the materializer's one-sided tolerance that
-            // the routed suite is built on: pad-pitch fanout legitimately
-            // rests above nominal.)
+            // (Pad-pitch endpoint fanout on a shared layer is NOT this path:
+            // it is floor-checked only by the fanout exemption above, while
+            // a finite shared-layer trunk minimum is governed by the floor
+            // and ceiling branches.)
             parts.push_back("GAP_VIOLATION:too_far");
             Point rep = seg_mid(tp.front().segment());
             Violation v;
@@ -930,7 +1079,8 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
             out.violations.push_back(v);
         }
     }
-    for (const auto& v : board.vias) {
+    for (std::size_t vi = 0; vi < board.vias.size(); ++vi) {
+        const Via& v = board.vias[vi];
         const NetInfo* n = board.find_net(v.net);
         if (!n) continue;
         bool dummy = false;
@@ -985,10 +1135,15 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
             x.y_mm = nm_to_mm(v.pos.y);
             out.violations.push_back(x);
         } else if (current > style.max_current_a) {
-            // Parallel-bundle allowance (issue #5): a via over its single
-            // limit still passes when it sits inside a full same-net bundle
-            // of its class (enough neighbours within the bundle diameter to
-            // share the current). An isolated over-current via still fails.
+            // Parallel-bundle allowance (issues #5/#25): a via over its
+            // single limit still passes only when it sits inside a proven
+            // same-net/same-class parallel transition cluster: >= need vias
+            // (itself included) within the bundle diameter that are tied
+            // together on BOTH transition layers through same-net
+            // trace/via/pad copper on each layer (the planner's star stubs
+            // satisfy this). Nearby-but-unstitched vias do not share
+            // current, so they never pass. An isolated over-current via
+            // still fails.
             bool dummy3 = false;
             double ic = resolver.current().effective_current(*n, board.defaults, dummy3);
             int need = style.max_current_a > 0
@@ -996,18 +1151,83 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
                                              std::ceil(ic / style.max_current_a)))
                            : 1;
             int nearby = 0;
+            int connected = 0;
             if (need > 1) {
                 Coord window = 2 * via_bundle_radius(style, need);
                 LayerId lo = std::min(v.top_layer, v.bottom_layer);
                 LayerId hi = std::max(v.top_layer, v.bottom_layer);
-                for (const auto& w : board.vias) {
+                std::vector<int> pool;
+                for (std::size_t wi = 0; wi < board.vias.size(); ++wi) {
+                    const Via& w = board.vias[wi];
                     if (w.net != v.net) continue;
                     if (w.via_class != v.via_class) continue;
-                    if (w.bottom_layer < lo || w.top_layer > hi) continue;
-                    if (manhattan(w.pos, v.pos) <= window) ++nearby;
+                    LayerId wlo = std::min(w.top_layer, w.bottom_layer);
+                    LayerId whi = std::max(w.top_layer, w.bottom_layer);
+                    if (whi < lo || wlo > hi) continue;
+                    if (manhattan(w.pos, v.pos) <= window)
+                        pool.push_back(static_cast<int>(wi));
+                }
+                std::sort(pool.begin(), pool.end(), [&](int a, int b) {
+                    const Via& va = board.vias[static_cast<std::size_t>(a)];
+                    const Via& vb = board.vias[static_cast<std::size_t>(b)];
+                    if (va.pos.x != vb.pos.x) return va.pos.x < vb.pos.x;
+                    if (va.pos.y != vb.pos.y) return va.pos.y < vb.pos.y;
+                    if (va.top_layer != vb.top_layer)
+                        return va.top_layer < vb.top_layer;
+                    return va.bottom_layer < vb.bottom_layer;
+                });
+                nearby = static_cast<int>(pool.size());
+                if (nearby >= need) {
+                    const std::size_t via_base =
+                        board.terminals.size() + board.traces.size();
+                    const int v_elem = static_cast<int>(via_base + vi);
+                    std::vector<LayerId> layers{lo};
+                    if (hi != lo) layers.push_back(hi);
+                    std::vector<int> cluster = pool;
+                    for (LayerId layer : layers) {
+                        std::vector<int> nodes;
+                        nodes.reserve(elems.size());
+                        std::vector<int> pos_of(elems.size(), -1);
+                        for (std::size_t ei = 0; ei < elems.size(); ++ei) {
+                            if (elems[ei].net != v.net) continue;
+                            if (!elem_present_on(elems[ei], layer)) continue;
+                            pos_of[ei] = static_cast<int>(nodes.size());
+                            nodes.push_back(static_cast<int>(ei));
+                        }
+                        if (v_elem < 0 ||
+                            static_cast<std::size_t>(v_elem) >= pos_of.size() ||
+                            pos_of[static_cast<std::size_t>(v_elem)] < 0) {
+                            cluster.clear();
+                            break;
+                        }
+                        DSU ldsu(static_cast<int>(nodes.size()));
+                        for (std::size_t a = 0; a < nodes.size(); ++a) {
+                            for (std::size_t b = a + 1; b < nodes.size(); ++b) {
+                                const Element& ea = elems[nodes[a]];
+                                const Element& eb = elems[nodes[b]];
+                                if (!elem_bounds(ea).intersects(elem_bounds(eb)))
+                                    continue;
+                                if (elem_layer_touch(ea, eb))
+                                    ldsu.unite(static_cast<int>(a),
+                                               static_cast<int>(b));
+                            }
+                        }
+                        int root = ldsu.find(pos_of[static_cast<std::size_t>(v_elem)]);
+                        std::vector<int> next;
+                        next.reserve(cluster.size());
+                        for (int idx : cluster) {
+                            std::size_t e =
+                                via_base + static_cast<std::size_t>(idx);
+                            if (e >= pos_of.size() || pos_of[e] < 0) continue;
+                            if (ldsu.find(pos_of[e]) == root) next.push_back(idx);
+                        }
+                        cluster = std::move(next);
+                        if (static_cast<int>(cluster.size()) < need) break;
+                    }
+                    connected = static_cast<int>(cluster.size());
                 }
             }
-            if (need <= 1 || nearby < need) {
+            if (need <= 1 || connected < need) {
                 Violation x;
                 x.type = "via_current";
                 x.net_a = v.net;
@@ -1017,7 +1237,8 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
                            std::to_string(style.max_current_a) + "A limit";
                 if (need > 1)
                     x.detail += " (needs " + std::to_string(need) + " in parallel, found " +
-                                std::to_string(nearby) + " nearby)";
+                                std::to_string(nearby) + " nearby, " +
+                                std::to_string(connected) + " connected)";
                 x.x_mm = nm_to_mm(v.pos.x);
                 x.y_mm = nm_to_mm(v.pos.y);
                 out.violations.push_back(x);

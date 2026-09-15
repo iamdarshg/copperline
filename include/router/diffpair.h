@@ -133,11 +133,32 @@ MaterializedPair materialize_pair(const Board& board_without_corridor,
                                   const DiffPair& pair,
                                   const PairCorridor& corridor);
 
-// True when every P/N segment pair on shared layers keeps edge gap >=
-// gap - tol (exact integer math). Reports the worst error and location.
+// True when every coupled P/N section on shared layers keeps edge gap
+// inside gap +/- tol (exact integer math). The floor (every same-layer
+// pair >= gap - tol) rejects pinches; the ceiling (every trunk segment's
+// nearest same-layer opposite trace <= gap + tol, issue #26) rejects
+// excessive separation. Reports the worst deviation and a location.
+// Marked tuning teeth (TraceSeg::tuning_tooth, #15) are intrinsic and
+// honored here too; only the pad-incident fanout exemption needs the
+// fanout-aware form below (no pad context here).
 bool pair_gap_legal(const std::vector<TraceSeg>& traces_p,
                     const std::vector<TraceSeg>& traces_n, Coord gap_nm,
                     Coord tol_nm, Coord& worst_err_out, Point& at_out);
+
+// Fanout-aware variant (issue #26): trace segments with an endpoint exactly
+// at one of fanout_pts (pair member pad positions, integer-nm identity) are
+// #12 endpoint fanout -- pad-end stitching drops the perpendicular offset at
+// pad columns and the fanout-jog inserts short perpendicular jogs, so the
+// fan legitimately spans pad pitch rather than the nominal gap. Length-
+// tuning teeth (TraceSeg::tuning_tooth, #15 trombones) are likewise
+// specified skew-compensation jogs. Both classes are floor-checked like all
+// copper but exempt from the ceiling. Every other same-layer section is
+// trunk and strictly banded. Deterministic (board order scan, first worst
+// wins); integer-nm exact pass/fail.
+bool pair_gap_legal_fanout(const std::vector<TraceSeg>& traces_p,
+                           const std::vector<TraceSeg>& traces_n, Coord gap_nm,
+                           Coord tol_nm, const std::vector<Point>& fanout_pts,
+                           Coord& worst_err_out, Point& at_out);
 
 // Total integer-rounded Euclidean length of a trace set.
 Coord pair_total_length(const std::vector<TraceSeg>& traces);

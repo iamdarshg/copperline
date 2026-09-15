@@ -751,6 +751,8 @@ ImportResult JsonBoardImporter::import_value(const JsonValue& root, const std::s
             double tw = t.get_number("width_mm", nm_to_mm(board.defaults.trace_width_nm));
             if (tw <= 0) throw BoardError(InputKind::kRule, "trace width must be positive");
             seg.width_nm = mm_to_nm(tw);
+            // Issue #15/#26: tuning-tooth annotation (default false).
+            seg.tuning_tooth = t.get_bool("tuning_tooth", false);
             board.traces.push_back(seg);
         }
     }
@@ -919,6 +921,9 @@ JsonValue board_to_json(const Board& board) {
         o["x2_mm"] = nm_to_mm(t.b.x);
         o["y2_mm"] = nm_to_mm(t.b.y);
         o["width_mm"] = nm_to_mm(t.width_nm);
+        // Issue #15/#26: write the tooth annotation only when set, so
+        // existing native JSON (and golden files) stay byte-stable.
+        if (t.tuning_tooth) o["tuning_tooth"] = true;
         traces.as_array().push_back(o);
     }
     root["traces"] = traces;

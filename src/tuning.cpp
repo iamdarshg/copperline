@@ -22,6 +22,11 @@ Coord net_length(const Board& board, NetId net) {
 // Exact pair-gap floor for one candidate segment against partner copper:
 // edge distance >= gap - tol everywhere (mirrors the verifier's too_close
 // math: trace-trace folds both widths, rect cases fold the segment width).
+// Floor-only by design: trombone teeth are specified (#15) skew jogs that
+// legitimately leave the gap band, so the candidate pre-check enforces the
+// floor here while the committed teeth carry TraceSeg::tuning_tooth (set by
+// the caller below) for the verifier's ceiling exemption. The transactional
+// full-verifier accept below still gates every commit.
 bool gap_floor_ok(const Segment& s, Coord w, LayerId layer, NetId partner,
                   const Board& board, Coord gap_lo) {
     for (const auto& t : board.traces) {
@@ -427,6 +432,13 @@ TuningSummary LengthTuner::run(bool topology_closed) {
                     if (!build_trombone(base, k, side, cfg_.amplitude_nm,
                                         cfg_.pitch_nm, scratch_new_))
                         continue;
+                    // Issue #15/#26: pair-tuning teeth are specified skew
+                    // jogs; mark them so the verifier floor-checks (never
+                    // ceiling-checks) the committed accordion. Single-ended
+                    // teeth need no pair-gap treatment and stay unmarked.
+                    if (pair_tune) {
+                        for (auto& s : scratch_new_) s.tuning_tooth = true;
+                    }
                     ++candidates_evaluated_;
                     ++rec.candidates_evaluated;
                     ++sum.candidates_evaluated;
