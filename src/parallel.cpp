@@ -5,9 +5,13 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <limits>
+#include <set>
 #include <thread>
 
+#include "router/diffpair.h"
 #include "router/via_bundle.h"
+#include "router/simplify.h"
 
 namespace copperline {
 
@@ -36,6 +40,35 @@ bool seg_ok_rect(const Segment& s, const Rect& raw, Coord need) {
 }
 
 const Terminal* find_term(const Board& b, TermId id) { return b.find_terminal(id); }
+
+// Issue #12: the coupled sibling net of a pair member (-1 when the net is
+// not in a pair). Corridor legality exempts the sibling's pads (they sit
+// inside the reserved envelope by construction; the materializer enforces
+// the exact pair gap instead of the voltage table there).
+NetId pair_partner_of(const Board& b, NetId net) {
+    for (const auto& pr : b.diffpairs) {
+        if (pr.net_p == net) return pr.net_n;
+        if (pr.net_n == net) return pr.net_p;
+    }
+    return -1;
+}
+
+// Issue #11: per-task A* layer-cost bias. Eligible impedance layers are
+// discounted (selected most), ineligible layers cost double, so the search
+// prefers the solved layer while staying free to leave it when the corridor
+// demands. Identity copy when the net has no impedance target.
+std::vector<double> effective_layer_mult(const Board& snapshot, const RuleResolver& resolver,
+                                         const ConnectionTask& task,
+                                         const std::vector<double>& base) {
+    const NetInfo* n = snapshot.find_net(task.net);
+    if (!n || !resolver.impedance().has_target(*n)) return base;
+    std::vector<double> mult = base;
+    for (const auto& l : snapshot.layers) {
+        double b = resolver.impedanceLayerMultiplier(task.net, l.id);
+        if (l.id >= 0 && l.id < static_cast<int>(mult.size())) mult[l.id] *= b;
+    }
+    return mult;
+}
 
 Coord max_clear_for(const Board& board, const RuleResolver& resolver, NetId net,
                     const ElectricalContext& ctx) {
@@ -67,18 +100,51 @@ DifficultyVector compute_difficulty(const Board& board, const RuleResolver& reso
     const Terminal* tb = find_term(board, task.b);
     const NetInfo* net = board.find_net(task.net);
     if (!ta || !tb) return d;
+    // Issue #12: pair corridors size by the occupied envelope (both traces
+    // + gap + external clearance) and span the pad midpoints.
+    Coord pair_occ = 0;
+    const DiffPair* pair = nullptr;
+    if (task.is_pair_corridor) {
+        for (const auto& pr : board.diffpairs) {
+            if (pr.id == task.pair_id) {
+                pair = &pr;
+                break;
+            }
+        }
+        if (pair) pair_occ = diffpair_occupied_width(board, resolver, *pair, ctx);
+    }
+    // Issue #4: span is to the actual routing target (copper point when
+    // present), not the representative terminal. All other burdens stay
+    // terminal-anchored for stability.
+    const Point dst_p = task_dst_point(board, task);
+    const LayerId dst_l = task_dst_layer(board, task);
 
-    d.span_mm = nm_to_mm(manhattan(ta->pos, tb->pos));
+    d.span_mm = nm_to_mm(manhattan(ta->pos, dst_p));
     std::string wsource;
     Coord width = resolver.requiredTraceWidth(task.net, ta->layer, ctx, &wsource);
+    // Issue #11: impedance-controlled nets size difficulty by the
+    // conservative (max across layers) reconciled width.
+    if (const NetInfo* dini = board.find_net(task.net);
+        dini && resolver.impedance().has_target(*dini))
+        width = resolver.maxRequiredWidth(task.net, ctx);
+    // Issue #12: the corridor reserves both traces + gap + external
+    // clearance as one atomic resource.
+    if (pair) width = pair_occ;
     d.width_mm = nm_to_mm(width);
     d.clearance_mm = nm_to_mm(max_clear_for(board, resolver, task.net, ctx));
     d.endpoint_density =
         std::max(term_density_at(board, task.a, terminal_density),
                  term_density_at(board, task.b, terminal_density));
+    if (task.is_pair_corridor) {
+        // Issue #12: both members' endpoints burden the corridor.
+        d.endpoint_density = std::max(
+            d.endpoint_density,
+            std::max(term_density_at(board, task.pair_a_other, terminal_density),
+                     term_density_at(board, task.pair_b_other, terminal_density)));
+    }
 
     // Free routing space inside the probable corridor.
-    Rect corr = Rect::from_points(ta->pos, tb->pos).expanded(width / 2 + mm_to_nm(0.5));
+    Rect corr = Rect::from_points(ta->pos, dst_p).expanded(width / 2 + mm_to_nm(0.5));
     double corr_area = static_cast<double>(corr.width()) * static_cast<double>(corr.height());
     double blocked = 0.0;
     if (corr_area > 0) {
@@ -111,7 +177,8 @@ DifficultyVector compute_difficulty(const Board& board, const RuleResolver& reso
 
     // Via restrictions: multi-layer span needs a via; over-current styles
     // force parallel vias; a missing preferred class hurts.
-    d.via_restriction = (ta->layer == tb->layer) ? 0.0 : 0.5;
+    // Issue #4: span is source layer -> actual dst layer (copper contact).
+    d.via_restriction = (ta->layer == dst_l) ? 0.0 : 0.5;
     {
         ViaStyle style;
         LayerSpan full{board.layers.front().id, board.layers.back().id};
@@ -131,7 +198,16 @@ DifficultyVector compute_difficulty(const Board& board, const RuleResolver& reso
         int da = it != centre_depth.end() ? it->second : 0;
         it = centre_depth.find(task.b);
         int db = it != centre_depth.end() ? it->second : 0;
-        d.fine_pitch_depth = static_cast<double>(std::max(da, db));
+        int dc = 0, dd = 0;
+        if (task.is_pair_corridor) {
+            // Issue #12: the deeper member sets the corridor depth.
+            it = centre_depth.find(task.pair_a_other);
+            if (it != centre_depth.end()) dc = it->second;
+            it = centre_depth.find(task.pair_b_other);
+            if (it != centre_depth.end()) dd = it->second;
+        }
+        d.fine_pitch_depth = static_cast<double>(std::max(std::max(da, db),
+                                                           std::max(dc, dd)));
     }
 
     d.total = d.span_mm + 40.0 * d.width_mm + 30.0 * d.clearance_mm + 0.5 * d.endpoint_density +
@@ -139,6 +215,9 @@ DifficultyVector compute_difficulty(const Board& board, const RuleResolver& reso
               d.via_restriction + 3.0 * d.prev_failures + 5.0 * d.fine_pitch_depth;
     if (wsource == "ipc_estimate" || wsource == "ampacity") d.total += 0.5;
     if (net && net->terminals.size() > 2) d.total += 0.25 * net->terminals.size();
+    // Issue #12: coupled routing is inherently harder than either member
+    // alone (two traces must stay parallel inside one envelope).
+    if (pair) d.total += 1.0;
     return d;
 }
 
@@ -152,9 +231,64 @@ Corridor probable_corridor(const Board& board, const RuleResolver& resolver,
     if (!ta || !tb) return c;
     std::string ws;
     c.width_nm = resolver.requiredTraceWidth(task.net, ta->layer, ctx, &ws);
+    // Issue #11: corridor resource width is the conservative reconciled
+    // width for impedance-controlled nets.
+    if (const NetInfo* cni = board.find_net(task.net);
+        cni && resolver.impedance().has_target(*cni))
+        c.width_nm = resolver.maxRequiredWidth(task.net, ctx);
+    // Issue #12: one atomic envelope for both members + gap + external
+    // clearance (task_src/dst_point already resolve the pad midpoints).
+    if (task.is_pair_corridor) {
+        for (const auto& pr : board.diffpairs) {
+            if (pr.id == task.pair_id) {
+                c.width_nm = diffpair_occupied_width(board, resolver, pr, ctx);
+                break;
+            }
+        }
+    }
     c.clear_nm = max_clear_for(board, resolver, task.net, ctx);
-    c.rect = Rect::from_points(ta->pos, tb->pos).expanded(c.width_nm / 2 + c.clear_nm);
+    c.rect = Rect::from_points(task_src_point(board, task), task_dst_point(board, task))
+                 .expanded(c.width_nm / 2 + c.clear_nm);
+    // Issue #3: electrical scarcity for interference weighting (mirrors the
+    // difficulty layer/via burdens, but stored on the corridor so the weight
+    // reflects resource demand, not pure bbox overlap).
+    {
+        int costly = 0;
+        for (const auto& l : board.layers)
+            if (l.cost_multiplier > 1.25) ++costly;
+        c.layer_scarcity =
+            board.layers.empty() ? 0 : 0.5 * static_cast<double>(costly) / board.layers.size();
+        const Terminal* tdst = find_term(board, task.b);
+        LayerId dst_l = tdst ? tdst->layer : ta->layer;
+        c.via_scarcity = (ta->layer == dst_l) ? 0.0 : 0.5;
+        LayerSpan full{board.layers.front().id, board.layers.back().id};
+        ViaStyle style;
+        if (!resolver.select_via(task.net, full, style)) {
+            c.via_scarcity += 2.0;
+        } else if (const NetInfo* vn = board.find_net(task.net)) {
+            ElectricalContext c2 = ctx;
+            int n = resolver.current().vias_required(style, *vn, board.defaults, c2);
+            if (n > 1) c.via_scarcity += 1.5 * (n - 1);
+        }
+        c.electrical_weight = 1.0 + c.layer_scarcity + c.via_scarcity;
+    }
     return c;
+}
+
+double interference_weight(const Corridor& a, const Corridor& b) {
+    if (!a.rect.intersects(b.rect)) return 0.0;
+    Rect inter{std::max(a.rect.x1, b.rect.x1), std::max(a.rect.y1, b.rect.y1),
+               std::min(a.rect.x2, b.rect.x2), std::min(a.rect.y2, b.rect.y2)};
+    double overlap_mm2 = nm_to_mm(inter.width()) * nm_to_mm(inter.height());
+    if (overlap_mm2 <= 0) return 0.0;
+    // Wider traces + larger clearances consume more shared resource.
+    double wi = nm_to_mm(a.width_nm), wj = nm_to_mm(b.width_nm);
+    double ci = nm_to_mm(a.clear_nm), cj = nm_to_mm(b.clear_nm);
+    double base = overlap_mm2 * (1.0 + 2.0 * (ci + cj) + (wi + wj));
+    // Issue #3: layer/via scarcity scales the shared-resource demand.
+    double elec = 0.5 * (a.electrical_weight + b.electrical_weight);
+    if (!(elec > 0)) elec = 1.0;
+    return base * elec;
 }
 
 std::vector<std::vector<double>> build_interference(const std::vector<ConnectionTask>& tasks,
@@ -163,20 +297,142 @@ std::vector<std::vector<double>> build_interference(const std::vector<Connection
     std::vector<std::vector<double>> w(n, std::vector<double>(n, 0.0));
     for (std::size_t i = 0; i < n; ++i) {
         for (std::size_t j = i + 1; j < n; ++j) {
-            const Rect& a = corridors[i].rect;
-            const Rect& b = corridors[j].rect;
-            if (!a.intersects(b)) continue;
-            Rect inter{std::max(a.x1, b.x1), std::max(a.y1, b.y1), std::min(a.x2, b.x2),
-                       std::min(a.y2, b.y2)};
-            double overlap_mm2 = nm_to_mm(inter.width()) * nm_to_mm(inter.height());
-            // Wider traces + larger clearances consume more shared resource.
-            double wi = nm_to_mm(corridors[i].width_nm), wj = nm_to_mm(corridors[j].width_nm);
-            double ci = nm_to_mm(corridors[i].clear_nm), cj = nm_to_mm(corridors[j].clear_nm);
-            double v = overlap_mm2 * (1.0 + 2.0 * (ci + cj) + (wi + wj));
+            double v = interference_weight(corridors[i], corridors[j]);
             w[i][j] = w[j][i] = v;
         }
     }
     return w;
+}
+
+int memory_bounded_batch_width(int requested_width, std::size_t budget_bytes,
+                               std::size_t per_task_bytes) {
+    if (requested_width < 1) requested_width = 1;
+    if (per_task_bytes == 0) per_task_bytes = kPerCandidateBytes;
+    if (budget_bytes == 0) return requested_width;
+    std::size_t bound = budget_bytes / per_task_bytes;
+    if (bound < 1) bound = 1;
+    return static_cast<int>(std::min<std::size_t>(requested_width, bound));
+}
+
+int resolve_worker_threads(int requested_threads) {
+    if (requested_threads > 0) return requested_threads;
+    unsigned hw = std::thread::hardware_concurrency();
+    if (hw == 0) hw = 4;
+    return static_cast<int>(hw);
+}
+
+BatchSelection select_interference_batch(const std::vector<int>& ordered_global_idx,
+                                         const std::vector<ConnectionTask>& tasks,
+                                         const std::vector<Corridor>& corridors,
+                                         const BatchSchedOptions& opts) {
+    BatchSelection out;
+    out.effective_width =
+        memory_bounded_batch_width(opts.batch_width, opts.memory_budget_bytes,
+                                   opts.per_task_bytes);
+    out.threshold_used = opts.interference_threshold;
+    if (ordered_global_idx.empty() || out.effective_width < 1) return out;
+    double threshold = opts.interference_threshold;
+    double relax = opts.relax_factor > 1.0 ? opts.relax_factor : 2.0;
+    int max_relax = std::max(0, opts.max_relax_steps);
+    std::vector<char> taken(tasks.size(), 0);
+    std::set<NetId> picked_nets;
+    auto max_vs_selected = [&](int gi) {
+        double m = 0.0;
+        for (int sj : out.selected) {
+            double w = 0.0;
+            if (gi < (int)corridors.size() && sj < (int)corridors.size())
+                w = interference_weight(corridors[gi], corridors[sj]);
+            if (w > m) m = w;
+        }
+        return m;
+    };
+    // First pass + relaxed passes stream rows: O(batch * remaining), no dense
+    // N^2 allocation; corridor buffers are reused by the caller each epoch.
+    // The seed (highest-value eligible) is always selected so a degenerate
+    // threshold can never starve the epoch. Relaxation only engages when the
+    // first pass yields fewer than 2 tasks: when independent work already
+    // fills the batch, competitors stay deferred (separation); when only
+    // competitors remain, the threshold relaxes so workers never idle and
+    // deferred tasks eventually run (final infinite pass guarantees it).
+    bool seeded = false;
+    for (int gi : ordered_global_idx) {
+        if ((int)out.selected.size() >= out.effective_width) break;
+        if (gi < 0 || gi >= (int)tasks.size() || taken[gi]) continue;
+        if (picked_nets.count(tasks[gi].net)) continue;  // one task per net
+        if (!seeded) {
+            out.selected.push_back(gi);
+            taken[gi] = 1;
+            picked_nets.insert(tasks[gi].net);
+            seeded = true;
+            continue;
+        }
+        if (max_vs_selected(gi) < threshold) {
+            out.selected.push_back(gi);
+            taken[gi] = 1;
+            picked_nets.insert(tasks[gi].net);
+        }
+    }
+    if ((int)out.selected.size() >= out.effective_width || out.selected.size() >= 2) {
+        out.threshold_used = threshold;
+        out.relax_steps = 0;
+    } else {
+        for (int pass = 0;; ++pass) {
+            if ((int)out.selected.size() >= out.effective_width) break;
+            if (pass >= max_relax) {
+                if (pass > max_relax) break;
+                // Final infinite-threshold sweep: take remaining eligible in
+                // order so workers never idle.
+                for (int gi : ordered_global_idx) {
+                    if ((int)out.selected.size() >= out.effective_width) break;
+                    if (gi < 0 || gi >= (int)tasks.size() || taken[gi]) continue;
+                    if (picked_nets.count(tasks[gi].net)) continue;
+                    out.selected.push_back(gi);
+                    taken[gi] = 1;
+                    picked_nets.insert(tasks[gi].net);
+                }
+                break;
+            }
+            threshold *= relax;
+            out.relax_steps++;
+            for (int gi : ordered_global_idx) {
+                if ((int)out.selected.size() >= out.effective_width) break;
+                if (gi < 0 || gi >= (int)tasks.size() || taken[gi]) continue;
+                if (picked_nets.count(tasks[gi].net)) continue;
+                if (max_vs_selected(gi) < threshold) {
+                    out.selected.push_back(gi);
+                    taken[gi] = 1;
+                    picked_nets.insert(tasks[gi].net);
+                }
+            }
+            if ((int)out.selected.size() >= 2 &&
+                (int)out.selected.size() >= out.effective_width)
+                break;
+            if ((int)out.selected.size() >= 2) break;
+        }
+        out.threshold_used = threshold;
+    }
+    // Bounded pairwise diagnostics among selected only (<= width^2).
+    for (std::size_t i = 0; i < out.selected.size(); ++i) {
+        for (std::size_t j = i + 1; j < out.selected.size(); ++j) {
+            int a = out.selected[i], b = out.selected[j];
+            double w = 0.0;
+            if (a < (int)corridors.size() && b < (int)corridors.size())
+                w = interference_weight(corridors[a], corridors[b]);
+            if (out.pair_scores.size() < kMaxStoredInterferencePairs) {
+                out.pair_scores.push_back({{a, b}, w});
+            } else {
+                out.pairs_capped++;
+            }
+            if (w > out.max_interference) out.max_interference = w;
+        }
+    }
+    out.pairs_stored = out.pair_scores.size();
+    if (!out.pair_scores.empty()) {
+        double sum = 0;
+        for (auto& p : out.pair_scores) sum += p.second;
+        out.mean_interference = sum / out.pair_scores.size();
+    }
+    return out;
 }
 
 std::vector<std::vector<int>> schedule_batches(const std::vector<ConnectionTask>& tasks,
@@ -189,7 +445,11 @@ std::vector<std::vector<int>> schedule_batches(const std::vector<ConnectionTask>
             return tasks[a].difficulty > tasks[b].difficulty;
         if (tasks[a].net != tasks[b].net) return tasks[a].net < tasks[b].net;
         if (tasks[a].a != tasks[b].a) return tasks[a].a < tasks[b].a;
-        return tasks[a].b < tasks[b].b;
+        if (tasks[a].b != tasks[b].b) return tasks[a].b < tasks[b].b;
+        // Issue #12: deterministic pair-corridor tie-break.
+        if (tasks[a].is_pair_corridor != tasks[b].is_pair_corridor)
+            return tasks[a].is_pair_corridor < tasks[b].is_pair_corridor;
+        return tasks[a].pair_id < tasks[b].pair_id;
     });
     std::vector<std::vector<int>> batches;
     for (std::size_t i = 0; i < order.size(); i += batch_size) {
@@ -305,7 +565,7 @@ Coord ReservationSet::penalty_for_segment(std::size_t self_task, const Segment& 
         if (i == self_task) continue;
         if (corridors_[i].rect.intersects(r)) acc += weights_[i];
     }
-    Coord p = static_cast<Coord>(acc * 20000.0);
+    Coord p = static_cast<Coord>(acc * 20000.0 * strength_);
     return std::min<Coord>(p, 800000);
 }
 
@@ -316,7 +576,9 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                                     double difficulty, const ElectricalContext& ctx,
                                     const std::vector<double>& layer_mult,
                                     const AStarConfig& astar_cfg, const CongestionMap& congestion,
-                                    const ReservationSet& reservations) {
+                                    const ReservationSet& reservations,
+                                    const HierarchyConfig& hier_cfg,
+                                    const HierarchyCache* hier_cache) {
     CandidateRoute cand;
     cand.task = task;
     cand.task_index = task_index;
@@ -327,41 +589,290 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         cand.fail_reason = "bad_task";
         return cand;
     }
-    cand.gate_a = ta->pos;
-    cand.gate_b = tb->pos;
+    // Issue #12: pair corridors route midpoint-to-midpoint with the
+    // occupied envelope. Both member pad sets must exist.
+    const DiffPair* pair = nullptr;
+    if (task.is_pair_corridor) {
+        for (const auto& pr : snapshot.diffpairs) {
+            if (pr.id == task.pair_id) {
+                pair = &pr;
+                break;
+            }
+        }
+        if (!pair) {
+            cand.fail_reason = "bad_task";
+            return cand;
+        }
+        if (!snapshot.find_terminal(task.pair_a_other) ||
+            !snapshot.find_terminal(task.pair_b_other)) {
+            cand.fail_reason = "bad_task";
+            return cand;
+        }
+        cand.gate_a = task_src_point(snapshot, task);
+        cand.gate_b = task_dst_point(snapshot, task);
+    } else {
+        cand.gate_a = ta->pos;
+        cand.gate_b = task_dst_point(snapshot, task);
+    }
+    // Issue #11: explicit impedance/current conflicts never route silently.
+    // A net whose ampacity floor breaks the impedance tolerance on every
+    // feasible layer (or that solves on no layer at all) fails here with a
+    // machine-readable reason instead of committing wrong-width copper.
+    const NetInfo* imp_net = snapshot.find_net(task.net);
+    bool imp_active = imp_net && resolver.impedance().has_target(*imp_net);
+    ImpedanceResolution imp_res;
+    if (imp_active) {
+        imp_res = resolver.impedanceResolution(task.net, ctx);
+        if (imp_res.has_target && !imp_res.feasible) {
+            cand.fail_reason =
+                imp_res.conflict ? "impedance_current_conflict" : "impedance_infeasible";
+            cand.via_reason = cand.fail_reason;
+            const NetInfo* ninfo0 = snapshot.find_net(task.net);
+            if (ninfo0) {
+                bool dummy = false;
+                cand.required_current_a = resolver.current().effective_current(
+                    *ninfo0, snapshot.defaults, dummy);
+                auto ordered = ViaBundlePlanner::ordered_styles(
+                    resolver, task.net,
+                    LayerSpan{snapshot.layers.front().id, snapshot.layers.back().id});
+                if (!ordered.empty()) {
+                    cand.via_style = ordered.front().name;
+                    cand.vias_required = ViaBundlePlanner::required_count(
+                        resolver, ordered.front(), task.net);
+                }
+            }
+            return cand;
+        }
+    }
     TraceRule rule = resolver.traceRule(task.net, ta->layer, kAnyRegion);
     Coord width = rule.pref_width_nm;
-
-    SparseRoutingGraph graph = SparseRoutingGraph::build(snapshot, resolver, task.net, ta->pos,
-                                                         tb->pos, ta->layer, tb->layer, width, ctx);
-    // Soft costs only: congestion + reservations bias the search, legality is
-    // structural (illegal edges were never built).
-    graph.add_penalties([&](const SparseNode& n, const SparseEdge& e) -> Coord {
-        Coord p = 0;
-        if (e.is_via) {
-            p += congestion.penalty_for_segment(Segment{n.p, n.p});
-            p += reservations.penalty_for_segment(task_index, Segment{n.p, n.p});
-        } else if (e.dir2 >= 0) {
-            Segment s1{n.p, e.elbow}, s2{e.elbow, graph.nodes()[e.to].p};
-            p += congestion.penalty_for_segment(s1) + congestion.penalty_for_segment(s2);
-            p += reservations.penalty_for_segment(task_index, s1) +
-                 reservations.penalty_for_segment(task_index, s2);
-        } else {
-            Segment s{n.p, graph.nodes()[e.to].p};
-            p += congestion.penalty_for_segment(s);
-            p += reservations.penalty_for_segment(task_index, s);
+    if (imp_active) {
+        // Conservative sizing: the graph is built with the max reconciled
+        // width so per-layer narrowing below stays legal.
+        width = resolver.maxRequiredWidth(task.net, ctx);
+    }
+    // Issue #12: the corridor reserves the full occupied envelope; both
+    // members must also be individually impedance-feasible (never route a
+    // corridor the materializer cannot fill).
+    if (pair) {
+        width = diffpair_occupied_width(snapshot, resolver, *pair, ctx);
+        for (NetId member : {pair->net_p, pair->net_n}) {
+            const NetInfo* mn = snapshot.find_net(member);
+            if (mn && resolver.impedance().has_target(*mn)) {
+                ImpedanceResolution mr = resolver.impedanceResolution(member, ctx);
+                if (mr.has_target && !mr.feasible) {
+                    cand.fail_reason = mr.conflict ? "impedance_current_conflict"
+                                                   : "impedance_infeasible";
+                    cand.via_reason = cand.fail_reason;
+                    return cand;
+                }
+            }
         }
-        return p;
-    });
+    }
 
-    AStarResult res = astar_route(graph, layer_mult, astar_cfg);
+    // Issue #4: resolve the live multi-target set from the snapshot. Stored
+    // copper points are hints; recomputing from current same-net components
+    // keeps rip-up/reroute branches correct when copper moved. Deterministic:
+    // nearest-first (manhattan, x, y, layer), capped.
+    // Issue #12: pair corridors always run midpoint-to-midpoint (no copper
+    // or plane targets in v1; escape stubs on pair pads are out of scope).
+    std::vector<SparseTarget> dsts;
+    LayerId primary_dst_layer = task_dst_layer(snapshot, task);
+    Point src_pt = ta->pos;
+    if (pair) {
+        src_pt = task_src_point(snapshot, task);
+        dsts.push_back({task_dst_point(snapshot, task), primary_dst_layer});
+    } else if (task.has_copper_target) {
+        std::vector<TermId> target_comp;
+        for (const auto& grp : net_terminal_components(snapshot, task.net)) {
+            if (std::find(grp.begin(), grp.end(), task.b) != grp.end()) {
+                target_comp = grp;
+                break;
+            }
+        }
+        if (target_comp.empty()) target_comp = {task.b};
+        std::vector<CopperTarget> contacts =
+            copper_contacts_for(snapshot, task.net, task.a, target_comp, 8);
+        for (const auto& ct : contacts) dsts.push_back({ct.p, ct.layer});
+        if (dsts.empty()) dsts.push_back({tb->pos, tb->layer});
+        primary_dst_layer = dsts.front().layer;
+    } else {
+        dsts.push_back({tb->pos, tb->layer});
+    }
+
+    if (task.has_plane_target) {
+        // Issue #16: live plane entry from the snapshot. Planes are static,
+        // but recomputing keeps rip-up/reroute branches correct and the
+        // selection deterministic (nearest, same-layer preference, id).
+        int pid = -1, island = 0;
+        Point entry{};
+        LayerId elayer = task.plane_layer;
+        if (nearest_plane_target(snapshot, task.net, ta->pos, ta->layer, pid, entry,
+                                 elayer, island)) {
+            dsts.clear();
+            dsts.push_back({entry, elayer});
+            primary_dst_layer = elayer;
+        }
+    }
+
+    // Effective layer multipliers first: hierarchical guidance needs the
+    // same impedance/pair-adjusted costs as the exact search.
+    std::vector<double> eff_mult =
+        effective_layer_mult(snapshot, resolver, task, layer_mult);
+    if (pair && !pair->preferred_layers.empty()) {
+        // Issue #12: soft preference for the pair's corridor layers (2x off
+        // preferred layers). Never a hard lock: the only legal route still
+        // routes, and the materializer re-gates the layer set exactly.
+        std::set<LayerId> pref(pair->preferred_layers.begin(),
+                               pair->preferred_layers.end());
+        for (const auto& l : snapshot.layers) {
+            if (!pref.count(l.id) && l.id >= 0 &&
+                l.id < static_cast<int>(eff_mult.size()))
+                eff_mult[l.id] *= 2.0;
+        }
+    }
+
+    Board filt = snapshot;  // guidance + graph view (sibling-exempt for pairs)
+    const Board* graph_board = &snapshot;
+    if (pair) {
+        // Issue #12: sibling pads live inside the reserved envelope; they
+        // are same-resource copper for corridor planning (gap-governed at
+        // materialization, not voltage-governed here).
+        for (auto& t : filt.terminals) {
+            if (t.net == pair->net_n) t.net = pair->net_p;
+        }
+        graph_board = &filt;
+    }
+
+    // Issue #10: hierarchical coarse-to-fine guidance. The corridor is
+    // computed BEFORE graph construction so the sparse graph itself can be
+    // clipped to the tube (fewer bases, edges and bundle plans); the exact
+    // search then runs biased inside the corridor. Exact integer geometry
+    // stays the sole legality source: clipped graphs are strict subsets of
+    // the full legal graph, and any clipped miss rebuilds wider, ending in
+    // the unrestricted exact search. Guidance never removes a solution.
+    HierarchyRequest req;
+    req.net = task.net;
+    req.src = src_pt;
+    req.src_layer = ta->layer;
+    req.dsts = dsts;
+    req.width_nm = width;
+    req.clearance_nm = max_clear_for(*graph_board, resolver, task.net, ctx);
+    req.layer_mult = eff_mult;
+    req.astar_cfg = astar_cfg;
+    req.soft_cost = [&](const Segment& s) -> Coord {
+        return congestion.penalty_for_segment(s) +
+               reservations.penalty_for_segment(task_index, s);
+    };
+    GuidanceResult guide;
+    bool guidance_on = hier_cfg.enabled && hier_cache != nullptr;
+    if (guidance_on) {
+        guide = hier_cache->build_guidance(*graph_board, resolver, ctx, req,
+                                           hier_cfg);
+        cand.hierarchy.attempted = true;
+        cand.hierarchy.levels_used_mm = guide.levels_used_mm;
+        cand.hierarchy.coarse_expansions = guide.coarse_expansions;
+    }
+
+    auto apply_soft = [&](SparseRoutingGraph& g) {
+        // Soft costs only: congestion + reservations bias the search,
+        // legality is structural (illegal edges were never built).
+        g.add_penalties([&](const SparseNode& n, const SparseEdge& e) -> Coord {
+            Coord p = 0;
+            if (e.is_via) {
+                p += congestion.penalty_for_segment(Segment{n.p, n.p});
+                p += reservations.penalty_for_segment(task_index, Segment{n.p, n.p});
+            } else if (e.dir2 >= 0) {
+                Segment s1{n.p, e.elbow}, s2{e.elbow, g.nodes()[e.to].p};
+                p += congestion.penalty_for_segment(s1) + congestion.penalty_for_segment(s2);
+                p += reservations.penalty_for_segment(task_index, s1) +
+                     reservations.penalty_for_segment(task_index, s2);
+            } else {
+                Segment s{n.p, g.nodes()[e.to].p};
+                p += congestion.penalty_for_segment(s);
+                p += reservations.penalty_for_segment(task_index, s);
+            }
+            return p;
+        });
+    };
+    auto build_graph = [&](const std::vector<Point>* clip, Coord half) {
+        SparseRoutingGraph g =
+            pair ? SparseRoutingGraph::build_multi(filt, resolver, task.net, src_pt,
+                                                   ta->layer, dsts, width, ctx, clip,
+                                                   half)
+                 : SparseRoutingGraph::build_multi(snapshot, resolver, task.net, src_pt,
+                                                   ta->layer, dsts, width, ctx, clip,
+                                                   half);
+        apply_soft(g);
+        return g;
+    };
+    auto pull_bias = [&](const SparseRoutingGraph& g,
+                         const std::vector<Point>& path) {
+        // Weak pull-to-path ordering assist (never legality): quartered
+        // distance, capped, so the Manhattan heuristic stays
+        // near-consistent. Zero on the corridor; deterministic.
+        std::vector<Coord> bias(g.nodes().size(), 0);
+        for (std::size_t i = 0; i < g.nodes().size(); ++i) {
+            Coord best = std::numeric_limits<Coord>::max();
+            for (const auto& p : path) {
+                Coord d = manhattan(g.nodes()[i].p, p);
+                if (d < best) best = d;
+            }
+            if (best == std::numeric_limits<Coord>::max()) best = 0;
+            bias[i] = std::min(hier_cfg.max_bias_nm, best / 4);
+        }
+        return bias;
+    };
+
+    SparseRoutingGraph graph;
+    AStarResult res;
+    if (guidance_on && guide.found && !guide.level_paths.empty()) {
+        const std::vector<Point>& path = guide.level_paths.back();
+        // Clipped attempts around the corridor (widening), then the
+        // unrestricted exact fallback on the full graph.
+        int attempts = std::max(1, hier_cfg.max_window_attempts);
+        Coord tube = hier_cfg.tube_half_nm;
+        for (int attempt = 0; attempt < attempts; ++attempt) {
+            graph = build_graph(&path, tube);
+            res = astar_route_masked(graph, eff_mult, astar_cfg, {},
+                                     pull_bias(graph, path));
+            cand.hierarchy.window_attempts = attempt + 1;
+            if (res.found) {
+                cand.hierarchy.guided = true;
+                cand.hierarchy.fallback_reason =
+                    attempt == 0 ? "guided" : "guided_expanded";
+                break;
+            }
+            tube *= 4;
+        }
+        if (!res.found) {
+            // Unrestricted exact fallback on the full graph.
+            graph = build_graph(nullptr, 0);
+            res = astar_route(graph, eff_mult, astar_cfg);
+            cand.hierarchy.guided = false;
+            cand.hierarchy.fallback = true;
+            cand.hierarchy.fallback_reason = "window_miss";
+        }
+        cand.hierarchy.exact_expansions = res.expansions;
+    } else {
+        graph = build_graph(nullptr, 0);
+        res = astar_route(graph, eff_mult, astar_cfg);
+        cand.hierarchy.exact_expansions = res.expansions;
+        if (guidance_on)
+            cand.hierarchy.fallback_reason = "coarse_fail";
+        else
+            cand.hierarchy.fallback_reason = "disabled";
+        if (guidance_on && !guide.found) cand.hierarchy.fallback = true;
+    }
     cand.expansions = res.expansions;
     cand.closest_node = res.closest_node;
     cand.closest_goal_dist_nm = res.closest_goal_dist_nm;
-    // Issue #21: forward bounded frontier-rejection evidence (both success
-    // and failure carry it; attribution uses it on failure).
-    cand.frontier_blockers.reserve(graph.frontier_stats().size());
-    for (const auto& s : graph.frontier_stats()) {
+    // Issue #23: forward A*-frontier-only rejection evidence from the search
+    // (`res`), not construction-wide graph stats: only transitions out of
+    // nodes A* actually expanded count. Both success and failure carry it;
+    // attribution uses it on failure. Bounded top-N, deterministic.
+    cand.frontier_blockers.reserve(res.frontier_stats.size());
+    for (const auto& s : res.frontier_stats) {
         FrontierBlockerStat f;
         f.blocker_net = s.blocker_net;
         f.kind = s.kind;
@@ -397,13 +908,13 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         // a graph with zero via edges can never transition. Distinguish a
         // blocked parallel bundle from a plain maze failure so agents get a
         // stable reason category.
-        if (ta->layer != tb->layer) {
+        if (ta->layer != primary_dst_layer) {
             int via_edges = 0;
             for (std::size_t ni = 0; ni < graph.nodes().size(); ++ni)
                 for (const auto& e : graph.edges(static_cast<int>(ni)))
                     if (e.is_via) ++via_edges;
             if (via_edges == 0) {
-                LayerSpan span{ta->layer, tb->layer};
+                LayerSpan span{ta->layer, primary_dst_layer};
                 ViaBundle probe = ViaBundlePlanner::plan(snapshot, resolver, task.net,
                                                          ta->pos, span, width, ctx);
                 cand.via_style = probe.via_class;
@@ -421,10 +932,65 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     }
     cand.found = true;
     cand.cost_nm = res.cost_nm;
+    // Issue #12: pair corridors carry a single center via per transition
+    // (no bundle stubs). The DiffPairMaterializer rebuilds symmetric paired
+    // vias + stubs post-route; corridor stubs would corrupt the centerline.
+    if (pair) {
+        for (std::size_t i = 0; i < res.edge_path.size(); ++i) {
+            int u = res.node_path[i];
+            const SparseEdge& e = graph.edges(u)[res.edge_path[i]];
+            const SparseNode& nu = graph.nodes()[u];
+            const SparseNode& nv = graph.nodes()[e.to];
+            if (e.is_via) {
+                LayerSpan span{std::min(nu.layer, nv.layer),
+                               std::max(nu.layer, nv.layer)};
+                ViaStyle style;
+                if (!resolver.select_via(task.net, span, style)) {
+                    cand.found = false;
+                    cand.traces.clear();
+                    cand.vias.clear();
+                    cand.via_reason = "no_via_class";
+                    cand.fail_reason = "no_via";
+                    return cand;
+                }
+                Via v;
+                v.net = task.net;
+                v.pos = nu.p;
+                v.top_layer = span.top;
+                v.bottom_layer = span.bottom;
+                v.outer_d_nm = style.outer_nm;
+                v.hole_d_nm = style.hole_nm;
+                v.via_class = style.name;
+                cand.vias.push_back(v);
+                cand.via_style = style.name;
+                cand.via_reason = "ok";
+            } else if (e.dir2 >= 0) {
+                cand.traces.push_back({task.net, nu.layer, nu.p, e.elbow, width});
+                if (!(e.elbow == nv.p))
+                    cand.traces.push_back({task.net, nu.layer, e.elbow, nv.p, width});
+            } else {
+                if (!(nu.p == nv.p))
+                    cand.traces.push_back({task.net, nu.layer, nu.p, nv.p, width});
+            }
+        }
+        // Corridor traces stay at the occupied envelope width (never
+        // narrowed per layer: the envelope must fit everywhere).
+        // Simplify against the sibling-exempt view (same board the graph
+        // was built on) so the envelope keeps #17 minimum-bend geometry.
+        std::vector<char> no_stub(cand.traces.size(), 0);
+        simplify_candidate_traces(filt, resolver, ctx, task.net, cand.traces,
+                                  no_stub, simplify_exempt_task(task));
+        return cand;
+    }
     // Materialize every A* layer transition as one atomic bundle (issue #5):
     // all barrels plus both layers' star stubs, or the whole candidate
     // fails with an explicit reason. Never half-build a transition.
+    // Route segments and bundle stubs are collected separately: issue #17
+    // simplifies route runs to arbitrary-angle minimum-bend geometry while
+    // stub traces stay verbatim (they were planned atomically).
     bool saw_via = false;
+    std::vector<TraceSeg> route_segs;
+    std::vector<TraceSeg> stub_segs;
     for (std::size_t i = 0; i < res.edge_path.size(); ++i) {
         int u = res.node_path[i];
         const SparseEdge& e = graph.edges(u)[res.edge_path[i]];
@@ -466,15 +1032,37 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                 v.via_class = bundle.style.name;
                 cand.vias.push_back(v);
             }
-            for (const auto& s : bundle.stubs) cand.traces.push_back(s);
+            for (const auto& s : bundle.stubs) stub_segs.push_back(s);
         } else if (e.dir2 >= 0) {
-            cand.traces.push_back({task.net, nu.layer, nu.p, e.elbow, width});
-            if (!(e.elbow == nv.p)) cand.traces.push_back({task.net, nu.layer, e.elbow, nv.p, width});
+            route_segs.push_back({task.net, nu.layer, nu.p, e.elbow, width});
+            if (!(e.elbow == nv.p)) route_segs.push_back({task.net, nu.layer, e.elbow, nv.p, width});
         } else {
-            if (!(nu.p == nv.p)) cand.traces.push_back({task.net, nu.layer, nu.p, nv.p, width});
+            if (!(nu.p == nv.p)) route_segs.push_back({task.net, nu.layer, nu.p, nv.p, width});
         }
     }
     if (!saw_via) cand.via_reason = "ok";
+    if (imp_active) {
+        // Issue #11: assign each same-layer run its reconciled layer width.
+        // Shrink-only versus the max-width graph, so legality is preserved.
+        // Via-bundle star stubs keep their planned width (atomic bundles).
+        for (auto& s : route_segs)
+            s.width_nm = resolver.requiredTraceWidth(task.net, s.layer, ctx);
+    }
+    // Issue #17: arbitrary-angle minimum-bend simplification of each
+    // same-layer route run (endpoints fixed, exact legality gate, prior
+    // retained on failure). Tuning-exempt tasks (#15 hook) keep guidance
+    // geometry verbatim. Covers ordinary routes, plane access and reroutes:
+    // all flow through this worker body.
+    cand.traces = route_segs;
+    {
+        std::vector<char> stub_mask(route_segs.size(), 0);
+        cand.traces.insert(cand.traces.end(), stub_segs.begin(), stub_segs.end());
+        stub_mask.resize(cand.traces.size(), 0);
+        for (std::size_t i = route_segs.size(); i < cand.traces.size(); ++i)
+            stub_mask[i] = 1;
+        simplify_candidate_traces(snapshot, resolver, ctx, task.net, cand.traces,
+                                  stub_mask, simplify_exempt_task(task));
+    }
     return cand;
 }
 
@@ -498,13 +1086,16 @@ bool trace_legal(const TraceSeg& s, const LegalView& v, const RuleResolver& reso
     }
     std::string cs;
     Coord max_clear = max_clear_for(v.board, resolver, s.net, ctx);
+    // Issue #12: corridor copper exempts its coupled sibling (gap-governed
+    // at materialization, not voltage-governed here).
+    NetId sibling = pair_partner_of(v.board, s.net);
     auto check_pad = [&](const Terminal& t) -> bool {
-        if (t.net == s.net || t.layer != s.layer) return true;
+        if (t.net == s.net || t.net == sibling || t.layer != s.layer) return true;
         Coord c = resolver.requiredClearance(s.net, t.net, s.layer, ctx, &cs);
         return seg_ok_rect(s.segment(), t.pad_rect(), c + hw);
     };
     auto check_trace = [&](const TraceSeg& t) -> bool {
-        if (t.net == s.net || t.layer != s.layer) return true;
+        if (t.net == s.net || t.net == sibling || t.layer != s.layer) return true;
         Coord c = resolver.requiredClearance(s.net, t.net, s.layer, ctx, &cs);
         Segment a = s.segment(), b = t.segment();
         if (!a.bounds().expanded(c + hw + t.width_nm / 2).intersects(b.bounds())) return true;
@@ -513,7 +1104,7 @@ bool trace_legal(const TraceSeg& s, const LegalView& v, const RuleResolver& reso
         return d2 >= (__int128)need * need;
     };
     auto check_via = [&](const Via& vv) -> bool {
-        if (vv.net == s.net) return true;
+        if (vv.net == s.net || vv.net == sibling) return true;
         if (s.layer < std::min(vv.top_layer, vv.bottom_layer) ||
             s.layer > std::max(vv.top_layer, vv.bottom_layer))
             return true;
@@ -526,6 +1117,19 @@ bool trace_legal(const TraceSeg& s, const LegalView& v, const RuleResolver& reso
         if (!seg_ok_rect(s.segment(), ko.rect, max_clear + hw)) {
             why = "keepout:" + ko.reason;
             return false;
+        }
+    }
+    // Issue #16: foreign pours keep exact polygon clearance; own-net pours
+    // are connectable and never block.
+    for (const auto& z : v.board.planes) {
+        if (z.net == s.net || z.layer != s.layer) continue;
+        Coord c = resolver.requiredClearance(s.net, z.net, s.layer, ctx, &cs);
+        Coord need = c + hw;
+        if (s.segment().bounds().expanded(need).intersects(z.bounds())) {
+            if (plane_seg_poly_dist2(s.segment(), z.poly) < (__int128)need * need) {
+                why = "clearance:plane";
+                return false;
+            }
         }
     }
     for (const auto& t : v.board.terminals)
@@ -567,7 +1171,11 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
     }
     std::string cs;
     Coord max_clear = max_clear_for(v.board, resolver, vv.net, ctx);
+    // Issue #12: corridor vias exempt the coupled sibling (paired at
+    // materialization under the gap rule).
+    NetId vsibling = pair_partner_of(v.board, vv.net);
     auto check_vs_net = [&](NetId other, const Rect& raw) -> bool {
+        if (other == vsibling) return true;
         Coord c = resolver.requiredClearance(vv.net, other, vv.top_layer, ctx, &cs);
         return gap_ok_rect(vr, raw, c);
     };
@@ -581,8 +1189,22 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
             return false;
         }
     }
+    // Issue #16: via barrels keep clearance from foreign pours on spanned layers.
+    for (const auto& z : v.board.planes) {
+        if (z.net == vv.net) continue;
+        if (z.layer < std::min(vv.top_layer, vv.bottom_layer) ||
+            z.layer > std::max(vv.top_layer, vv.bottom_layer))
+            continue;
+        Coord c = resolver.requiredClearance(vv.net, z.net, z.layer, ctx, &cs);
+        if (vr.expanded(c).intersects(z.bounds())) {
+            if (plane_rect_poly_dist2(vr, z.poly) < (__int128)c * c) {
+                why = "clearance:plane";
+                return false;
+            }
+        }
+    }
     for (const auto& t : v.board.terminals) {
-        if (t.net == vv.net) continue;
+        if (t.net == vv.net || t.net == vsibling) continue;
         bool span_hit =
             t.layer >= std::min(vv.top_layer, vv.bottom_layer) &&
             t.layer <= std::max(vv.top_layer, vv.bottom_layer);
@@ -593,7 +1215,7 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
         }
     }
     auto check_trace = [&](const TraceSeg& t) -> bool {
-        if (t.net == vv.net) return true;
+        if (t.net == vv.net || t.net == vsibling) return true;
         if (t.layer < std::min(vv.top_layer, vv.bottom_layer) ||
             t.layer > std::max(vv.top_layer, vv.bottom_layer))
             return true;
@@ -614,7 +1236,7 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
                 return false;
             }
     auto check_via = [&](const Via& o) -> bool {
-        if (o.net == vv.net) return true;
+        if (o.net == vv.net || o.net == vsibling) return true;
         bool overlap = !(o.bottom_layer < std::min(vv.top_layer, vv.bottom_layer) ||
                          o.top_layer > std::max(vv.top_layer, vv.bottom_layer));
         if (!overlap) return true;
@@ -779,10 +1401,18 @@ ArbiterResult arbitrate(const std::vector<CandidateRoute>& candidates, const Boa
 
 void commit_candidates(Board& committed, const std::vector<CandidateRoute>& candidates,
                        const ArbiterResult& arb, RouteStats& stats) {
+    // Issue #10: hierarchy aggregates cover every candidate (accepted or
+    // rejected); exact expansions keep their existing accounting.
+    for (const auto& c : candidates) {
+        if (c.hierarchy.attempted && c.hierarchy.guided) stats.hierarchy_guided_tasks++;
+        if (c.hierarchy.attempted && c.hierarchy.fallback)
+            stats.hierarchy_fallback_tasks++;
+        stats.hierarchy_coarse_expansions += c.hierarchy.coarse_expansions;
+    }
     for (std::size_t i : arb.accepted) {
         const CandidateRoute& c = candidates[i];
         for (const auto& t : c.traces) {
-            stats.length_nm += manhattan(t.a, t.b);
+            stats.length_nm += euclid_len_nm(t.a, t.b);
             committed.traces.push_back(t);
         }
         for (const auto& vv : c.vias) {
@@ -806,6 +1436,28 @@ JsonValue EpochInfo::to_json() const {
     o["expansions"] = static_cast<double>(expansions);
     o["workers"] = static_cast<double>(workers);
     o["time_ms"] = static_cast<double>(time_ms);
+    // Issue #3: batch IDs + pairwise interference + width/memory stats.
+    JsonValue bids = JsonValue::array();
+    for (int id : batch_task_ids) bids.as_array().push_back(JsonValue(static_cast<double>(id)));
+    o["batch_task_ids"] = bids;
+    JsonValue pairs = JsonValue::array();
+    for (const auto& p : interference_pairs) {
+        JsonValue e = JsonValue::object();
+        e["a"] = static_cast<double>(p.first.first);
+        e["b"] = static_cast<double>(p.first.second);
+        e["weight"] = p.second;
+        pairs.as_array().push_back(e);
+    }
+    o["interference_pairs"] = pairs;
+    o["interference_threshold_used"] = interference_threshold_used;
+    o["interference_relax_steps"] = static_cast<double>(interference_relax_steps);
+    o["interference_max"] = interference_max;
+    o["interference_mean"] = interference_mean;
+    o["effective_batch_width"] = static_cast<double>(effective_batch_width);
+    // Issue #14: maturity phase + effective budget snapshot for this epoch.
+    o["maturity_phase"] = maturity_phase;
+    o["maturity"] = maturity;
+    o["budget"] = budget;
     return o;
 }
 

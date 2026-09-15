@@ -10,6 +10,7 @@
 
 #include "router/astar.h"
 #include "router/density.h"
+#include "router/simplify.h"
 #include "router/sparse_graph.h"
 
 namespace copperline {
@@ -437,7 +438,7 @@ std::string candidate_signature(int portal_id, int principal_dir,
     return ss.str();
 }
 
-// Exact direct-escape legality for one Manhattan segment, mirroring the
+// Exact direct-escape legality for one segment (arbitrary angle), mirroring the
 // escape_candidate_legal gate (keepouts with worst-case clearance, foreign
 // pads/traces/vias with pair clearance, on-board copper). Integer-exact.
 bool direct_seg_legal(const Board& work, const RuleResolver& resolver,
@@ -495,9 +496,16 @@ bool try_direct_candidate(const Board& work, const RuleResolver& resolver,
     const Point a = t.pos, b = portal.pos;
     Point elbow{};
     bool has_elbow = false;
-    if (a.x == b.x || a.y == b.y) {
-        if (!direct_seg_legal(work, resolver, ctx, t.net, {a, b}, half_w, t.layer, max_clear))
-            return false;
+    // Issue #17: prefer the direct arbitrary-angle segment when exactly
+    // legal (a clear diagonal is one natural segment, never 45-straight-45
+    // or an elbow). Manhattan elbows are the fallback only.
+    if (a == b) {
+        // Degenerate: pad already at the portal; no copper needed.
+    } else if (direct_seg_legal(work, resolver, ctx, t.net, {a, b}, half_w, t.layer,
+                                max_clear)) {
+        // Single natural-angle segment; handled by the shared epilogue.
+    } else if (a.x == b.x || a.y == b.y) {
+        return false;
     } else {
         Point e1{b.x, a.y}, e2{a.x, b.y};
         if (direct_seg_legal(work, resolver, ctx, t.net, {a, e1}, half_w, t.layer, max_clear) &&
@@ -527,7 +535,8 @@ bool try_direct_candidate(const Board& work, const RuleResolver& resolver,
         out.traces.push_back({t.net, t.layer, a, elbow, width});
         if (!(elbow == b)) out.traces.push_back({t.net, t.layer, elbow, b, width});
     }
-    out.length_nm = manhattan(a, has_elbow ? elbow : b) + (has_elbow ? manhattan(elbow, b) : 0);
+    out.length_nm = euclid_len_nm(a, has_elbow ? elbow : b) +
+                    (has_elbow ? euclid_len_nm(elbow, b) : 0);
     out.via_count = 0;
     out.width_nm = width;
     out.use_neckdown = is_neck;
@@ -687,15 +696,15 @@ bool path_to_candidate(const SparseRoutingGraph& graph, const AStarResult& res, 
             out.vias.push_back(v);
         } else if (e.dir2 >= 0) {
             out.traces.push_back({net, nu.layer, nu.p, e.elbow, width});
-            total += manhattan(nu.p, e.elbow);
+            total += euclid_len_nm(nu.p, e.elbow);
             if (!(e.elbow == nv.p)) {
                 out.traces.push_back({net, nu.layer, e.elbow, nv.p, width});
-                total += manhattan(e.elbow, nv.p);
+                total += euclid_len_nm(e.elbow, nv.p);
             }
         } else {
             if (!(nu.p == nv.p)) {
                 out.traces.push_back({net, nu.layer, nu.p, nv.p, width});
-                total += manhattan(nu.p, nv.p);
+                total += euclid_len_nm(nu.p, nv.p);
             }
         }
     }
@@ -827,6 +836,17 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
             }
             std::string wsource;
             Coord full_w = resolver.requiredTraceWidth(t->net, t->layer, ctx, &wsource);
+            // Issue #11: per-pad A* layer bias toward the impedance solution.
+            std::vector<double> pad_layer_mult = layer_mult;
+            if (const NetInfo* eni = board.find_net(t->net);
+                eni && resolver.impedance().has_target(*eni)) {
+                full_w = resolver.maxRequiredWidth(t->net, ctx);
+                for (const auto& l : board.layers) {
+                    double b = resolver.impedanceLayerMultiplier(t->net, l.id);
+                    if (l.id >= 0 && l.id < static_cast<int>(pad_layer_mult.size()))
+                        pad_layer_mult[l.id] *= b;
+                }
+            }
             const NetInfo* net_info = board.find_net(t->net);
             // Neckdown option: legal explicit neck only.
             Coord neck_w = 0;
@@ -869,13 +889,23 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                 auto it = by_sig.find(c.signature);
                 if (it == by_sig.end() || c.cost < it->second.cost) by_sig[c.signature] = c;
             };
-            auto neck_ok = [&]() -> bool {
+            // Issue #24: layer-aware neckdown legality. The neck stub lives on
+            // the terminal layer for direct/same-layer escapes and may span
+            // the alternate layer for multilayer escapes, so the gate uses
+            // the per-layer copper/internal width on every layer the neck
+            // could occupy (never the external/default width alone).
+            auto neck_ok_on = [&](LayerId layer) -> bool {
                 return have_neck && net_info &&
                        resolver.current().neckdown_legal(*net_info, neck_w, pitch2,
-                                                         board.defaults, ctx);
+                                                         board, layer, ctx);
+            };
+            auto neck_ok = [&]() -> bool {
+                if (!neck_ok_on(t->layer)) return false;
+                if (multilayer_possible && !neck_ok_on(alt_layer)) return false;
+                return true;
             };
 
-            // Phase 1: direct Manhattan escapes (microseconds each, no graph
+            // Phase 1: direct escapes (microseconds each, no graph
             // search). Perimeter pads resolve here. Full width is preferred:
             // note() keeps the cheaper candidate on signature ties and the
             // full-width pass runs first.
@@ -914,12 +944,21 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                     SparseRoutingGraph g = SparseRoutingGraph::build(
                         gb, resolver, t->net, t->pos, portal.pos, t->layer, t->layer, w,
                         ctx);
-                    AStarResult res = astar_route(g, layer_mult, cfg);
+                    AStarResult res = astar_route(g, pad_layer_mult, cfg);
                     if (res.found) {
                         EscapeCandidate c;
                         if (path_to_candidate(g, res, t->net, t->layer, w, style, have_via,
                                               "", tid, portal, fp.channel_count, c)) {
                             c.use_neckdown = is_neck;
+                            // Issue #17: minimum-bend arbitrary-angle stubs.
+                            // Legality is decided against the FULL board
+                            // (work), not the corridor-filtered graph board.
+                            if (simplify_escape_traces(work, resolver, ctx, t->net,
+                                                       c.traces)) {
+                                c.length_nm = 0;
+                                for (const auto& s : c.traces)
+                                    c.length_nm += euclid_len_nm(s.a, s.b);
+                            }
                             note(c);
                         }
                     }
@@ -929,12 +968,18 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                     SparseRoutingGraph g = SparseRoutingGraph::build(
                         gb, resolver, t->net, t->pos, portal.pos, t->layer, alt_layer, w,
                         ctx);
-                    AStarResult res = astar_route(g, layer_mult, cfg);
+                    AStarResult res = astar_route(g, pad_layer_mult, cfg);
                     if (res.found) {
                         EscapeCandidate c;
                         if (path_to_candidate(g, res, t->net, t->layer, w, style, have_via,
                                               "", tid, portal, fp.channel_count, c)) {
                             c.use_neckdown = is_neck;
+                            if (simplify_escape_traces(work, resolver, ctx, t->net,
+                                                       c.traces)) {
+                                c.length_nm = 0;
+                                for (const auto& s : c.traces)
+                                    c.length_nm += euclid_len_nm(s.a, s.b);
+                            }
                             note(c);
                         }
                     }

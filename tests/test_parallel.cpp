@@ -617,4 +617,162 @@ CT_TEST(starvation_free_coverage) {
     (void)rep2;
 }
 
+// ---- Issue #3: interference-aware batch scheduling ----
+
+namespace {
+Board three_task_board(TermId& a0, TermId& a1, TermId& b0, TermId& b1, TermId& c0,
+                       TermId& c1) {
+    Board b = base_2layer(20.0, 20.0);
+    for (int i = 0; i < 3; ++i) {
+        NetInfo n = make_net(i, "N" + std::to_string(i));
+        n.has_current = true;
+        n.current_a = 0.1;
+        b.nets.push_back(n);
+    }
+    // A and B: parallel overlapping corridors (competing). C: far independent.
+    a0 = add_terminal(b, 0, 2.0, 10.0);
+    a1 = add_terminal(b, 0, 18.0, 10.0);
+    b0 = add_terminal(b, 1, 2.0, 10.4);
+    b1 = add_terminal(b, 1, 18.0, 10.4);
+    c0 = add_terminal(b, 2, 2.0, 2.0);
+    c1 = add_terminal(b, 2, 6.0, 2.0);
+    return b;
+}
+}  // namespace
+
+CT_TEST(interference_aware_separates_competing) {
+    TermId a0, a1, b0, b1, c0, c1;
+    Board b = three_task_board(a0, a1, b0, b1, c0, c1);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    ConnectionTask ta{0, a0, a1, 0, 9.0}, tb{1, b0, b1, 1, 8.0}, tc{2, c0, c1, 2, 1.0};
+    std::vector<ConnectionTask> tasks = {ta, tb, tc};
+    std::vector<Corridor> corr = {probable_corridor(b, r, ta, ctx),
+                                  probable_corridor(b, r, tb, ctx),
+                                  probable_corridor(b, r, tc, ctx)};
+    double w_ab = interference_weight(corr[0], corr[1]);
+    double w_ac = interference_weight(corr[0], corr[2]);
+    double w_bc = interference_weight(corr[1], corr[2]);
+    CT_CHECK(w_ab > 0);
+    CT_CHECK(w_ac == 0);
+    CT_CHECK(w_bc == 0);
+    BatchSchedOptions opt;
+    opt.batch_width = 8;
+    opt.interference_threshold = 1.0;
+    BatchSelection sel = select_interference_batch({0, 1, 2}, tasks, corr, opt);
+    CT_CHECK(sel.selected.size() == 3 || sel.selected.size() == 2);
+    // Highest-difficulty competitor first, independent preferred over the
+    // second competitor: {A, C} before B.
+    CT_CHECK(sel.selected[0] == 0);
+    bool has_c = false;
+    for (int s : sel.selected)
+        if (s == 2) has_c = true;
+    CT_CHECK(has_c);
+    if (sel.selected.size() == 2) {
+        CT_CHECK(sel.selected[1] == 2);  // B deferred to a later epoch
+    }
+    // Pairwise diagnostics are bounded and expose the competing pair only
+    // when both competitors land in one batch.
+    CT_CHECK(sel.pair_scores.size() <= 3);
+    CT_CHECK(sel.effective_width == 8);
+}
+
+CT_TEST(interference_deferred_tasks_eventually_run) {
+    // Known-routable cross board (competing corridors, deterministic
+    // arbitration): every deferred task must eventually route and each epoch
+    // must expose batch IDs + pairwise scores.
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    b.layers.push_back({1, "Bottom"});
+    NetInfo a = make_net(0, "A");
+    a.has_current = true;
+    a.current_a = 0.1;
+    NetInfo bn = make_net(1, "B");
+    bn.has_current = true;
+    bn.current_a = 0.1;
+    NetInfo c = make_net(2, "C");
+    c.has_current = true;
+    c.current_a = 0.1;
+    b.nets.push_back(a);
+    b.nets.push_back(bn);
+    b.nets.push_back(c);
+    add_terminal(b, 0, 2.0, 10.0);
+    add_terminal(b, 0, 18.0, 10.0);
+    add_terminal(b, 1, 10.0, 2.0);
+    add_terminal(b, 1, 10.0, 18.0);
+    add_terminal(b, 2, 2.0, 2.0);
+    add_terminal(b, 2, 6.0, 2.0);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    EngineOptions opt;
+    opt.threads = 2;
+    RouterEngine eng(std::move(b), std::move(r), opt);
+    RouteReport rep = eng.run();
+    CT_CHECK(rep.status == "COMPLETE");
+    CT_CHECK(rep.stats.tasks_routed == 3);
+    // Deferred competitor appears in a later epoch's batch IDs.
+    CT_CHECK(!rep.epochs.empty());
+    // Progress/epoch JSON carries batch IDs + pairwise scores + stats.
+    JsonValue j0 = rep.epochs.front().to_json();
+    CT_CHECK(j0.has("batch_task_ids"));
+    CT_CHECK(j0.has("interference_pairs"));
+    CT_CHECK(j0.has("interference_threshold_used"));
+    CT_CHECK(j0.has("effective_batch_width"));
+    BoardVerifier v;
+    ElectricalContext ctx;
+    RuleResolver rv = RuleResolver::defaults_for(eng.committed());
+    CT_CHECK(v.verify(eng.committed(), rv, ctx).ok);
+}
+
+CT_TEST(interference_threads_1_2_4_deterministic) {
+    std::string h0;
+    for (int th : {1, 2, 4}) {
+        Board b = open_nets(4);
+        RuleResolver r = RuleResolver::defaults_for(b);
+        EngineOptions opt;
+        opt.threads = th;
+        RouterEngine eng(std::move(b), std::move(r), opt);
+        RouteReport rep = eng.run();
+        CT_CHECK(rep.status == "COMPLETE");
+        if (h0.empty()) h0 = rep.board_hash;
+        CT_CHECK(rep.board_hash == h0);
+    }
+    CT_CHECK(!h0.empty());
+}
+
+CT_TEST(interference_electrical_scarcity_weights) {
+    Corridor base{{0, 0, mm_to_nm(10), mm_to_nm(10)}, mm_to_nm(0.2), mm_to_nm(0.15)};
+    base.electrical_weight = 1.0;
+    Corridor scarce = base;
+    scarce.layer_scarcity = 0.5;
+    scarce.via_scarcity = 2.0;
+    scarce.electrical_weight = 1.0 + 0.5 + 2.0;
+    double w_base = interference_weight(base, base);
+    double w_scarce = interference_weight(scarce, scarce);
+    CT_CHECK(w_base > 0);
+    CT_CHECK(w_scarce > w_base);  // layer/via scarcity scales beyond bbox overlap
+}
+
+CT_TEST(interference_memory_bounds_and_thread_default) {
+    CT_CHECK(memory_bounded_batch_width(8, kRouterMemoryBudgetBytes, kPerCandidateBytes) == 8);
+    CT_CHECK(memory_bounded_batch_width(8, 100ULL * 1024 * 1024, kPerCandidateBytes) == 1);
+    CT_CHECK(resolve_worker_threads(2) == 2);
+    CT_CHECK(resolve_worker_threads(0) >= 1);
+    CT_CHECK(resolve_worker_threads(-1) >= 1);
+    // Relaxation fills the batch when everything competes: workers never idle.
+    ConnectionTask t0{0, 0, 1, 0, 9.0}, t1{1, 2, 3, 1, 8.0}, t2{2, 4, 5, 2, 7.0};
+    Corridor c{{0, 0, mm_to_nm(10), mm_to_nm(10)}, mm_to_nm(0.5), mm_to_nm(0.5)};
+    c.electrical_weight = 1.0;
+    BatchSchedOptions opt;
+    opt.batch_width = 3;
+    opt.interference_threshold = 1e-9;  // everything competes
+    opt.max_relax_steps = 2;
+    BatchSelection sel =
+        select_interference_batch({0, 1, 2}, {t0, t1, t2}, {c, c, c}, opt);
+    CT_CHECK(sel.selected.size() == 3);  // relaxed to full width
+    CT_CHECK(sel.relax_steps >= 1);
+}
+
 int main() { return copperline::test::run_all_tests(); }

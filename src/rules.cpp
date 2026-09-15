@@ -249,6 +249,19 @@ bool CurrentCapacitySystem::neckdown_legal(const NetInfo& net, Coord neck_width_
     return true;
 }
 
+bool CurrentCapacitySystem::neckdown_legal(const NetInfo& net, Coord neck_width_nm,
+                                           Coord length_nm, const Board& board,
+                                           LayerId layer,
+                                           const ElectricalContext& ctx) const {
+    std::string source;
+    Coord required = required_min_width(net, board, layer, ctx, source);
+    if (neck_width_nm >= required) return true;  // not actually a neckdown
+    if (!net.allow_neckdown) return false;       // never invent narrowing
+    if (neck_width_nm < net.neck_width_nm) return false;
+    if (net.neck_max_len_nm > 0 && length_nm > net.neck_max_len_nm) return false;
+    return true;
+}
+
 bool CurrentCapacitySystem::via_style_ok(const ViaStyle& style, const NetInfo& net,
                                          const BoardDefaults& def,
                                          const ElectricalContext&) const {
@@ -264,6 +277,227 @@ int CurrentCapacitySystem::vias_required(const ViaStyle& style, const NetInfo& n
     double i = effective_current(net, def, dummy);
     if (style.max_current_a <= 0) return 1;
     return std::max(1, static_cast<int>(std::ceil(i / style.max_current_a)));
+}
+
+// ---- Controlled-impedance models (issue #11) ----
+
+double MicrostripModel::estimate_ohms(double w_mm, double h_mm, double er,
+                                      double t_mm) const {
+    if (w_mm <= 0 || h_mm <= 0 || er <= 0 || t_mm < 0) return -1.0;
+    double denom = 0.8 * w_mm + t_mm;
+    if (denom <= 0) return -1.0;
+    double arg = 5.98 * h_mm / denom;
+    if (arg <= 1.0) return -1.0;  // outside the approximation's domain
+    return 87.0 / std::sqrt(er + 1.41) * std::log(arg);
+}
+
+double StriplineModel::estimate_ohms(double w_mm, double h_mm, double er,
+                                     double t_mm) const {
+    if (w_mm <= 0 || h_mm <= 0 || er <= 0 || t_mm < 0) return -1.0;
+    double b_mm = 2.0 * h_mm;  // symmetric plane spacing
+    double denom = 0.8 * w_mm + t_mm;
+    if (denom <= 0) return -1.0;
+    double arg = 1.9 * b_mm / denom;
+    if (arg <= 1.0) return -1.0;
+    return 60.0 / std::sqrt(er) * std::log(arg);
+}
+
+ImpedanceSystem::ImpedanceSystem()
+    : min_nm_(mm_to_nm(0.05)), max_nm_(mm_to_nm(5.0)) {}
+
+double ImpedanceSystem::tolerance_for(const NetInfo& net) const {
+    if (net.has_impedance_tolerance) return net.impedance_tolerance_frac;
+    return default_tolerance_frac_;
+}
+
+const ImpedanceModel& ImpedanceSystem::model_for_name(const std::string& name) const {
+    if (name == "stripline") return stripline_;
+    return microstrip_;
+}
+
+namespace {
+
+// Outer stackup layers (first/last entries) are microstrip; sandwiched
+// layers are stripline. Mirrors the ampacity internal/external inference.
+bool stackup_is_outer(const Board& board, LayerId layer) {
+    if (board.layers.size() <= 2) return true;
+    if (!board.layers.empty() &&
+        (layer == board.layers.front().id || layer == board.layers.back().id))
+        return true;
+    return false;
+}
+
+const Layer* find_layer(const Board& board, LayerId layer) {
+    for (const auto& l : board.layers)
+        if (l.id == layer) return &l;
+    return nullptr;
+}
+
+}  // namespace
+
+std::string ImpedanceSystem::model_name_for(const Board& board,
+                                            const Layer& layer) const {
+    if (!model_override_.empty()) return model_override_;
+    if (!layer.impedance_model.empty()) return layer.impedance_model;
+    return stackup_is_outer(board, layer.id) ? "microstrip" : "stripline";
+}
+
+bool ImpedanceSystem::layer_eligible(const Board& board, const NetInfo& net,
+                                     const Layer& layer) const {
+    (void)board;
+    if (!enabled_ || !net.has_impedance) return false;
+    if (layer.layer_type != "signal") return false;
+    if (!layer.has_dielectric_thickness || layer.dielectric_thickness_nm <= 0)
+        return false;
+    if (!layer.has_dielectric_er || layer.dielectric_er <= 0) return false;
+    if (!net.impedance_layers.empty() &&
+        std::find(net.impedance_layers.begin(), net.impedance_layers.end(),
+                  layer.id) == net.impedance_layers.end())
+        return false;
+    return true;
+}
+
+std::vector<LayerId> ImpedanceSystem::eligible_layers(const Board& board,
+                                                      const NetInfo& net) const {
+    std::vector<LayerId> out;
+    for (const auto& l : board.layers)
+        if (layer_eligible(board, net, l)) out.push_back(l.id);
+    std::sort(out.begin(), out.end());
+    return out;
+}
+
+double ImpedanceSystem::copper_mm_for(const Board& board, const Layer& layer,
+                                      double copper_weight_oz) const {
+    (void)board;
+    if (layer.has_copper_thickness && layer.copper_thickness_nm > 0)
+        return nm_to_mm(layer.copper_thickness_nm);
+    if (copper_weight_oz > 0) return copper_weight_oz * 0.0348;  // 1 oz ~= 34.8 um
+    return 0.0348;
+}
+
+double ImpedanceSystem::estimate_ohms(const Board& board, const Layer& layer,
+                                      Coord width_nm, double copper_weight_oz,
+                                      std::string* model_out) const {
+    if (!enabled_) return -1.0;
+    // Eligibility here is purely stackup-based (no net filter): the verifier
+    // and solver ask per (net, layer) through the net-aware wrappers below.
+    if (layer.layer_type != "signal") return -1.0;
+    if (!layer.has_dielectric_thickness || layer.dielectric_thickness_nm <= 0)
+        return -1.0;
+    if (!layer.has_dielectric_er || layer.dielectric_er <= 0) return -1.0;
+    std::string model = model_name_for(board, layer);
+    if (model_out) *model_out = model;
+    double w_mm = nm_to_mm(width_nm);
+    double h_mm = nm_to_mm(layer.dielectric_thickness_nm);
+    double t_mm = copper_mm_for(board, layer, copper_weight_oz);
+    return model_for_name(model).estimate_ohms(w_mm, h_mm, layer.dielectric_er, t_mm);
+}
+
+Coord ImpedanceSystem::solve_width(const Board& board, const Layer& layer,
+                                   double target_ohms, double copper_weight_oz,
+                                   std::string* model_out) const {
+    if (target_ohms <= 0) return -1;
+    if (layer.layer_type != "signal") return -1;
+    if (!layer.has_dielectric_thickness || layer.dielectric_thickness_nm <= 0)
+        return -1;
+    if (!layer.has_dielectric_er || layer.dielectric_er <= 0) return -1;
+    std::string model = model_name_for(board, layer);
+    if (model_out) *model_out = model;
+    const ImpedanceModel& m = model_for_name(model);
+    double h_mm = nm_to_mm(layer.dielectric_thickness_nm);
+    double t_mm = copper_mm_for(board, layer, copper_weight_oz);
+    auto z_at = [&](Coord w_nm) {
+        return m.estimate_ohms(nm_to_mm(w_nm), h_mm, layer.dielectric_er, t_mm);
+    };
+    // Z decreases monotonically in w: bracket the target. Out-of-domain
+    // (-1) at an edge means the target is unreachable from that side. Note
+    // the approximation is only valid for arg > 1, which caps the wide end:
+    // clamp hi into the valid domain before bracketing.
+    double z_lo = z_at(min_nm_);  // narrow -> high Z
+    if (z_lo < 0) return -1;
+    Coord hi = max_nm_;
+    double z_hi = z_at(hi);  // wide -> low Z
+    while (z_hi < 0 && hi > min_nm_) {
+        hi = min_nm_ + (hi - min_nm_) / 2;
+        z_hi = z_at(hi);
+    }
+    if (z_hi < 0) return -1;
+    if (target_ohms > z_lo || target_ohms < z_hi) return -1;
+    Coord lo = min_nm_;
+    for (int i = 0; i < 80; ++i) {
+        Coord mid = lo + (hi - lo) / 2;
+        if (mid == lo || mid == hi) break;
+        double z = z_at(mid);
+        if (z < 0) return -1;
+        if (z > target_ohms) lo = mid;  // need wider (lower Z)
+        else hi = mid;
+    }
+    Coord best = lo + (hi - lo) / 2;
+    // Snap check: 1 nm quantization never matters against percent tolerances,
+    // but confirm the snapped width still brackets (deterministic).
+    double z_best = z_at(best);
+    if (z_best < 0) return -1;
+    return best;
+}
+
+void ImpedanceSystem::tolerance_band(const Board& board, const Layer& layer,
+                                     double target_ohms, double tol_frac,
+                                     double copper_weight_oz, Coord& w_lo_nm,
+                                     Coord& w_hi_nm) const {
+    w_lo_nm = solve_width(board, layer, target_ohms * (1.0 + tol_frac),
+                          copper_weight_oz);
+    w_hi_nm = solve_width(board, layer, target_ohms * (1.0 - tol_frac),
+                          copper_weight_oz);
+}
+
+double ImpedanceSystem::layer_multiplier(const Board& board, const NetInfo& net,
+                                         LayerId layer, LayerId selected_layer) const {
+    if (!has_target(net)) return 1.0;
+    const Layer* l = find_layer(board, layer);
+    if (!l || !layer_eligible(board, net, *l)) return 2.0;
+    if (layer == selected_layer) return 0.7;
+    if (net.has_impedance_ref_plane && l->has_ref_plane &&
+        l->ref_plane_layer == net.impedance_ref_plane)
+        return 0.8;
+    return 0.85;
+}
+
+JsonValue ImpedanceResolution::to_json() const {
+    JsonValue o = JsonValue::object();
+    o["has_target"] = has_target;
+    if (!has_target) return o;
+    o["net"] = static_cast<double>(net);
+    o["net_name"] = net_name;
+    o["target_ohms"] = target_ohms;
+    o["tolerance_pct"] = tolerance_frac * 100.0;
+    o["feasible"] = feasible;
+    o["conflict"] = conflict;
+    if (!conflict_detail.empty()) o["conflict_detail"] = conflict_detail;
+    if (feasible) {
+        o["selected_layer"] = static_cast<double>(selected_layer);
+        o["selected_width_mm"] = nm_to_mm(selected_width_nm);
+        o["model"] = selected_model;
+        o["estimated_ohms"] = estimated_ohms;
+        o["tolerance_error_pct"] = rel_error * 100.0;
+        o["current_min_mm"] = nm_to_mm(current_min_nm);
+        o["current_source"] = current_source;
+    }
+    JsonValue opts = JsonValue::array();
+    for (const auto& op : options) {
+        JsonValue e = JsonValue::object();
+        e["layer"] = static_cast<double>(op.layer);
+        e["model"] = op.model;
+        e["width_mm"] = nm_to_mm(op.width_nm);
+        e["raw_width_mm"] = nm_to_mm(op.raw_width_nm);
+        e["estimated_ohms"] = op.estimated_ohms;
+        e["target_ohms"] = op.target_ohms;
+        e["tolerance_error_pct"] = op.rel_error * 100.0;
+        e["in_tolerance"] = op.in_tolerance;
+        e["current_conflict"] = op.current_conflict;
+        opts.as_array().push_back(e);
+    }
+    o["options"] = opts;
+    return o;
 }
 
 VoltageClearanceModel::VoltageClearanceModel() {
@@ -357,12 +591,17 @@ Coord VoltageClearanceModel::required(double v_a, bool has_a, const std::string&
 }
 
 RuleResolver::RuleResolver(const Board* board, CurrentCapacitySystem current,
-                           VoltageClearanceModel voltage, std::vector<ViaStyle> via_styles)
-    : board_(board), current_(std::move(current)), voltage_(std::move(voltage)),
+                           ImpedanceSystem impedance, VoltageClearanceModel voltage,
+                           std::vector<ViaStyle> via_styles)
+    : board_(board),
+      current_(std::move(current)),
+      impedance_(std::move(impedance)),
+      voltage_(std::move(voltage)),
       via_styles_(std::move(via_styles)) {}
 
 RuleResolver RuleResolver::defaults_for(const Board& board) {
     CurrentCapacitySystem current;
+    ImpedanceSystem impedance;
     VoltageClearanceModel voltage;
     voltage.set_default(board.defaults.clearance_nm);
     ViaStyle std_style;
@@ -370,12 +609,14 @@ RuleResolver RuleResolver::defaults_for(const Board& board) {
     std_style.outer_nm = board.defaults.via_outer_nm;
     std_style.hole_nm = board.defaults.via_hole_nm;
     std_style.max_current_a = 2.0;
-    return RuleResolver(&board, std::move(current), std::move(voltage), {std_style});
+    return RuleResolver(&board, std::move(current), std::move(impedance),
+                        std::move(voltage), {std_style});
 }
 
 RuleResolver RuleResolver::from_config(const Board& board, const JsonValue& config) {
     if (!config.is_object()) throw BoardError(InputKind::kRule, "config root must be an object");
     CurrentCapacitySystem current;
+    ImpedanceSystem impedance;
     VoltageClearanceModel voltage;
     voltage.set_default(board.defaults.clearance_nm);
     std::vector<ViaStyle> styles;
@@ -426,6 +667,31 @@ RuleResolver RuleResolver::from_config(const Board& board, const JsonValue& conf
             throw BoardError(InputKind::kRule, "ampacity copper_weight_oz must be positive");
         current.set_thermal(amp->has("temp_rise_c") ? dt : -1,
                             amp->has("copper_weight_oz") ? oz : -1);
+    }
+    // Issue #11: controlled-impedance sidecar block. Selects the estimator
+    // family (auto = microstrip outside, stripline inside), the solver width
+    // bounds and the fallback tolerance for target-only nets.
+    if (const JsonValue* iz = config.find("impedance")) {
+        if (!iz->is_object()) throw BoardError(InputKind::kRule, "impedance must be an object");
+        impedance.set_enabled(iz->get_bool("enabled", true));
+        std::string model = iz->get_string("model", "auto");
+        if (model != "auto" && model != "microstrip" && model != "stripline")
+            throw BoardError(InputKind::kRule,
+                             "unknown impedance model '" + model +
+                                 "' (supported: auto, microstrip, stripline)");
+        if (model != "auto") impedance.set_model_override(model);
+        double lo = iz->get_number("min_width_mm", 0.05);
+        double hi = iz->get_number("max_width_mm", 5.0);
+        if (!(lo > 0) || !(hi >= lo))
+            throw BoardError(InputKind::kRule, "bad impedance width bounds");
+        impedance.set_bounds(mm_to_nm(lo), mm_to_nm(hi));
+        if (iz->has("tolerance_pct")) {
+            double tol = iz->get_number("tolerance_pct", -1);
+            if (tol <= 0 || tol >= 100)
+                throw BoardError(InputKind::kRule,
+                                 "impedance tolerance_pct must be in (0, 100)");
+            impedance.set_default_tolerance(tol / 100.0);
+        }
     }
     if (const JsonValue* vt = config.find("voltage_table")) {
         if (!vt->is_array()) throw BoardError(InputKind::kRule, "voltage_table must be array");
@@ -482,7 +748,8 @@ RuleResolver RuleResolver::from_config(const Board& board, const JsonValue& conf
         std_style.hole_nm = board.defaults.via_hole_nm;
         styles.push_back(std_style);
     }
-    return RuleResolver(&board, std::move(current), std::move(voltage), std::move(styles));
+    return RuleResolver(&board, std::move(current), std::move(impedance),
+                        std::move(voltage), std::move(styles));
 }
 
 TraceRule RuleResolver::traceRule(NetId net, LayerId layer, RegionId region) const {
@@ -491,7 +758,7 @@ TraceRule RuleResolver::traceRule(NetId net, LayerId layer, RegionId region) con
     if (!n) throw std::runtime_error("traceRule: unknown net");
     ElectricalContext ctx = current_.default_context(*board_);
     TraceRule rule;
-    rule.min_width_nm = current_.required_min_width(*n, *board_, layer, ctx, rule.width_source);
+    rule.min_width_nm = requiredTraceWidth(net, layer, ctx, &rule.width_source);
     rule.pref_width_nm = n->has_pref_width ? std::max(n->pref_width_nm, rule.min_width_nm)
                                            : rule.min_width_nm;
     rule.allow_neckdown = n->allow_neckdown;
@@ -504,10 +771,188 @@ Coord RuleResolver::requiredTraceWidth(NetId net, LayerId layer, const Electrica
                                        std::string* source_out) const {
     const NetInfo* n = board_->find_net(net);
     if (!n) throw std::runtime_error("requiredTraceWidth: unknown net");
-    std::string source;
-    Coord w = current_.required_min_width(*n, *board_, layer, ctx, source);
-    if (source_out) *source_out = source;
-    return w;
+    std::string cur_source;
+    Coord w_cur = current_.required_min_width(*n, *board_, layer, ctx, cur_source);
+    if (!impedance_.has_target(*n)) {
+        if (source_out) *source_out = cur_source;
+        return w_cur;
+    }
+    // Issue #11: reconcile the impedance solution on THIS layer with the
+    // ampacity (#7) minimum. Final width never drops below the current
+    // minimum; a minimum above the tolerance band is an explicit conflict
+    // (reported, never silently narrowed).
+    const Layer* lp = nullptr;
+    for (const auto& l : board_->layers)
+        if (l.id == layer) lp = &l;
+    if (!lp || !impedance_.layer_eligible(*board_, *n, *lp)) {
+        if (source_out) *source_out = cur_source;
+        return w_cur;
+    }
+    double oz = current_.effective_copper_oz(*board_, layer, ctx);
+    double tol = impedance_.tolerance_for(*n);
+    std::string model;
+    Coord w_imp = impedance_.solve_width(*board_, *lp, n->target_impedance_ohms, oz,
+                                         &model);
+    if (w_imp < 0) {
+        if (source_out) *source_out = cur_source;
+        return w_cur;
+    }
+    Coord w_lo = -1, w_hi = -1;
+    impedance_.tolerance_band(*board_, *lp, n->target_impedance_ohms, tol, oz, w_lo,
+                              w_hi);
+    if (w_lo >= 0 && w_hi >= 0 && w_cur > w_hi) {
+        if (source_out) *source_out = "impedance_conflict";
+        return w_cur;
+    }
+    Coord rec = std::max(w_cur, w_imp);
+    if (w_hi >= 0 && rec > w_hi) rec = w_hi;
+    if (w_lo >= 0 && rec < w_lo) rec = w_lo;
+    if (source_out)
+        *source_out = (rec > w_cur) ? ("impedance_" + model) : cur_source;
+    return rec;
+}
+
+ImpedanceResolution RuleResolver::impedanceResolution(
+    NetId net, const ElectricalContext& ctx) const {
+    ImpedanceResolution r;
+    const NetInfo* n = board_->find_net(net);
+    if (!n) throw std::runtime_error("impedanceResolution: unknown net");
+    if (!impedance_.has_target(*n)) return r;
+    r.has_target = true;
+    r.net = net;
+    r.net_name = n->name;
+    r.target_ohms = n->target_impedance_ohms;
+    r.tolerance_frac = impedance_.tolerance_for(*n);
+    bool any_solves = false;
+    bool any_clean = false;
+    int conflicting_layers = 0;
+    for (const auto& l : board_->layers) {
+        if (!impedance_.layer_eligible(*board_, *n, l)) continue;
+        double oz = current_.effective_copper_oz(*board_, l.id, ctx);
+        std::string model;
+        Coord w_imp =
+            impedance_.solve_width(*board_, l, n->target_impedance_ohms, oz, &model);
+        if (w_imp < 0) continue;  // target unreachable on this layer
+        any_solves = true;
+        std::string cur_source;
+        Coord w_cur = current_.required_min_width(*n, *board_, l.id, ctx, cur_source);
+        Coord w_lo = -1, w_hi = -1;
+        impedance_.tolerance_band(*board_, l, n->target_impedance_ohms,
+                                  r.tolerance_frac, oz, w_lo, w_hi);
+        ImpedanceOption op;
+        op.layer = l.id;
+        op.model = model;
+        op.raw_width_nm = w_imp;
+        op.target_ohms = r.target_ohms;
+        if (w_lo >= 0 && w_hi >= 0 && w_cur > w_hi) {
+            op.current_conflict = true;
+            op.width_nm = w_cur;  // never silently narrow: hold the minimum
+            op.estimated_ohms = impedance_.estimate_ohms(*board_, l, w_cur, oz);
+            op.rel_error = op.estimated_ohms > 0
+                               ? std::fabs(op.estimated_ohms - r.target_ohms) /
+                                     r.target_ohms
+                               : 1.0;
+            op.in_tolerance = false;
+            conflicting_layers++;
+        } else {
+            Coord rec = std::max(w_cur, w_imp);
+            if (w_hi >= 0 && rec > w_hi) rec = w_hi;
+            if (w_lo >= 0 && rec < w_lo) rec = w_lo;
+            op.width_nm = rec;
+            op.estimated_ohms = impedance_.estimate_ohms(*board_, l, rec, oz);
+            op.rel_error = op.estimated_ohms > 0
+                               ? std::fabs(op.estimated_ohms - r.target_ohms) /
+                                     r.target_ohms
+                               : 1.0;
+            op.in_tolerance = op.rel_error <= r.tolerance_frac + 1e-9;
+            if (op.in_tolerance) any_clean = true;
+        }
+        r.options.push_back(op);
+    }
+    // Deterministic order: options pushed in board layer order already, but
+    // re-sort by layer id to be explicit (board order == id order normally).
+    std::sort(r.options.begin(), r.options.end(),
+              [](const ImpedanceOption& a, const ImpedanceOption& b) {
+                  return a.layer < b.layer;
+              });
+    r.feasible = any_solves && any_clean;
+    if (!any_solves) {
+        r.conflict = false;
+        r.conflict_detail = "no eligible layer solves target " +
+                            std::to_string(r.target_ohms) + " ohms within solver bounds";
+        return r;
+    }
+    if (!any_clean) {
+        r.conflict = true;
+        r.conflict_detail = "current minimum exceeds impedance tolerance band on all " +
+                            std::to_string(conflicting_layers) +
+                            " feasible layer(s); refusing to narrow below ampacity floor";
+        return r;
+    }
+    // Select: smallest tolerance error, then smallest layer id.
+    const ImpedanceOption* best = nullptr;
+    for (const auto& op : r.options) {
+        if (!op.in_tolerance) continue;
+        if (!best || op.rel_error < best->rel_error - 1e-12 ||
+            (std::fabs(op.rel_error - best->rel_error) <= 1e-12 &&
+             op.layer < best->layer))
+            best = &op;
+    }
+    if (best) {
+        r.selected_layer = best->layer;
+        r.selected_width_nm = best->width_nm;
+        r.selected_model = best->model;
+        r.estimated_ohms = best->estimated_ohms;
+        r.rel_error = best->rel_error;
+        std::string cur_source;
+        r.current_min_nm = current_.required_min_width(*n, *board_, best->layer, ctx,
+                                                       cur_source);
+        r.current_source = cur_source;
+    }
+    return r;
+}
+
+double RuleResolver::impedanceEstimate(NetId net, LayerId layer, Coord width_nm,
+                                       const ElectricalContext& ctx,
+                                       std::string* model_out) const {
+    const NetInfo* n = board_->find_net(net);
+    if (!n) throw std::runtime_error("impedanceEstimate: unknown net");
+    const Layer* lp = nullptr;
+    for (const auto& l : board_->layers)
+        if (l.id == layer) lp = &l;
+    if (!lp) return -1.0;
+    double oz = current_.effective_copper_oz(*board_, layer, ctx);
+    return impedance_.estimate_ohms(*board_, *lp, width_nm, oz, model_out);
+}
+
+Coord RuleResolver::maxRequiredWidth(NetId net, const ElectricalContext& ctx) const {
+    const NetInfo* n = board_->find_net(net);
+    if (!n) throw std::runtime_error("maxRequiredWidth: unknown net");
+    if (!impedance_.has_target(*n)) {
+        // Legacy path: source-layer width is the sizing width.
+        const Terminal* t = nullptr;
+        for (const auto& term : board_->terminals)
+            if (term.net == net) {
+                t = &term;
+                break;
+            }
+        LayerId layer = t ? t->layer : (board_->layers.empty() ? 0 : board_->layers.front().id);
+        return requiredTraceWidth(net, layer, ctx);
+    }
+    Coord m = 0;
+    for (const auto& l : board_->layers)
+        m = std::max(m, requiredTraceWidth(net, l.id, ctx));
+    return m;
+}
+
+double RuleResolver::impedanceLayerMultiplier(NetId net, LayerId layer) const {
+    const NetInfo* n = board_->find_net(net);
+    if (!n) return 1.0;
+    if (!impedance_.has_target(*n)) return 1.0;
+    ElectricalContext ctx = current_.default_context(*board_);
+    ImpedanceResolution r = impedanceResolution(net, ctx);
+    if (!r.has_target || !r.feasible) return 1.0;
+    return impedance_.layer_multiplier(*board_, *n, layer, r.selected_layer);
 }
 
 WidthDetails RuleResolver::widthDetails(NetId net, LayerId layer,

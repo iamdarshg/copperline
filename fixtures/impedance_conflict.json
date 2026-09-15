@@ -1,0 +1,33 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [
+    {
+      "id": 0, "name": "Top", "layer_type": "signal",
+      "dielectric_thickness_mm": 0.2, "dielectric_er": 4.4, "ref_plane": 1
+    },
+    {
+      "id": 1, "name": "Bottom", "layer_type": "signal",
+      "dielectric_thickness_mm": 0.2, "dielectric_er": 4.4, "ref_plane": 0
+    }
+  ],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "PWR50",
+      "current_a": 5.0,
+      "target_impedance_ohms": 50.0,
+      "impedance_tolerance_pct": 10.0,
+      "terminals": [
+        {"id": 0, "x_mm": 2, "y_mm": 12, "layer": 0},
+        {"id": 1, "x_mm": 18, "y_mm": 12, "layer": 0}
+      ]
+    }
+  ]
+}

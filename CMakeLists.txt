@@ -24,9 +24,16 @@ add_library(router_core
   src/route_tree.cpp
   src/sparse_graph.cpp
   src/astar.cpp
+  src/hierarchy.cpp
+  src/maturity.cpp
+  src/simplify.cpp
+  src/tuning.cpp
   src/via_bundle.cpp
+  src/diffpair.cpp
   src/escape.cpp
   src/parallel.cpp
+  src/portfolio.cpp
+  src/impact.cpp
   src/recovery.cpp
   src/engine.cpp
   src/verifier.cpp
@@ -53,15 +60,27 @@ function(copperline_test name)
 endfunction()
 
 copperline_test(test_geometry)
+copperline_test(test_hierarchy)
+copperline_test(test_maturity)
+copperline_test(test_simplify)
 copperline_test(test_current)
+copperline_test(test_impedance)
 copperline_test(test_via_bundle)
 copperline_test(test_ampacity)
 copperline_test(test_voltage)
 copperline_test(test_density)
 copperline_test(test_engine)
+copperline_test(test_route_tree_growth)
 copperline_test(test_verifier)
 copperline_test(test_escape)
 copperline_test(test_parallel)
+copperline_test(test_portfolio)
+copperline_test(test_impact)
+copperline_test(test_plane)
 copperline_test(test_recovery)
+copperline_test(test_multiply)
 copperline_test(test_perf)
 copperline_test(test_cli)
+copperline_test(test_diffpair)
+copperline_test(test_pair_verify)
+copperline_test(test_tuning)

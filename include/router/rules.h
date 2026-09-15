@@ -211,6 +211,15 @@ class CurrentCapacitySystem {
     // neckdown at all and always legal).
     bool neckdown_legal(const NetInfo& net, Coord neck_width_nm, Coord length_nm,
                         const BoardDefaults& def, const ElectricalContext& ctx) const;
+    // Layer-aware entry (issue #24): the required width comes from
+    // required_min_width(net, board, layer, ctx), i.e. per-layer copper plus
+    // effective_internal(board, layer). Escape stubs must use this overload
+    // with the terminal/escape layer so an internal/thin-copper escape is not
+    // accepted against the less-conservative external/default width.
+    // Explicit-permission and max-length semantics are identical.
+    bool neckdown_legal(const NetInfo& net, Coord neck_width_nm, Coord length_nm,
+                        const Board& board, LayerId layer,
+                        const ElectricalContext& ctx) const;
 
     bool via_style_ok(const ViaStyle& style, const NetInfo& net, const BoardDefaults& def,
                       const ElectricalContext&) const;
@@ -227,6 +236,139 @@ class CurrentCapacitySystem {
     bool has_ampacity_config_ = false;
     double thermal_temp_c_ = -1.0;    // sidecar temp_rise_c override (<=0 = inherit)
     double thermal_copper_oz_ = -1.0;  // sidecar copper_weight_oz override (<=0 = inherit)
+};
+
+// ---- Impedance models (issue #11) ----
+
+// Replaceable single-ended characteristic-impedance estimator. Both built-in
+// models are documented closed-form approximations (IPC-2141 /
+// Hammerstad-Jensen family), NOT field solvers: they estimate from trace
+// width w, dielectric height h, relative permittivity er and foil thickness
+// t (all in mm) and are monotonic decreasing in w. Custom models plug in by
+// implementing estimate_ohms; the solver, reconciliation and reporting treat
+// every model identically.
+class ImpedanceModel {
+  public:
+    virtual ~ImpedanceModel() = default;
+    virtual double estimate_ohms(double w_mm, double h_mm, double er,
+                                 double t_mm) const = 0;
+    virtual const char* name() const = 0;
+};
+
+// Outer-layer microstrip:
+//   Z0 = 87 / sqrt(er + 1.41) * ln(5.98 * h / (0.8 * w + t))
+class MicrostripModel : public ImpedanceModel {
+  public:
+    double estimate_ohms(double w_mm, double h_mm, double er,
+                         double t_mm) const override;
+    const char* name() const override { return "microstrip"; }
+};
+
+// Symmetric inner-layer stripline with plane spacing b = 2 * h:
+//   Z0 = 60 / sqrt(er) * ln(1.9 * b / (0.8 * w + t))
+class StriplineModel : public ImpedanceModel {
+  public:
+    double estimate_ohms(double w_mm, double h_mm, double er,
+                         double t_mm) const override;
+    const char* name() const override { return "stripline"; }
+};
+
+// Per-layer impedance solution, all widths integer nm.
+struct ImpedanceOption {
+    LayerId layer = -1;
+    std::string model;       // "microstrip" | "stripline"
+    Coord width_nm = 0;      // reconciled width on this layer (>= current min)
+    Coord raw_width_nm = 0;  // unconstrained solver width (target centre)
+    double estimated_ohms = 0.0;  // estimate at width_nm
+    double target_ohms = 0.0;
+    double rel_error = 0.0;  // |est - target| / target at width_nm
+    bool in_tolerance = false;
+    bool current_conflict = false;  // current minimum exceeds tolerance band
+};
+
+// Net-level impedance resolution: per-layer options plus the selected
+// layer/width. Conflict means the ampacity (#7) minimum sits above the
+// tolerance band on every feasible layer; the caller must report it as an
+// explicit constraint conflict and never silently narrow the trace.
+struct ImpedanceResolution {
+    bool has_target = false;
+    NetId net = -1;
+    std::string net_name;
+    double target_ohms = 0.0;
+    double tolerance_frac = 0.10;
+    bool feasible = false;  // >= 1 eligible layer solves within tolerance
+    bool conflict = false;  // ampacity minimum breaks tolerance everywhere
+    std::string conflict_detail;
+    LayerId selected_layer = -1;
+    Coord selected_width_nm = 0;
+    std::string selected_model;
+    double estimated_ohms = 0.0;
+    double rel_error = 0.0;
+    Coord current_min_nm = 0;  // ampacity minimum on the selected layer
+    std::string current_source;
+    std::vector<ImpedanceOption> options;  // eligible layers, by layer id
+    JsonValue to_json() const;
+};
+
+// Coupled stackup solver + ampacity reconciliation. Layer eligibility:
+// signal layers with a positive dielectric height and permittivity,
+// restricted to net.impedance_layers when the net names them. Reference
+// planes and the per-layer model override only bias selection (soft cost),
+// never hard legality.
+class ImpedanceSystem {
+  public:
+    ImpedanceSystem();
+
+    void set_enabled(bool e) { enabled_ = e; }
+    void set_model_override(std::string m) { model_override_ = std::move(m); }
+    void set_bounds(Coord min_nm, Coord max_nm) {
+        min_nm_ = min_nm;
+        max_nm_ = max_nm;
+    }
+    void set_default_tolerance(double frac) { default_tolerance_frac_ = frac; }
+    bool enabled() const { return enabled_; }
+
+    bool has_target(const NetInfo& net) const {
+        return enabled_ && net.has_impedance;
+    }
+    double tolerance_for(const NetInfo& net) const;
+    // Model chosen for a layer: explicit override wins, else outer stackup
+    // layers solve as microstrip and inner layers as stripline.
+    std::string model_name_for(const Board& board, const Layer& layer) const;
+    bool layer_eligible(const Board& board, const NetInfo& net,
+                        const Layer& layer) const;
+    std::vector<LayerId> eligible_layers(const Board& board,
+                                         const NetInfo& net) const;
+    // Foil thickness in mm: explicit override wins, else weight-derived.
+    double copper_mm_for(const Board& board, const Layer& layer,
+                         double copper_weight_oz) const;
+    // Estimate at an integer-nm width, or -1 when the layer has no stackup.
+    double estimate_ohms(const Board& board, const Layer& layer, Coord width_nm,
+                         double copper_weight_oz, std::string* model_out = nullptr) const;
+    // Unconstrained solver width for a target (target centre), or -1 when
+    // the target is unreachable within [min_nm_, max_nm_].
+    Coord solve_width(const Board& board, const Layer& layer, double target_ohms,
+                      double copper_weight_oz, std::string* model_out = nullptr) const;
+    // Tolerance-band edges (width at Z_high / Z_low), -1 when unreachable.
+    void tolerance_band(const Board& board, const Layer& layer, double target_ohms,
+                        double tol_frac, double copper_weight_oz, Coord& w_lo_nm,
+                        Coord& w_hi_nm) const;
+
+    // A* soft bias for one layer: 1.0 when no target; 0.7 on the selected
+    // layer, 0.85 on other eligible layers (0.8 when the reference plane
+    // also matches the net preference), 2.0 on ineligible layers.
+    double layer_multiplier(const Board& board, const NetInfo& net, LayerId layer,
+                            LayerId selected_layer) const;
+
+  private:
+    const ImpedanceModel& model_for_name(const std::string& name) const;
+    MicrostripModel microstrip_;
+    StriplineModel stripline_;
+    bool enabled_ = true;
+    std::string model_override_;  // "" = auto
+    Coord min_nm_ = 0;
+    Coord max_nm_ = 0;
+    double default_tolerance_frac_ = 0.10;
 };
 
 // ---- Voltage clearance model ----
@@ -284,7 +426,8 @@ class VoltageClearanceModel {
 class RuleResolver {
   public:
     RuleResolver(const Board* board, CurrentCapacitySystem current,
-                 VoltageClearanceModel voltage, std::vector<ViaStyle> via_styles);
+                 ImpedanceSystem impedance, VoltageClearanceModel voltage,
+                 std::vector<ViaStyle> via_styles);
 
     static RuleResolver defaults_for(const Board& board);
     // Merges a sidecar config (JSON object). Throws BoardError(kRule).
@@ -301,6 +444,23 @@ class RuleResolver {
     // Transparent width accounting (model/current/copper/rise/layer).
     WidthDetails widthDetails(NetId net, LayerId layer,
                               const ElectricalContext& ctx) const;
+    // ---- Issue #11: impedance-aware routing ----
+    // Full per-layer resolution for a net (has_target false when the net
+    // names no impedance or the system is disabled). current_min_nm is the
+    // ampacity (#7) floor on the selected layer.
+    ImpedanceResolution impedanceResolution(NetId net,
+                                            const ElectricalContext& ctx) const;
+    // Estimate at an explicit width on one layer (-1 when ineligible).
+    double impedanceEstimate(NetId net, LayerId layer, Coord width_nm,
+                             const ElectricalContext& ctx,
+                             std::string* model_out = nullptr) const;
+    // Conservative routable width for graph/corridor sizing: max reconciled
+    // width across layers when the net has a target, else the source-layer
+    // width (identical to requiredTraceWidth, preserving legacy behavior).
+    Coord maxRequiredWidth(NetId net, const ElectricalContext& ctx) const;
+    // Soft A* bias for (net, layer): 1.0 when impedance is inactive.
+    double impedanceLayerMultiplier(NetId net, LayerId layer) const;
+    const ImpedanceSystem& impedance() const { return impedance_; }
     // Merged thermal context for this board (ctx override > sidecar > board).
     ElectricalContext defaultContext() const;
     Coord requiredClearance(NetId a, NetId b, LayerId layer, const ElectricalContext& ctx,
@@ -324,6 +484,7 @@ class RuleResolver {
   private:
     const Board* board_;
     CurrentCapacitySystem current_;
+    ImpedanceSystem impedance_;
     VoltageClearanceModel voltage_;
     std::vector<ViaStyle> via_styles_;
 };

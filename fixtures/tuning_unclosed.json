@@ -1,0 +1,32 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [{"id": 0, "name": "Top"}, {"id": 1, "name": "Bottom"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "SIG", "current_a": 0.1, "voltage_v": 3.3,
+      "target_length_mm": 20.0, "length_tol_mm": 1.5,
+      "terminals": [
+        {"id": 0, "x_mm": 2, "y_mm": 10, "layer": 0},
+        {"id": 1, "x_mm": 18, "y_mm": 10, "layer": 0}
+      ]
+    },
+    {
+      "id": 1, "name": "DOOMED", "current_a": 0.1, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 2, "x_mm": 6, "y_mm": 3, "layer": 0},
+        {"id": 3, "x_mm": 14, "y_mm": 3, "layer": 0}
+      ]
+    }
+  ],
+  "keepouts": [
+    {"x1_mm": 5, "y1_mm": 2, "x2_mm": 15, "y2_mm": 4, "layer": 0, "reason": "seal_doomed"}
+  ]
+}

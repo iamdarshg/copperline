@@ -31,6 +31,8 @@
 // one unconnected pad NEVER beats a longer fully-connected legal board.
 #pragma once
 
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -40,6 +42,7 @@
 #include "router/astar.h"
 #include "router/board.h"
 #include "router/json.h"
+#include "router/maturity.h"
 #include "router/parallel.h"
 #include "router/route_tree.h"
 #include "router/rules.h"
@@ -149,6 +152,12 @@ struct OwnedRoute {
     int epoch_committed = 0;
     int stable_epochs = 0;
     bool is_escape_stub = false;
+    // Issue #12: materialized pair routes (both P+N members in one atomic
+    // object) and reserved corridors share the corridor task. Rip-up treats
+    // the pair as one unit: both members are removed together, never one
+    // side alone.
+    bool is_pair_corridor = false;
+    int pair_id = -1;
     double protection = 1.0;
 };
 
@@ -263,6 +272,11 @@ struct BranchResult {
                                      // connected by this branch. Reconnecting an
                                      // already-connected ripped route does NOT count.
     int disrupted_routes = 0;        // ripped-route count (move.owned_idx.size())
+    // Issue #9/#22: aggregated future-obstruction of the branch outcome
+    // (mean obstruction over rerouted candidates when scored, else -1).
+    // Multi-ply search (#22) consumes this without recomputing features.
+    double impact_obstruction = -1.0;
+    bool has_impact = false;
 };
 
 // Lexicographic global objective (issue #19): fewer unconnected tasks
@@ -298,7 +312,125 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
                             const RuleResolver& resolver, const ElectricalContext& ctx,
                             const std::vector<double>& layer_mult, const AStarConfig& astar_cfg,
                             const CongestionMap& congestion_tpl,
-                            const std::string& mode_name, const RipupMove& move);
+                            const std::string& mode_name, const RipupMove& move,
+                            // Issue #10: guidance stays on inside branches; the
+                            // shared cache self-invalidates per work board.
+                            const HierarchyConfig& hier_cfg = HierarchyConfig{},
+                            const HierarchyCache* hier_cache = nullptr,
+                            // Issue #14: maturity-driven reservation strength
+                            // (soft cost only; 1.0 = legacy).
+                            double reservation_strength = 1.0);
+
+// ---- Issue #22: bounded multi-ply high-level recovery search ----
+//
+// Detailed geometry stays inside A*; only high-level recovery actions
+// (RipupMove + reroute outcome) become tree nodes. The search is a
+// deterministic bounded beam search over 2-3 plies of immutable branch
+// states (Board + owned + remaining_task_ids + hash are copied, never
+// mutated in place). Each depth keeps only the top `beam` leaves ranked by
+// the global board objective (branch_better, connectivity-first, with the
+// issue #9 impact obstruction as a late tie-break). Only the first action
+// of the best principal variation is committed; the engine replans from
+// the new real board. Timeout/node budgets fall back to one-ply.
+//
+// Threading/memory: branch bodies run in parallel indexed slots (workers
+// never touch the transposition table); pruning/recording is serial in
+// deterministic order. Stored boards are capped to depth*beam (+ the
+// first-ply width); deeper batches stream per parent. Effective
+// depth/beam/threads are reported in RecoveryInfo for agents.
+
+inline constexpr int kDefaultMultiplyDepth = 2;
+inline constexpr int kDefaultMultiplyBeam = 4;
+inline constexpr int kMaxMultiplyDepth = 8;
+inline constexpr int kMaxMultiplyBeam = 8;
+// Per stored beam member (~board copy + owned copper). Mirrors the
+// maturity 256MB-per-beam bound so depth*beam*state stays in budget.
+inline constexpr std::size_t kMultiplyMemPerBeamBytes = 256ULL * 1024ULL * 1024ULL;
+// Hard cap on simultaneously stored beam boards (streaming bound).
+inline constexpr int kMaxStoredMultiplyNodes = 32;
+// Default node budget: max branch reroute evaluations inside one
+// multi-ply lookahead (first ply excluded; it is already budgeted as
+// recovery branches). Exhaustion falls back to the one-ply best.
+inline constexpr std::int64_t kDefaultMultiplyMaxNodes = 64;
+
+struct MultiPlyConfig {
+    int depth = kDefaultMultiplyDepth;  // 1 = one-ply (no lookahead)
+    int beam = kDefaultMultiplyBeam;
+    std::int64_t max_nodes = kDefaultMultiplyMaxNodes;  // deeper evaluations only
+    int max_moves_per_node = 8;  // rip-up move fan-out per beam parent
+    int max_breadth = 4;         // per-move rip breadth (from generation)
+    int threads = 1;             // parallel slots for deeper batches
+};
+
+// Borrowed multi-ply expansion context. All buffers are owned by the
+// caller (the engine generation); the search copies branch states into
+// its bounded beams and never mutates the caller's board/owned.
+struct MultiPlyContext {
+    const std::vector<ConnectionTask>* tasks = nullptr;
+    const std::vector<Corridor>* corridors = nullptr;
+    const RuleResolver* resolver = nullptr;
+    const ElectricalContext* ectx = nullptr;
+    const std::vector<double>* layer_mult = nullptr;
+    AStarConfig astar_cfg;
+    CongestionMap congestion_tpl;
+    std::string mode_name;
+    HierarchyConfig hier_cfg;
+    const HierarchyCache* hier_cache = nullptr;
+    double reservation_strength = 1.0;
+    std::vector<TraceSeg> fixed_traces;
+    std::vector<Via> fixed_vias;
+    std::map<std::pair<NetId, std::pair<TermId, TermId>>, CandidateRoute> last_attempt;
+    HistoryHeuristic history;  // read-only snapshot during search
+    std::string pv_key;
+    RecoveryMode mode = RecoveryMode::FAST;
+    int max_moves = 8;
+    int max_breadth = 2;
+};
+
+// One beam entry: an immutable branch outcome plus its PV from the root.
+struct MultiPlyBeamNode {
+    BranchResult state;
+    std::vector<RipupMove> pv;  // pv[0] = first-ply move, pv[k] = depth-k move
+    int first_move_idx = -1;    // index into the first-ply move vector
+};
+
+struct MultiPlyResult {
+    bool searched = false;             // true when depth>1 lookahead ran
+    bool fallback_to_one_ply = false;  // deeper budget exhausted / no leaf
+    int nodes_evaluated = 0;           // deeper reroute_branch calls
+    int nodes_pruned = 0;              // deeper TT prunes
+    std::int64_t expansions_total = 0;  // deeper A* expansions (all leaves)
+    int best_first_move = -1;          // index into first_moves (valid unless fallback w/o one-ply)
+    BranchResult best_leaf;            // leaf outcome of the best PV
+    std::vector<RipupMove> best_pv;    // principal variation (first action commits)
+    bool has_best_leaf = false;
+};
+
+// Effective multi-ply depth: user request capped by the maturity allowance
+// (advisory ceiling), the explicit caps and >= 1. Maturity never forces a
+// deeper lookahead than requested; it only caps runaway depth.
+int effective_multiply_depth(int requested_depth, const EffectiveSearchBudget& budget,
+                             const MaturityCaps& caps);
+// Effective multi-ply beam: maturity may raise the beam on dense boards
+// (floor), explicit caps + memory bound the ceiling. Stored boards stay
+// within depth*beam <= kMaxStoredMultiplyNodes and beam*memory-per-beam.
+int effective_multiply_beam(int requested_beam, const EffectiveSearchBudget& budget,
+                            const MaturityCaps& caps, std::size_t memory_budget_bytes);
+
+// Bounded beam search over first_results. first_moves/first_results are
+// the already-evaluated (and TT-pruned-flagged) one-ply outcomes; only
+// non-pruned evaluated entries seed the beam. Depth<=1 returns
+// {searched=false} so the caller reproduces one-ply exactly. Otherwise the
+// search expands at most `beam` parents per depth, evaluates children via
+// reroute_branch, prunes serially via `tt`, keeps the top `beam` leaves
+// per depth by branch_better, and returns the first move of the best final
+// leaf. Budget exhaustion (deadline/max_nodes) or an empty final beam
+// sets fallback_to_one_ply (best_first_move = one-ply best when any).
+MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
+                                    const std::vector<BranchResult>& first_results,
+                                    const MultiPlyContext& mctx, const MultiPlyConfig& cfg,
+                                    TranspositionTable& tt,
+                                    std::chrono::steady_clock::time_point deadline);
 
 // ---- Recovery summary for route-report JSON ----
 
@@ -310,6 +442,19 @@ struct RecoveryInfo {
     int transposition_hits = 0;
     std::vector<std::string> modes_attempted;
     DependencyGraph last_graph;
+    // Issue #22 diagnostics: effective multi-ply search state. Requested
+    // values mirror EngineOptions; effective values are post maturity-cap-
+    // memory clamping for the last generation (0 when recovery never ran).
+    int multiply_depth_requested = kDefaultMultiplyDepth;
+    int multiply_depth_effective = 0;
+    int multiply_beam_requested = kDefaultMultiplyBeam;
+    int multiply_beam_effective = 0;
+    int multiply_threads_effective = 1;
+    int multiply_nodes_evaluated = 0;
+    int multiply_nodes_pruned = 0;
+    bool multiply_fallback_to_one_ply = false;
+    std::vector<std::string> multiply_pv;  // move reasons of the best PV
+    std::string multiply_best_hash;        // leaf state hash of the best PV
     JsonValue to_json() const;
 };
 

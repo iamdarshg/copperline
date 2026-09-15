@@ -1,0 +1,34 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [{"id": 0, "name": "Top"}, {"id": 1, "name": "Plane"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "VCC", "current_a": 1.0, "voltage_v": 5.0,
+      "terminals": [
+        {"id": 0, "x_mm": 15, "y_mm": 10, "layer": 0},
+        {"id": 1, "x_mm": 5, "y_mm": 10, "layer": 0}
+      ]
+    },
+    {
+      "id": 1, "name": "GND", "current_a": 1.0, "voltage_v": 0.0,
+      "terminals": [
+        {"id": 2, "x_mm": 5, "y_mm": 16, "layer": 0},
+        {"id": 3, "x_mm": 15, "y_mm": 16, "layer": 0}
+      ]
+    }
+  ],
+  "planes": [
+    {"id": 0, "net": 0, "layer": 1, "island": 0, "routable": true,
+     "x1_mm": 11, "y1_mm": 5, "x2_mm": 19, "y2_mm": 15},
+    {"id": 1, "net": 1, "layer": 1, "island": 0, "routable": true,
+     "x1_mm": 1, "y1_mm": 5, "x2_mm": 9, "y2_mm": 15}
+  ]
+}

@@ -27,6 +27,7 @@
 
 #include "router/astar.h"
 #include "router/board.h"
+#include "router/hierarchy.h"
 #include "router/json.h"
 #include "router/route_tree.h"
 #include "router/rules.h"
@@ -35,12 +36,32 @@
 namespace copperline {
 
 // Fixed batch width. Batch membership is a pure function of the deterministic
-// scheduler order and therefore independent of --threads, which only controls
-// how many candidates are computed concurrently. This is what keeps the
-// committed geometry identical at 1, 2, 4, ... workers.
+// scheduler order and interference weights, therefore independent of
+// --threads, which only controls how many candidates are computed
+// concurrently. This is what keeps the committed geometry identical at 1, 2,
+// 4, ... workers. The width is additionally bounded by the router memory
+// budget (see memory_bounded_batch_width): effective_width =
+// min(kParallelBatchSize, floor(budget/per_task)). With the default
+// 2048MB/64MB bound this stays 8, so determinism tests are unaffected.
 inline constexpr int kParallelBatchSize = 8;
 // Epochs with zero accepted candidates tolerated before giving up.
 inline constexpr int kMaxStalledEpochs = 4;
+
+// Issue #3: interference-aware batch scheduling defaults + memory bounds.
+inline constexpr double kDefaultInterferenceThreshold = 1.0;
+inline constexpr double kInterferenceRelaxFactor = 2.0;
+inline constexpr int kBatchMaxRelaxSteps = 8;
+// Sparse-interference cap: at most this many positive pairs are materialized
+// for diagnostics. Batch formation itself streams rows (O(batch * remaining))
+// and never allocates a dense N^2 double matrix.
+inline constexpr std::size_t kMaxStoredInterferencePairs = 8192;
+// Router memory budget (dev default, mirrors build/test cap): 2048MB total.
+// Per-candidate planning overhead estimate used to bound batch width.
+inline constexpr std::size_t kRouterMemoryBudgetBytes = 2048ULL * 1024ULL * 1024ULL;
+inline constexpr std::size_t kPerCandidateBytes = 64ULL * 1024ULL * 1024ULL;
+// Starvation bonus per deferred epoch added to the scheduling value so
+// repeatedly deferred tasks rise to the front deterministically.
+inline constexpr double kStarvationBonusPerEpoch = 1.0;
 
 // ---- Route difficulty vector (Prompt 3, section "Route difficulty") ----
 
@@ -71,10 +92,23 @@ struct Corridor {
     Rect rect{};  // endpoint bbox expanded by width/2 + max clearance
     Coord width_nm = 0;
     Coord clear_nm = 0;
+    // Issue #3: electrical resource scarcity carried into the interference
+    // weight (not pure bbox overlap). layer_scarcity mirrors the difficulty
+    // costly-layer fraction; via_scarcity mirrors the via-restriction burden.
+    // electrical_weight = 1 + layer + via (>= 1); the pairwise weight scales
+    // by the mean of the two endpoints' weights.
+    double layer_scarcity = 0;
+    double via_scarcity = 0;
+    double electrical_weight = 1.0;
 };
 
 Corridor probable_corridor(const Board& board, const RuleResolver& resolver,
                            const ConnectionTask& task, const ElectricalContext& ctx);
+
+// Issue #3: single pairwise interference weight (symmetric, deterministic).
+// Zero when corridors are disjoint; otherwise overlap area scaled by the
+// electrical resource demand (width + clearance + layer/via scarcity).
+double interference_weight(const Corridor& a, const Corridor& b);
 
 // Symmetric pairwise interference weights, parallel to the task vector.
 std::vector<std::vector<double>> build_interference(const std::vector<ConnectionTask>& tasks,
@@ -82,8 +116,54 @@ std::vector<std::vector<double>> build_interference(const std::vector<Connection
 
 // Deterministic batch scheduler: stable order is (difficulty desc, net, a,
 // b); batches are consecutive slices of that order with fixed width.
+// Legacy path kept for unit tests; the engine uses the interference-aware
+// select_interference_batch() below (issue #3).
 std::vector<std::vector<int>> schedule_batches(const std::vector<ConnectionTask>& tasks,
                                                 int batch_size = kParallelBatchSize);
+
+// ---- Issue #3: interference-aware greedy batch selection ----
+
+struct BatchSchedOptions {
+    int batch_width = kParallelBatchSize;
+    double interference_threshold = kDefaultInterferenceThreshold;
+    double relax_factor = kInterferenceRelaxFactor;
+    int max_relax_steps = kBatchMaxRelaxSteps;
+    std::size_t memory_budget_bytes = kRouterMemoryBudgetBytes;
+    std::size_t per_task_bytes = kPerCandidateBytes;
+};
+
+struct BatchSelection {
+    std::vector<int> selected;  // global task indices, priority order
+    // Pairwise interference among selected (i<j in selected order), bounded
+    // to batch_width^2 entries (<= 28 for width 8). Never a dense N^2 matrix.
+    std::vector<std::pair<std::pair<int, int>, double>> pair_scores;
+    double threshold_used = kDefaultInterferenceThreshold;
+    int relax_steps = 0;
+    double max_interference = 0;
+    double mean_interference = 0;
+    int effective_width = kParallelBatchSize;
+    std::size_t pairs_stored = 0;
+    std::size_t pairs_capped = 0;  // pairs dropped by the sparse cap (0 for batches)
+};
+
+// Memory-bounded batch width: min(requested, floor(budget/per_task)), >= 1.
+int memory_bounded_batch_width(int requested_width, std::size_t budget_bytes,
+                               std::size_t per_task_bytes);
+// Worker resolution: explicit --threads wins; 0/negative means "all CPUs".
+int resolve_worker_threads(int requested_threads);
+
+// Greedy batch from a deterministic priority order (engine scheduler order).
+// Starts from the highest-value eligible task, then adds each later task in
+// order when its max interference vs the selected set stays below threshold.
+// One task per net per epoch. When the batch cannot fill, the threshold is
+// progressively relaxed (x relax_factor per pass); a final infinite-threshold
+// pass guarantees workers never idle and deferred tasks eventually run.
+// Pure function of (ordered, tasks, corridors, options): independent of the
+// worker count, so --threads never changes the committed geometry.
+BatchSelection select_interference_batch(const std::vector<int>& ordered_global_idx,
+                                         const std::vector<ConnectionTask>& tasks,
+                                         const std::vector<Corridor>& corridors,
+                                         const BatchSchedOptions& opts);
 
 // ---- Congestion (Pathfinder-style present/history split) ----
 
@@ -127,10 +207,15 @@ class ReservationSet {
     void build(const std::vector<ConnectionTask>& tasks, const std::vector<Corridor>& corridors,
                const std::vector<double>& difficulties);
     Coord penalty_for_segment(std::size_t self_task, const Segment& seg) const;
+    // Issue #14: maturity-driven reservation strength (1.0 = legacy).
+    // Soft cost only: scales the penalty, never hard legality.
+    void set_strength(double s) { strength_ = (s > 0) ? s : 1.0; }
+    double strength() const { return strength_; }
 
   private:
     std::vector<Corridor> corridors_;
     std::vector<double> weights_;
+    double strength_ = 1.0;
 };
 
 // ---- Candidates (worker outputs; committed state is never touched) ----
@@ -173,17 +258,32 @@ struct CandidateRoute {
     std::string via_style;
     int vias_required = 1;
     std::string via_reason = "ok";
+    // Issue #10: hierarchical guidance diagnostics (levels used, fallback
+    // status, exact-expansion count). Always filled, including failures.
+    HierarchyDiag hierarchy;
+    // Issue #9: future-obstruction score for this candidate (filled by the
+    // engine when the impact scorer runs; -1 = not scored). Carried so
+    // multi-ply recovery (#22) can consume it without recomputation.
+    // has_impact_score=false reverts selection to base-cost order.
+    double impact_obstruction = -1.0;
+    bool has_impact_score = false;
+    JsonValue impact_detail;  // per-feature contributions + final score
 };
 
 // Route one task against an immutable snapshot. Reads snapshot/resolver only;
 // all scratch state is local, so any number of threads may call this
-// concurrently on the same snapshot.
+// concurrently on the same snapshot. Issue #10: hierarchical guidance runs
+// per task through the shared (self-invalidating, thread-safe) cache; a null
+// cache disables guidance for the call. Defaults keep direct unit-test and
+// recovery call sites compiling.
 CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& resolver,
                                     const ConnectionTask& task, std::size_t task_index,
                                     double difficulty, const ElectricalContext& ctx,
                                     const std::vector<double>& layer_mult,
                                     const AStarConfig& astar_cfg, const CongestionMap& congestion,
-                                    const ReservationSet& reservations);
+                                    const ReservationSet& reservations,
+                                    const HierarchyConfig& hier_cfg = HierarchyConfig{},
+                                    const HierarchyCache* hier_cache = nullptr);
 
 // ---- Conflict graph + deterministic central arbiter ----
 
@@ -218,6 +318,11 @@ struct RouteStats {
     int candidates_accepted = 0;
     int candidates_rejected = 0;
     int epochs_count = 0;
+    // Issue #10: hierarchical-guidance aggregates over greedy-epoch
+    // candidates (recovery branches report exact expansions only).
+    int hierarchy_guided_tasks = 0;
+    int hierarchy_fallback_tasks = 0;
+    std::int64_t hierarchy_coarse_expansions = 0;
 };
 
 // Greedy deterministic selection in (difficulty desc, net, a, b) order:
@@ -241,6 +346,24 @@ struct EpochInfo {
     std::int64_t expansions = 0;
     int workers = 0;
     std::int64_t time_ms = 0;
+    // Issue #3: interference-aware batch diagnostics (bounded: batch width
+    // <= 8, so <= 28 pairs). Always emitted so --progress and the route
+    // report carry selected batch IDs + pairwise scores + stats.
+    std::vector<int> batch_task_ids;  // global task indices, selection order
+    std::vector<std::pair<std::pair<int, int>, double>> interference_pairs;
+    double interference_threshold_used = kDefaultInterferenceThreshold;
+    int interference_relax_steps = 0;
+    double interference_max = 0;
+    double interference_mean = 0;
+    int effective_batch_width = kParallelBatchSize;
+    // Issue #14: maturity phase + effective budget snapshot for this epoch.
+    // phase is one of OPEN_BOARD/MID_ROUTE/DENSE_ROUTE/CLOSURE; maturity and
+    // budget are the to_json() objects of BoardMaturityState /
+    // EffectiveSearchBudget (kept as JsonValue to avoid a parallel->maturity
+    // include cycle; the engine fills them).
+    std::string maturity_phase = "OPEN_BOARD";
+    JsonValue maturity;
+    JsonValue budget;
     JsonValue to_json() const;
 };
 

@@ -12,9 +12,12 @@
 #include <thread>
 
 #include "helpers.h"
+#include "router/astar.h"
 #include "router/board.h"
 #include "router/engine.h"
+#include "router/parallel.h"
 #include "router/recovery.h"
+#include "router/sparse_graph.h"
 #include "router/verifier.h"
 
 using namespace copperline;
@@ -850,8 +853,7 @@ CT_TEST(multiblocker_never_rips_fixed) {
     }
 }
 
-CT_TEST(multiblocker_single_rip_insufficient_combo_succeeds) {
-    // Dual-seal board: TRAPPED vertical must cross two parallel SEAL lines.
+CT_TEST(multiblocker_single_rip_insufficient_combo_succeeds) {    // Dual-seal board: TRAPPED vertical must cross two parallel SEAL lines.
     // Ripping either seal alone still leaves the other crossing -> reroute
     // fails; ripping both opens the straight corridor -> reroute succeeds.
     // The move generator must propose that A+B set in RECOVERY.
@@ -948,6 +950,123 @@ CT_TEST(multiblocker_single_rip_insufficient_combo_succeeds) {
     for (const auto& m : rec)
         if (m.owned_idx.size() == 2) combo = true;
     CT_CHECK(combo);
+}
+
+// ---- Issue #23: frontier evidence from the A* frontier, not construction ----
+
+// ---- Issue #23: frontier evidence from the A* frontier, not construction ----
+
+CT_TEST(frontier_ranks_reached_blocker_above_unreached) {
+    // #21 regression (#23): many candidate edges hit decoy net A (DECOY
+    // cluster above the seal) in regions A* never reaches, while the
+    // reachable frontier is stopped by blocker B (SEAL straight across the
+    // slot mouth). B must rank above A in the candidate evidence and in
+    // blocker attribution; the construction-wide aggregate ranks A first
+    // (which is exactly what the old impl forwarded).
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    NetInfo seal = make_net(0, "SEAL");
+    seal.has_current = true;
+    seal.current_a = 0.1;
+    NetInfo tgt = make_net(1, "TARGET");
+    tgt.has_current = true;
+    tgt.current_a = 0.1;
+    NetInfo decoy = make_net(2, "DECOY");
+    decoy.has_current = true;
+    decoy.current_a = 0.1;
+    b.nets.push_back(seal);
+    b.nets.push_back(tgt);
+    b.nets.push_back(decoy);
+    add_terminal(b, 0, 2.0, 9.0);
+    add_terminal(b, 0, 18.0, 9.0);
+    add_terminal(b, 1, 10.0, 5.0);
+    add_terminal(b, 1, 10.0, 15.0);
+    add_terminal(b, 2, 14.0, 12.0);
+    add_terminal(b, 2, 14.0, 14.0);
+    auto wall = [&](double x1, double y1, double x2, double y2, const char* reason) {
+        Keepout k;
+        k.rect = {mm_to_nm(x1), mm_to_nm(y1), mm_to_nm(x2), mm_to_nm(y2)};
+        k.layer = kAllLayers;
+        k.reason = reason;
+        b.keepouts.push_back(k);
+    };
+    wall(8, 3, 9, 8.6, "u_left");
+    wall(11, 3, 12, 8.6, "u_right");
+    wall(8, 3, 12, 4, "u_bottom");
+    // Reachable blocker: seals the slot mouth on the search side.
+    b.traces.push_back(
+        {0, 0, {mm_to_nm(2.0), mm_to_nm(9.0)}, {mm_to_nm(18.0), mm_to_nm(9.0)}, mm_to_nm(0.2)});
+    // Unreached decoys: dense grid above the seal, inside the graph
+    // corridor (so construction probes hit it often) but beyond the sealed
+    // frontier (so A* never expands there).
+    for (int i = 0; i < 3; ++i) {
+        double y = 11.0 + i;
+        b.traces.push_back({2, 0, {mm_to_nm(7.0), mm_to_nm(y)}, {mm_to_nm(13.0), mm_to_nm(y)},
+                            mm_to_nm(0.3)});
+    }
+    for (int i = 0; i < 3; ++i) {
+        double x = 9.0 + i;
+        b.traces.push_back({2, 0, {mm_to_nm(x), mm_to_nm(10.5)}, {mm_to_nm(x), mm_to_nm(13.5)},
+                            mm_to_nm(0.3)});
+    }
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    ConnectionTask task{1, b.nets[1].terminals[0], b.nets[1].terminals[1], 1, 2.0};
+    CongestionMap congestion;
+    congestion.init(b);
+    ReservationSet reservations;
+    auto route_once = [&]() {
+        return route_candidate_task(b, r, task, 0, 2.0, ctx, {1.0}, AStarConfig{},
+                                    congestion, reservations);
+    };
+    CandidateRoute cand = route_once();
+    CT_CHECK(!cand.found);  // SEAL seals the slot: TARGET must fail
+    CT_CHECK(!cand.frontier_blockers.empty());
+    CT_CHECK((int)cand.frontier_blockers.size() <= kMaxFrontierStats);
+    auto rank_of = [&](const auto& v, NetId n) {
+        for (std::size_t i = 0; i < v.size(); ++i)
+            if (v[i].blocker_net == n) return (int)i;
+        return 1 << 30;  // absent ranks last
+    };
+    // The reached blocker (SEAL, net 0) outranks the unreached decoy (net 2).
+    CT_CHECK(rank_of(cand.frontier_blockers, 0) < rank_of(cand.frontier_blockers, 2));
+    // End to end: dependency/rip-up attribution names SEAL first among
+    // rippable (net) blockers. Keepout hits (net -1, nothing to rip) may
+    // lead; what matters is SEAL outranks the DECOY copper.
+    std::vector<BlockerHit> hits =
+        attribute_blockers_detailed(b, task, mm_to_nm(0.2), &cand);
+    CT_CHECK(!hits.empty());
+    int first_rip = -1, rank0 = 1 << 30, rank2 = 1 << 30;
+    for (std::size_t i = 0; i < hits.size(); ++i) {
+        if (hits[i].net == 0) rank0 = std::min(rank0, (int)i);
+        if (hits[i].net == 2) rank2 = std::min(rank2, (int)i);
+        if (first_rip < 0 && hits[i].net >= 0) first_rip = (int)i;
+    }
+    CT_CHECK(first_rip >= 0 && hits[(std::size_t)first_rip].net == 0);
+    CT_CHECK(rank0 < rank2);
+    // The board really exercises the regression: construction-wide evidence
+    // ranks the unreached decoy at least as high as the seal (old impl
+    // forwarded exactly this and failed the ordering above).
+    const Terminal* pa = b.find_terminal(b.nets[1].terminals[0]);
+    const Terminal* pb = b.find_terminal(b.nets[1].terminals[1]);
+    SparseRoutingGraph g =
+        SparseRoutingGraph::build(b, r, 1, pa->pos, pb->pos, 0, 0, mm_to_nm(0.2), ctx);
+    CT_CHECK(rank_of(g.frontier_stats(), 2) <= rank_of(g.frontier_stats(), 0));
+    // Determinism: repeated routing yields identical frontier evidence.
+    CandidateRoute again = route_once();
+    CT_CHECK(again.frontier_blockers.size() == cand.frontier_blockers.size());
+    for (std::size_t i = 0; i < cand.frontier_blockers.size(); ++i) {
+        CT_CHECK(again.frontier_blockers[i].blocker_net == cand.frontier_blockers[i].blocker_net);
+        CT_CHECK(again.frontier_blockers[i].kind == cand.frontier_blockers[i].kind);
+        CT_CHECK(again.frontier_blockers[i].desc == cand.frontier_blockers[i].desc);
+        CT_CHECK(again.frontier_blockers[i].layer == cand.frontier_blockers[i].layer);
+        CT_CHECK(again.frontier_blockers[i].count == cand.frontier_blockers[i].count);
+        CT_CHECK(again.frontier_blockers[i].pos.x == cand.frontier_blockers[i].pos.x);
+        CT_CHECK(again.frontier_blockers[i].pos.y == cand.frontier_blockers[i].pos.y);
+    }
 }
 
 int main() { return copperline::test::run_all_tests(); }

@@ -1,0 +1,33 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 20},
+  "layers": [{"id": 0, "name": "Top"}, {"id": 1, "name": "Bottom"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "SIG", "current_a": 0.1, "voltage_v": 3.3,
+      "target_length_mm": 20.0, "length_tol_mm": 1.5,
+      "terminals": [
+        {"id": 0, "x_mm": 2, "y_mm": 10, "layer": 0},
+        {"id": 1, "x_mm": 18, "y_mm": 10, "layer": 0}
+      ]
+    },
+    {
+      "id": 1, "name": "GND", "current_a": 0.2, "voltage_v": 0,
+      "terminals": [
+        {"id": 2, "x_mm": 2, "y_mm": 5, "layer": 0},
+        {"id": 3, "x_mm": 18, "y_mm": 5, "layer": 0}
+      ]
+    }
+  ],
+  "keepouts": [
+    {"x1_mm": 1, "y1_mm": 10.6, "x2_mm": 19, "y2_mm": 12, "layer": 0, "reason": "tuning_block_north"},
+    {"x1_mm": 1, "y1_mm": 8, "x2_mm": 19, "y2_mm": 9.4, "layer": 0, "reason": "tuning_block_south"}
+  ]
+}

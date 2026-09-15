@@ -8,12 +8,49 @@
 
 #include "router/density.h"
 #include "router/escape.h"
+#include "router/portfolio.h"
 #include "router/route_tree.h"
+#include "router/simplify.h"
 #include "router/sparse_graph.h"
 #include "router/verifier.h"
 #include "router/via_bundle.h"
 
 namespace copperline {
+
+JsonValue EscapeStageInfo::to_json() const {
+    JsonValue r = JsonValue::object();
+    r["pads_total"] = static_cast<double>(pads_total);
+    r["pads_escaped"] = static_cast<double>(pads_escaped);
+    r["pads_infeasible"] = static_cast<double>(pads_infeasible);
+    JsonValue esc = JsonValue::array();
+    for (TermId t : escaped_terminals) esc.as_array().push_back(JsonValue(static_cast<double>(t)));
+    r["escaped_terminals"] = esc;
+    JsonValue unr = JsonValue::array();
+    for (TermId t : unresolved_terminals) unr.as_array().push_back(JsonValue(static_cast<double>(t)));
+    r["unresolved_terminals"] = unr;
+    JsonValue rea = JsonValue::array();
+    for (const auto& s : unresolved_reasons) rea.as_array().push_back(JsonValue(s));
+    r["unresolved_reasons"] = rea;
+    return r;
+}
+
+JsonValue PlaneAccessInfo::to_json() const {
+    JsonValue o = JsonValue::object();
+    o["net"] = static_cast<double>(net);
+    o["net_name"] = net_name;
+    o["terminal"] = static_cast<double>(terminal);
+    o["plane_id"] = static_cast<double>(plane_id);
+    o["plane_layer"] = static_cast<double>(plane_layer);
+    o["island"] = static_cast<double>(island);
+    o["entry_x_mm"] = nm_to_mm(entry.x);
+    o["entry_y_mm"] = nm_to_mm(entry.y);
+    o["via_count"] = static_cast<double>(via_count);
+    o["required_current_a"] = required_current_a;
+    o["via_capacity_a"] = via_capacity_a;
+    o["current_margin_a"] = current_margin_a;
+    o["via_style"] = via_style;
+    return o;
+}
 
 JsonValue RouteReport::to_json() const {
     JsonValue r = JsonValue::object();
@@ -40,6 +77,11 @@ JsonValue RouteReport::to_json() const {
     st["candidates_accepted"] = static_cast<double>(stats.candidates_accepted);
     st["candidates_rejected"] = static_cast<double>(stats.candidates_rejected);
     st["epochs"] = static_cast<double>(stats.epochs_count);
+    // Issue #10: hierarchical-guidance aggregates.
+    st["hierarchy_guided_tasks"] = static_cast<double>(stats.hierarchy_guided_tasks);
+    st["hierarchy_fallback_tasks"] = static_cast<double>(stats.hierarchy_fallback_tasks);
+    st["hierarchy_coarse_expansions"] =
+        static_cast<double>(stats.hierarchy_coarse_expansions);
     r["stats"] = st;
     JsonValue ep = JsonValue::array();
     for (const auto& e : epochs) ep.as_array().push_back(e.to_json());
@@ -77,14 +119,76 @@ JsonValue RouteReport::to_json() const {
         JsonValue ma = JsonValue::array();
         for (const auto& m : f.modes_attempted) ma.as_array().push_back(JsonValue(m));
         o["modes_attempted"] = ma;
+        // Issue #11: controlled-impedance accounting.
+        o["has_impedance"] = f.has_impedance;
+        if (f.has_impedance) {
+            o["target_impedance_ohms"] = f.target_impedance_ohms;
+            o["impedance_tolerance_pct"] = f.impedance_tolerance_pct;
+            o["impedance_layer"] = static_cast<double>(f.impedance_layer);
+            o["impedance_width_mm"] = f.impedance_width_mm;
+            o["impedance_model"] = f.impedance_model;
+            o["estimated_impedance_ohms"] = f.estimated_impedance_ohms;
+            o["impedance_error_pct"] = f.impedance_error_pct;
+            o["impedance_conflict"] = f.impedance_conflict;
+            if (!f.impedance_detail.empty()) o["impedance_detail"] = f.impedance_detail;
+        }
         if (f.has_frontier) o["frontier"] = f.frontier.to_json();
+        // Issue #16: plane target attribution for power-access failures.
+        o["has_plane_target"] = f.has_plane_target;
+        if (f.has_plane_target) {
+            o["plane_id"] = static_cast<double>(f.plane_id);
+            o["plane_layer"] = static_cast<double>(f.plane_layer);
+            o["plane_island"] = static_cast<double>(f.plane_island);
+        }
+        // Issue #12: pair-corridor attribution.
+        o["is_pair_corridor"] = f.is_pair_corridor;
+        if (f.is_pair_corridor) {
+            o["pair_id"] = static_cast<double>(f.pair_id);
+            o["pair_name"] = f.pair_name;
+            o["pair_other_net"] = static_cast<double>(f.pair_other_net);
+        }
         JsonValue bl = JsonValue::array();
         for (const auto& b : f.blockers) bl.as_array().push_back(JsonValue(b));
         o["blockers"] = bl;
+        // Issue #10: hierarchical-guidance diagnostics for the last attempt.
+        JsonValue hier = JsonValue::object();
+        JsonValue hlv = JsonValue::array();
+        for (double m : f.hierarchy_levels_mm) hlv.as_array().push_back(JsonValue(m));
+        hier["levels_used_mm"] = hlv;
+        hier["fallback"] = f.hierarchy_fallback;
+        hier["fallback_reason"] = f.hierarchy_reason;
+        hier["coarse_expansions"] = static_cast<double>(f.hierarchy_coarse_expansions);
+        hier["window_attempts"] = static_cast<double>(f.hierarchy_window_attempts);
+        hier["exact_expansions"] = static_cast<double>(f.expansions);
+        o["hierarchy"] = hier;
         fails.as_array().push_back(o);
     }
     r["failures"] = fails;
+    JsonValue pa = JsonValue::array();
+    for (const auto& p : plane_access) pa.as_array().push_back(p.to_json());
+    r["plane_access"] = pa;
+    // Issue #11: per-net controlled-impedance report (selected layer/width,
+    // model, target, estimate, tolerance error). Only nets with targets.
+    JsonValue iz = JsonValue::array();
+    for (const auto& z : impedance) iz.as_array().push_back(z.to_json());
+    r["impedance"] = iz;
+    // Issue #12: pair corridor + materialization report.
+    JsonValue dp = JsonValue::array();
+    for (const auto& p : diffpairs) dp.as_array().push_back(p.to_json());
+    r["diffpairs"] = dp;
+    // Issue #15: post-route length/skew tuning report.
+    r["tuning"] = tuning.to_json();
     r["recovery"] = recovery.to_json();
+    r["escape"] = escape_stage.to_json();
+    // Issue #14: maturity/budget schedule + final effective state. Agents
+    // see every phase transition and the exact hyperparams consumed.
+    {
+        JsonValue ml = JsonValue::array();
+        for (const auto& e : maturity_log) ml.as_array().push_back(e.to_json());
+        r["maturity_log"] = ml;
+        r["maturity"] = maturity.to_json();
+        if (has_budget) r["budget"] = budget.to_json();
+    }
     r["verification"] = verification.to_json();
     r["verifier_ok"] = verification.ok;
     r["verifier_connected"] = verification.connected;
@@ -111,6 +215,44 @@ std::vector<std::string> attribute_blockers(const Board& board, const Connection
     for (const auto& h : attribute_blockers_detailed(board, task, width, last))
         out.push_back(h.desc);
     return out;
+}
+
+// Issue #16: carry the plane target into failure records so agents see
+// which plane/layer/island a failed power access belonged to.
+void fill_plane_fields(RouteFailure& f, const ConnectionTask& task) {
+    if (task.has_plane_target) {
+        f.has_plane_target = true;
+        f.plane_id = task.plane_id;
+        f.plane_layer = task.plane_layer;
+        f.plane_island = task.plane_island;
+    }
+}
+
+// Issue #10: copy hierarchical-guidance diagnostics from the last attempt
+// into the failure record (levels used, fallback status, coarse work).
+void fill_hierarchy_fields(RouteFailure& f, const CandidateRoute* last) {
+    if (!last) return;
+    f.hierarchy_levels_mm = last->hierarchy.levels_used_mm;
+    f.hierarchy_fallback = last->hierarchy.fallback;
+    f.hierarchy_reason = last->hierarchy.fallback_reason;
+    f.hierarchy_coarse_expansions = last->hierarchy.coarse_expansions;
+    f.hierarchy_window_attempts = last->hierarchy.window_attempts;
+}
+
+// Issue #12: carry the pair identity into failure records.
+void fill_pair_fields(RouteFailure& f, const ConnectionTask& task,
+                      const Board& board) {
+    if (task.is_pair_corridor) {
+        f.is_pair_corridor = true;
+        f.pair_id = task.pair_id;
+        f.pair_other_net = task.pair_other_net;
+        for (const auto& pr : board.diffpairs) {
+            if (pr.id == task.pair_id) {
+                f.pair_name = pr.name;
+                break;
+            }
+        }
+    }
 }
 
 }  // namespace
@@ -179,18 +321,157 @@ RouteReport RouterEngine::run() {
     const std::vector<TraceSeg> fixed_traces = board_.traces;
     const std::vector<Via> fixed_vias = board_.vias;
 
-    DensityEstimator density_est;
-    DensityResult density = density_est.analyze(board_);
     ElectricalContext ctx;
 
-    // ---- Connection tasks from RouteTrees ----
+    // ---- Post-P4 issue #1: centre-out escape stage ----
+    // Use the same real EscapePlanner as `router escape` BEFORE ordinary
+    // connection-task generation. Accepted escape traces/vias are committed
+    // to the working board as owned routes flagged is_escape_stub=true, so
+    // global routing starts from committed escape geometry (via the
+    // copper-target RouteTree growth) instead of raw dense pads.
+    std::vector<OwnedRoute> owned;
+    std::map<TermId, std::string> escape_infeasible_reason;
+    {
+        EscapePlanner planner;
+        EscapeResult esc = planner.plan(board_, resolver_, ctx);
+        report.escape_stage.pads_total = esc.pads_total;
+        report.escape_stage.pads_escaped = esc.pads_with_candidates;
+        report.escape_stage.pads_infeasible = esc.pads_infeasible;
+        // Commit in planner eligibility order (per-footprint commit_order is
+        // already centre-out). Deterministic: footprints sorted by component
+        // (planner guarantee), commit_order preserves eligibility order.
+        for (const auto& fp : esc.footprints) {
+            std::map<TermId, const PadEscapeResult*> by_term;
+            for (const auto& p : fp.pads) by_term[p.terminal] = &p;
+            for (TermId tid : fp.commit_order) {
+                auto it = by_term.find(tid);
+                if (it == by_term.end() || !it->second->has_viable ||
+                    it->second->candidates.empty())
+                    continue;
+                const EscapeCandidate& best = it->second->candidates.front();
+                OwnedRoute o;
+                const Terminal* term = board_.find_terminal(tid);
+                o.task.net = term ? term->net : -1;
+                o.task.a = tid;
+                o.task.b = -1;  // portal stub: no second terminal
+                o.task_pos = -1;  // not a global task; see recovery mapping
+                o.traces = best.traces;
+                o.vias = best.vias;
+                o.epoch_committed = -1;  // pre-global escape epoch
+                o.stable_epochs = 0;
+                o.is_escape_stub = true;
+                o.protection = route_protection_score(true, 0.0, 0,
+                                                      /*is_fixed=*/false,
+                                                      RecoveryMode::FAST);
+                for (const auto& s : best.traces) {
+                    board_.traces.push_back(s);
+                    report.stats.length_nm += euclid_len_nm(s.a, s.b);
+                }
+                for (const auto& v : best.vias) {
+                    board_.vias.push_back(v);
+                    report.stats.via_count++;
+                }
+                owned.push_back(o);
+                report.escape_stage.escaped_terminals.push_back(tid);
+            }
+            for (const auto& p : fp.pads) {
+                if (!p.has_viable) {
+                    report.escape_stage.unresolved_terminals.push_back(p.terminal);
+                    std::string reason = p.infeasibility.recorded
+                                             ? p.infeasibility.reason
+                                             : "no_candidate";
+                    report.escape_stage.unresolved_reasons.push_back(reason);
+                    escape_infeasible_reason[p.terminal] = reason;
+                }
+            }
+        }
+        std::sort(report.escape_stage.escaped_terminals.begin(),
+                  report.escape_stage.escaped_terminals.end());
+        {
+            std::vector<std::size_t> idx(report.escape_stage.unresolved_terminals.size());
+            for (std::size_t i = 0; i < idx.size(); ++i) idx[i] = i;
+            std::sort(idx.begin(), idx.end(), [&](std::size_t a, std::size_t b) {
+                return report.escape_stage.unresolved_terminals[a] <
+                       report.escape_stage.unresolved_terminals[b];
+            });
+            std::vector<TermId> ut;
+            std::vector<std::string> ur;
+            for (std::size_t i : idx) {
+                ut.push_back(report.escape_stage.unresolved_terminals[i]);
+                ur.push_back(report.escape_stage.unresolved_reasons[i]);
+            }
+            report.escape_stage.unresolved_terminals = std::move(ut);
+            report.escape_stage.unresolved_reasons = std::move(ur);
+        }
+        if (options_.progress && esc.pads_total > 0) {
+            JsonValue ev = JsonValue::object();
+            ev["event"] = "escape";
+            ev["pads_total"] = static_cast<double>(esc.pads_total);
+            ev["pads_escaped"] = static_cast<double>(esc.pads_with_candidates);
+            ev["pads_infeasible"] = static_cast<double>(esc.pads_infeasible);
+            JsonValue un = JsonValue::array();
+            for (TermId t : report.escape_stage.unresolved_terminals)
+                un.as_array().push_back(JsonValue(static_cast<double>(t)));
+            ev["unresolved_terminals"] = un;
+            options_.progress(ev);
+        }
+        resolver_.rebind(&board_);
+    }
+
+    // Rebuild density AFTER escape copper is committed so global routing sees
+    // the actual occupied board.
+    DensityEstimator density_est;
+    DensityResult density = density_est.analyze(board_);
+
+    // ---- Connection tasks from RouteTrees (on the escape-augmented board) --
+    // Two-terminal nets with escape copper now yield has_copper_target tasks
+    // whose dst is the committed stub endpoint (portal), so no second
+    // raw-pad task is generated.
+    // Issue #12: pair member nets never produce individual tasks. Their two
+    // tasks are replaced by one atomic PairCorridorTask sized for both
+    // traces + gap + external clearance. Invalid pairs are reported as
+    // failures (no silent fallback to independent routing).
     std::vector<ConnectionTask> tasks;
-    for (const auto& net : board_.nets) {
-        if (net.terminals.size() < 2) continue;
-        RouteTree tree = build_route_tree(board_, net.id);
-        for (auto& t : tree.tasks) tasks.push_back(t);
+    std::vector<std::string> pair_invalid_reasons;
+    std::vector<int> pair_invalid_ids;
+    if (board_.diffpairs.empty()) {
+        for (const auto& net : board_.nets) {
+            if (net.terminals.size() < 2) continue;
+            RouteTree tree = build_route_tree(board_, net.id);
+            for (auto& t : tree.tasks) tasks.push_back(t);
+        }
+    } else {
+        tasks = build_global_tasks_with_pairs(board_, pair_invalid_reasons,
+                                              pair_invalid_ids);
+        for (std::size_t i = 0; i < pair_invalid_ids.size(); ++i) {
+            RouteFailure f;
+            int pid = pair_invalid_ids[i];
+            f.is_pair_corridor = true;
+            f.pair_id = pid;
+            f.reason = "pair_invalid:" + pair_invalid_reasons[i];
+            for (const auto& pr : board_.diffpairs) {
+                if (pr.id == pid) {
+                    f.net = pr.net_p;
+                    const NetInfo* n = board_.find_net(pr.net_p);
+                    f.net_name = n ? n->name : "?";
+                    f.pair_other_net = pr.net_n;
+                    f.pair_name = pr.name;
+                    // One entry per member so per-net failure queries work.
+                    RouteFailure g = f;
+                    g.net = pr.net_n;
+                    const NetInfo* nn = board_.find_net(pr.net_n);
+                    g.net_name = nn ? nn->name : "?";
+                    report.failures.push_back(g);
+                    break;
+                }
+            }
+            report.failures.push_back(f);
+        }
     }
     // Centre-out boost (Prompt 2): depth outranks density but never legality.
+    // NOTE (issue #1): is_escape_stub ownership is real now (escape stubs
+    // committed above with task_pos=-1). Global routes must NOT infer escape
+    // status from centre depth; only the committed stubs carry the flag.
     std::map<TermId, int> depth_of;
     {
         FinePitchDetector detector;
@@ -199,12 +480,20 @@ RouteReport RouterEngine::run() {
             for (const auto& [tid, d] : cda.analyze(board_, fp)) depth_of[tid] = d;
         }
     }
-    auto is_escape_task = [&](const ConnectionTask& t) {
+    auto task_max_depth = [&](const ConnectionTask& t) {
+        int da = 0, db = 0;
         auto it = depth_of.find(t.a);
-        int da = it != depth_of.end() ? it->second : 0;
+        if (it != depth_of.end()) da = it->second;
         it = depth_of.find(t.b);
-        int db = it != depth_of.end() ? it->second : 0;
-        return std::max(da, db) > 0;
+        if (it != depth_of.end()) db = it->second;
+        // Issue #12: the deeper member sets the corridor depth.
+        if (t.is_pair_corridor) {
+            it = depth_of.find(t.pair_a_other);
+            if (it != depth_of.end()) da = std::max(da, it->second);
+            it = depth_of.find(t.pair_b_other);
+            if (it != depth_of.end()) db = std::max(db, it->second);
+        }
+        return std::max(da, db);
     };
     std::vector<int> fail_count(tasks.size(), 0);
     std::vector<Corridor> corridors(tasks.size());
@@ -224,7 +513,11 @@ RouteReport RouterEngine::run() {
 
     report.stats.tasks_total = static_cast<int>(tasks.size());
     report.stats.nets_total = static_cast<int>(board_.nets.size());
-    report.stats.threads_requested = options_.threads;
+    // Issue #3: 0 = auto (all CPUs); explicit --threads wins. Workers affect
+    // concurrency only: batch membership is a pure function of the scheduler
+    // order + interference weights, so geometry stays identical at 1/2/4/N.
+    const int effective_threads = resolve_worker_threads(options_.threads);
+    report.stats.threads_requested = effective_threads;
 
     // Layer cost multipliers for A*.
     std::vector<double> layer_mult;
@@ -240,14 +533,25 @@ RouteReport RouterEngine::run() {
     CongestionMap congestion;
     congestion.init(board_);
     ReservationSet reservations;
+    // Issue #10: one hierarchical-guidance cache for the whole run. The
+    // snapshot is constant inside an epoch (workers share it); the cache
+    // self-invalidates on board-signature change, so epochs and recovery
+    // branches reuse obstacle data exactly where the board permits.
+    HierarchyCache hier_cache;
 
-    auto deadline = options_.timeout_s > 0
-                        ? t0 + std::chrono::duration<double>(options_.timeout_s)
-                        : std::chrono::steady_clock::time_point::max();
+    std::chrono::steady_clock::time_point deadline =
+        options_.timeout_s > 0
+            ? t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                       std::chrono::duration<double>(options_.timeout_s))
+            : std::chrono::steady_clock::time_point::max();
     bool timed_out = false;
     bool budget_hit = false;
 
     std::vector<char> task_done(tasks.size(), 0);
+    // Issue #4: superseded tasks were replaced by regenerated tree growth
+    // after a commit/rip-up. They are ignored for failures/connectivity and
+    // excluded from the active task count; only active tasks route.
+    std::vector<char> task_superseded(tasks.size(), 0);
     std::vector<int> remaining = all_idx;
     // Last epoch in which each task was given a worker attempt (-1 = never).
     std::vector<int> last_epoch(tasks.size(), -1);
@@ -263,14 +567,202 @@ RouteReport RouterEngine::run() {
         return -1;
     };
 
-    // Ownership: which greedy task owns which committed copper. Needed so
-    // rip-up can remove selective routes and rebuild deterministically.
-    std::vector<OwnedRoute> owned;
+    // (owned was declared with the escape stage above and already holds
+    // committed escape stubs; greedy commits append below.)
+
+    // ---- Issue #4: route-tree growth helpers ----
+    auto is_multi_net = [&](NetId net) -> bool {
+        const NetInfo* n = board_.find_net(net);
+        return n && n->terminals.size() > 2;
+    };
+    auto active_tasks_total = [&]() -> int {
+        int c = 0;
+        for (std::size_t i = 0; i < tasks.size(); ++i)
+            if (!task_superseded[i]) ++c;
+        return c;
+    };
+    // Regenerate one net's tasks from current committed components. Only
+    // affected multi-terminal nets are touched (§4). Returns true when the
+    // remaining set changed.
+    auto regenerate_net = [&](NetId net) -> bool {
+        if (!is_multi_net(net)) return false;
+        std::vector<int> old_rem;
+        for (int ti : remaining)
+            if (tasks[ti].net == net) old_rem.push_back(ti);
+        RouteTree fresh = build_route_tree(board_, net);
+        auto key_of = [](const ConnectionTask& t) {
+            std::string key = std::to_string(t.a) + ":" + std::to_string(t.b) + ":";
+            key += t.has_copper_target
+                       ? std::to_string(t.copper_point.x) + "," +
+                             std::to_string(t.copper_point.y) + "," +
+                             std::to_string(t.copper_layer)
+                       : "-";
+            key += ":";
+            key += t.has_plane_target
+                       ? std::to_string(t.plane_id) + "," +
+                             std::to_string(t.plane_point.x) + "," +
+                             std::to_string(t.plane_point.y) + "," +
+                             std::to_string(t.plane_layer) + "," +
+                             std::to_string(t.plane_island)
+                       : "-";
+            return key;
+        };
+        std::vector<std::string> old_keys, fresh_keys;
+        for (int ti : old_rem) old_keys.push_back(key_of(tasks[ti]));
+        for (auto& t : fresh.tasks) {
+            if (task_already_connected(board_, t)) continue;
+            fresh_keys.push_back(key_of(t));
+        }
+        std::sort(old_keys.begin(), old_keys.end());
+        std::sort(fresh_keys.begin(), fresh_keys.end());
+        if (old_keys == fresh_keys) return false;
+        // Supersede stale tasks for this net.
+        {
+            std::set<int> old_set(old_rem.begin(), old_rem.end());
+            std::vector<int> kept;
+            for (int ti : remaining)
+                if (!old_set.count(ti))
+                    kept.push_back(ti);
+                else {
+                    task_superseded[ti] = 1;
+                    task_done[ti] = 1;
+                }
+            remaining = std::move(kept);
+        }
+        for (auto& t : fresh.tasks) {
+            if (task_already_connected(board_, t)) continue;
+            ConnectionTask nt = t;
+            int pos = static_cast<int>(tasks.size());
+            nt.index = static_cast<int>(fresh.tasks.size() > 0 ? pos : pos);
+            tasks.push_back(nt);
+            task_done.push_back(0);
+            task_superseded.push_back(0);
+            fail_count.push_back(0);
+            last_epoch.push_back(-1);
+            DifficultyVector dv = compute_difficulty(board_, resolver_, tasks.back(), ctx,
+                                                     density.terminal_density, depth_of, 0);
+            tasks.back().difficulty = dv.total;
+            corridors.push_back(probable_corridor(board_, resolver_, tasks.back(), ctx));
+            remaining.push_back(pos);
+        }
+        report.stats.tasks_total = active_tasks_total();
+        return true;
+    };
 
     int epoch = 0;
     int stalled = 0;
     int threads_used_max = 1;
-    const int workers_cap = std::max(1, options_.threads);
+    const int workers_cap = std::max(1, effective_threads);
+
+    // ---- Issue #14: board-maturity adaptive search budgets ----
+    // Recomputed every greedy epoch and every recovery generation from live
+    // board state. A single EffectiveSearchBudget is consumed by A*, the
+    // hierarchical guidance, the batch scheduler, reservation/history
+    // pressure and recovery (route-K/beam/depth fields are provisioned for
+    // #8/#22). Disabled -> legacy fixed budgets (OPEN_BOARD params).
+    BoardMaturityState maturity_state;
+    EffectiveSearchBudget active_budget;
+    bool have_budget = false;
+    std::vector<double> recent_accept;  // accepted/candidates, last 4 epochs
+    const double escape_done_frac =
+        report.escape_stage.pads_total > 0
+            ? static_cast<double>(report.escape_stage.pads_escaped) /
+                  static_cast<double>(report.escape_stage.pads_total)
+            : 1.0;
+    auto maturity_timeout_remaining = [&]() -> double {
+        if (!(options_.timeout_s > 0)) return -1.0;
+        double left = std::chrono::duration<double>(
+                          deadline - std::chrono::steady_clock::now())
+                          .count();
+        return left > 0 ? left : 0.0;
+    };
+    auto gather_maturity = [&](int stalled_epochs, int ripups, int rec_gens) {
+        MaturityInput in;
+        in.occupancy_frac =
+            options_.maturity.enabled ? copper_occupancy_frac(board_) : 0.0;
+        // Issue #14: only observed contention counts as hotspots
+        // (history-weighted score at or above the floor). Present-corridor
+        // pressure is speculative — every remaining task paints its corridor
+        // — while history accumulates only on rejections, failures and
+        // recovery, i.e. where routing actually fought. Healthy disjoint
+        // routing therefore stays cheap.
+        std::vector<Hotspot> hs = congestion.hotspots();
+        int nhot = 0;
+        double press = 0;
+        for (const auto& h : hs) {
+            double score = 3.0 * h.history;
+            if (score >= options_.maturity.thresholds.hotspot_score_floor) {
+                ++nhot;
+                press += score;
+            }
+        }
+        in.hotspot_count = nhot;
+        in.hotspot_pressure = press;
+        double dsum = 0;
+        for (int ti : remaining) dsum += tasks[ti].difficulty;
+        in.mean_remaining_difficulty =
+            remaining.empty() ? 0.0 : dsum / static_cast<double>(remaining.size());
+        if (recent_accept.empty()) {
+            in.acceptance_rate = 1.0;
+        } else {
+            double s = 0;
+            for (double v : recent_accept) s += v;
+            in.acceptance_rate = s / static_cast<double>(recent_accept.size());
+        }
+        in.stalled_epochs = stalled_epochs;
+        in.ripup_count = ripups;
+        in.recovery_generations = rec_gens;
+        in.fine_pitch_done_frac = escape_done_frac;
+        in.remaining_count = static_cast<int>(remaining.size());
+        int tot = active_tasks_total();
+        in.total_tasks = tot > 0 ? tot : 1;
+        in.remaining_frac = remaining.empty()
+                                ? 0.0
+                                : static_cast<double>(remaining.size()) /
+                                      static_cast<double>(in.total_tasks);
+        return in;
+    };
+    auto refresh_budget = [&](int stalled_epochs, int ripups, int rec_gens,
+                              int log_epoch, bool is_rec, int gen) {
+        if (!options_.maturity.enabled) {
+            // Legacy fixed budgets: OPEN_BOARD params over the base config.
+            MaturityInput in = gather_maturity(0, 0, 0);
+            in.occupancy_frac = 0.0;
+            in.hotspot_count = 0;
+            in.hotspot_pressure = 0.0;
+            in.mean_remaining_difficulty = 0.0;
+            in.acceptance_rate = 1.0;
+            in.stalled_epochs = 0;
+            in.ripup_count = 0;
+            in.recovery_generations = 0;
+            in.fine_pitch_done_frac = 1.0;
+            maturity_state.phase = MaturityPhase::OPEN_BOARD;
+            maturity_state.metrics = in;
+            maturity_state.phase_entry_remaining = in.remaining_count;
+            maturity_state.escalated_by_stall = false;
+        } else {
+            MaturityInput in = gather_maturity(stalled_epochs, ripups, rec_gens);
+            const BoardMaturityState* prev = have_budget ? &maturity_state : nullptr;
+            maturity_state = update_maturity(in, options_.maturity.thresholds, prev,
+                                             options_.maturity.improvement_frac);
+        }
+        active_budget = effective_budget_for_phase(
+            maturity_state, options_.astar, options_.hierarchy,
+            options_.maturity.caps, options_.memory_budget_bytes,
+            options_.per_task_bytes, effective_threads,
+            maturity_timeout_remaining(), static_cast<int>(remaining.size()));
+        have_budget = true;
+        MaturityLogEntry e;
+        e.epoch = log_epoch;
+        e.is_recovery = is_rec;
+        e.generation = gen;
+        e.state = maturity_state;
+        e.budget = active_budget;
+        report.maturity_log.push_back(e);
+        report.maturity = maturity_state;
+        report.budget = active_budget;
+        report.has_budget = true;
+    };
 
     while (!remaining.empty() && epoch < options_.max_epochs) {
         if (std::chrono::steady_clock::now() > deadline) {
@@ -283,6 +775,8 @@ RouteReport RouterEngine::run() {
                 f.a = tasks[i].a;
                 f.b = tasks[i].b;
                 f.reason = "timeout";
+                fill_plane_fields(f, tasks[i]);
+                fill_pair_fields(f, tasks[i], board_);
                 if (n) {
                     bool dummy = false;
                     f.required_current_a =
@@ -304,6 +798,22 @@ RouteReport RouterEngine::run() {
             break;
         }
         refresh_difficulties(remaining);
+        // Issue #4: drop tasks whose endpoints are already joined by
+        // committed copper (redundant after tree growth). Deterministic.
+        {
+            std::vector<int> still;
+            for (int ti : remaining) {
+                if (task_superseded[ti]) continue;
+                if (task_already_connected(board_, tasks[ti])) {
+                    task_done[ti] = 1;
+                } else {
+                    still.push_back(ti);
+                }
+            }
+            remaining = std::move(still);
+            if (remaining.empty()) break;
+            refresh_difficulties(remaining);
+        }
         std::vector<ConnectionTask> ordered_tasks;
         std::vector<int> ordered_idx;
         {
@@ -312,19 +822,82 @@ RouteReport RouterEngine::run() {
                 bool sa = last_epoch[a] < epoch - 1;
                 bool sb = last_epoch[b] < epoch - 1;
                 if (sa != sb) return sa > sb;
+                // Issue #1: centre-out eligibility is structural, not just a
+                // difficulty bonus. Deeper fine-pitch tasks order before
+                // shallower ones so outer-ring routing cannot leapfrog a
+                // deeper unresolved pad.
+                int da = task_max_depth(tasks[a]);
+                int db = task_max_depth(tasks[b]);
+                if (da != db) return da > db;
                 if (tasks[a].difficulty != tasks[b].difficulty)
                     return tasks[a].difficulty > tasks[b].difficulty;
                 if (tasks[a].net != tasks[b].net) return tasks[a].net < tasks[b].net;
                 if (tasks[a].a != tasks[b].a) return tasks[a].a < tasks[b].a;
-                return tasks[a].b < tasks[b].b;
+                if (tasks[a].b != tasks[b].b) return tasks[a].b < tasks[b].b;
+                if (tasks[a].has_copper_target != tasks[b].has_copper_target)
+                    return tasks[a].has_copper_target < tasks[b].has_copper_target;
+                if (tasks[a].copper_point.x != tasks[b].copper_point.x)
+                    return tasks[a].copper_point.x < tasks[b].copper_point.x;
+                if (tasks[a].copper_point.y != tasks[b].copper_point.y)
+                    return tasks[a].copper_point.y < tasks[b].copper_point.y;
+                if (tasks[a].copper_layer != tasks[b].copper_layer)
+                    return tasks[a].copper_layer < tasks[b].copper_layer;
+                // Issue #16: plane targets order deterministically after
+                // copper targets (island, plane, entry, layer).
+                if (tasks[a].has_plane_target != tasks[b].has_plane_target)
+                    return tasks[a].has_plane_target < tasks[b].has_plane_target;
+                if (tasks[a].plane_island != tasks[b].plane_island)
+                    return tasks[a].plane_island < tasks[b].plane_island;
+                if (tasks[a].plane_id != tasks[b].plane_id)
+                    return tasks[a].plane_id < tasks[b].plane_id;
+                if (tasks[a].plane_point.x != tasks[b].plane_point.x)
+                    return tasks[a].plane_point.x < tasks[b].plane_point.x;
+                if (tasks[a].plane_point.y != tasks[b].plane_point.y)
+                    return tasks[a].plane_point.y < tasks[b].plane_point.y;
+                return tasks[a].plane_layer < tasks[b].plane_layer;
             });
             for (int i : order) {
                 ordered_idx.push_back(i);
                 ordered_tasks.push_back(tasks[i]);
             }
         }
-        std::size_t batch_n = std::min<std::size_t>(ordered_idx.size(), kParallelBatchSize);
-        std::vector<int> batch_idx(ordered_idx.begin(), ordered_idx.begin() + batch_n);
+        // Issue #3: interference-aware greedy batch over the scheduler order
+        // (starvation/depth/difficulty/net/a/b above, with fail_count age
+        // bonuses folded into difficulty by refresh_difficulties). Starts from
+        // the highest-value eligible task, then adds each later task in order
+        // when its max interference vs the selected set stays below the
+        // configurable threshold. One task per net per epoch (issue #4: same-
+        // net tasks must see each other's copper). When the batch cannot
+        // fill, the threshold relaxes progressively; a final infinite pass
+        // guarantees workers never idle and deferred tasks eventually run.
+        // Corridor buffers are reused across epochs (built once, appended for
+        // regenerated tasks); interference rows stream on demand with no dense
+        // N^2 allocation, and the width respects the memory bound.
+        //
+        // Issue #14: maturity is recomputed from the live board BEFORE batch
+        // selection so the single effective budget drives the batch width,
+        // the epoch A*/hierarchy configs, reservation strength and history
+        // growth below. Greedy epochs never rip, so ripups/gens are 0 here.
+        refresh_budget(stalled, 0, 0, epoch, false, -1);
+        AStarConfig epoch_astar = options_.astar;
+        epoch_astar.max_expansions = active_budget.astar_max_expansions;
+        epoch_astar.weight_factor = active_budget.weight_factor;
+        HierarchyConfig epoch_hier = options_.hierarchy;
+        epoch_hier.max_coarse_expansions = active_budget.hier_max_coarse_expansions;
+        epoch_hier.max_window_attempts = active_budget.hier_window_attempts;
+        epoch_hier.tube_half_nm = active_budget.hier_tube_half_nm;
+        epoch_hier.max_grid_cells = active_budget.hier_max_grid_cells;
+        BatchSchedOptions bsched;
+        bsched.batch_width = active_budget.batch_width;
+        bsched.interference_threshold = options_.batch_interference_threshold;
+        bsched.relax_factor = options_.batch_relax_factor;
+        bsched.max_relax_steps = options_.batch_max_relax_steps;
+        bsched.memory_budget_bytes = options_.memory_budget_bytes;
+        bsched.per_task_bytes = options_.per_task_bytes;
+        BatchSelection bsel =
+            select_interference_batch(ordered_idx, tasks, corridors, bsched);
+        std::vector<int> batch_idx = bsel.selected;
+        std::size_t batch_n = batch_idx.size();
         for (int ti : batch_idx) last_epoch[ti] = epoch;
 
         congestion.reset_present();
@@ -341,6 +914,8 @@ RouteReport RouterEngine::run() {
             rem_diff.push_back(tasks[ordered_idx[k]].difficulty);
         }
         reservations.build(ordered_tasks, rem_corr, rem_diff);
+        // Issue #14: maturity-driven reservation strength (soft cost only).
+        reservations.set_strength(active_budget.reservation_strength);
 
         auto epoch_t0 = std::chrono::steady_clock::now();
         std::vector<CandidateRoute> candidates(batch_n);
@@ -352,10 +927,105 @@ RouteReport RouterEngine::run() {
         auto worker_fn = [&](int w) {
             for (std::size_t k = w; k < batch_n; k += workers) {
                 int ti = batch_idx[k];
-                candidates[k] =
-                    route_candidate_task(snapshot, resolver_, tasks[ti], rem_pos[ti],
-                                         tasks[ti].difficulty, ctx, layer_mult, options_.astar,
-                                         congestion, reservations);
+                // Issue #8 + #9: dense phases spend the maturity route-K on
+                // a deterministic diverse portfolio. Issue #9 scores every
+                // exactly-legal member with the future-obstruction scorer
+                // (remaining-task corridors, density, electrical burden) and
+                // commits the lexicographic best (legal, obstruction, cost,
+                // signature). Disabled (--no-impact) reverts to the cheapest
+                // legal member under the identical legality gate. Pair
+                // corridors stay single (atomic).
+                auto score_single_for_recovery = [&](CandidateRoute& c) {
+                    // Expose the obstruction on single-path candidates too
+                    // so multi-ply recovery (#22) reads it without recompute.
+                    if (!options_.impact.enabled || !c.found) return;
+                    ImpactContext sctx;
+                    sctx.board = &snapshot;
+                    sctx.resolver = &resolver_;
+                    sctx.ctx = &ctx;
+                    for (int rj : remaining) {
+                        if (rj == ti) continue;
+                        sctx.remaining_tasks.push_back(tasks[rj]);
+                        sctx.remaining_corridors.push_back(corridors[rj]);
+                    }
+                    sctx.terminal_density = density.terminal_density;
+                    sctx.centre_depth = depth_of;
+                    sctx.congestion = &congestion;
+                    auto scorer = make_impact_scorer(options_.impact);
+                    ImpactScore s = scorer->score(c, sctx);
+                    c.impact_obstruction = s.total;
+                    c.has_impact_score = true;
+                    c.impact_detail = s.to_json();
+                };
+                if (active_budget.route_k > 1 && !tasks[ti].is_pair_corridor) {
+                    PortfolioOptions po;
+                    po.requested_k = active_budget.route_k;
+                    po.max_k = options_.maturity.caps.max_route_k;
+                    po.memory_budget_bytes = options_.memory_budget_bytes;
+                    po.per_task_bytes = options_.per_task_bytes;
+                    po.per_alt_bytes = kPerPortfolioAltBytes;
+                    po.batch_width = active_budget.batch_width;
+                    po.budget_route_k = active_budget.route_k;
+                    po.threads_requested = effective_threads;
+                    po.astar = epoch_astar;
+                    po.hier = epoch_hier;
+                    PortfolioResult pf = build_portfolio(
+                        snapshot, resolver_, tasks[ti], rem_pos[ti],
+                        tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
+                        congestion, reservations, epoch_hier, &hier_cache, po);
+                    if (!pf.candidates.empty()) {
+                        int best = 0;
+                        std::vector<ImpactScore> iscores;
+                        if (options_.impact.enabled) {
+                            // Streamed scoring: remaining corridors borrowed,
+                            // O(1) scratch per candidate, no dense matrices.
+                            ImpactContext ictx;
+                            ictx.board = &snapshot;
+                            ictx.resolver = &resolver_;
+                            ictx.ctx = &ctx;
+                            for (int rj : remaining) {
+                                if (rj == ti) continue;
+                                ictx.remaining_tasks.push_back(tasks[rj]);
+                                ictx.remaining_corridors.push_back(corridors[rj]);
+                            }
+                            ictx.terminal_density = density.terminal_density;
+                            ictx.centre_depth = depth_of;
+                            ictx.congestion = &congestion;
+                            ImpactOptions iopt = options_.impact;
+                            iopt.threads_requested = effective_threads;
+                            iopt.memory_budget_bytes = options_.memory_budget_bytes;
+                            std::vector<CandidateRoute> routes;
+                            routes.reserve(pf.candidates.size());
+                            for (const auto& pc : pf.candidates) routes.push_back(pc.route);
+                            best = score_and_select(routes, ictx, iopt, iscores);
+                            if (best < 0) best = 0;
+                        }
+                        candidates[k] = pf.candidates[best].route;
+                        // Full portfolio search work, not just the winner.
+                        candidates[k].expansions = pf.total_expansions;
+                        candidates[k].hierarchy.coarse_expansions =
+                            pf.coarse_expansions;
+                        candidates[k].hierarchy.attempted = true;
+                        if (options_.impact.enabled && !iscores.empty() &&
+                            best < (int)iscores.size()) {
+                            candidates[k].impact_obstruction = iscores[best].total;
+                            candidates[k].has_impact_score = true;
+                            candidates[k].impact_detail = iscores[best].to_json();
+                        }
+                    } else {
+                        candidates[k] = route_candidate_task(
+                            snapshot, resolver_, tasks[ti], rem_pos[ti],
+                            tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
+                            congestion, reservations, epoch_hier, &hier_cache);
+                        score_single_for_recovery(candidates[k]);
+                    }
+                } else {
+                    candidates[k] = route_candidate_task(
+                        snapshot, resolver_, tasks[ti], rem_pos[ti],
+                        tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
+                        congestion, reservations, epoch_hier, &hier_cache);
+                    score_single_for_recovery(candidates[k]);
+                }
             }
         };
         if (workers == 1) {
@@ -376,6 +1046,10 @@ RouteReport RouterEngine::run() {
         ArbiterResult arb = arbitrate(candidates, board_, resolver_, ctx);
         commit_candidates(board_, candidates, arb, report.stats);
         // Record ownership for the accepted candidates (deterministic).
+        // Issue #1: global routes are never escape stubs; only the
+        // pre-committed escape stage owns is_escape_stub=true geometry.
+        // Issue #12: accepted pair corridors are owned atomically as one
+        // object (both members live or die together).
         for (std::size_t k : arb.accepted) {
             const CandidateRoute& c = candidates[k];
             int ti = batch_idx[k];
@@ -386,9 +1060,11 @@ RouteReport RouterEngine::run() {
             o.vias = c.vias;
             o.epoch_committed = epoch;
             o.stable_epochs = 0;
-            o.is_escape_stub = is_escape_task(tasks[ti]);
+            o.is_escape_stub = false;
+            o.is_pair_corridor = tasks[ti].is_pair_corridor;
+            o.pair_id = tasks[ti].pair_id;
             o.protection =
-                route_protection_score(o.is_escape_stub, tasks[ti].difficulty, 0,
+                route_protection_score(false, tasks[ti].difficulty, 0,
                                        /*is_fixed=*/false, RecoveryMode::FAST);
             owned.push_back(o);
         }
@@ -410,14 +1086,16 @@ RouteReport RouterEngine::run() {
         }
         for (std::size_t k = 0; k < arb.rejected.size(); ++k) {
             const CandidateRoute& c = candidates[arb.rejected[k]];
+            // Issue #14: Pathfinder history growth scales with maturity.
+            const double hg = active_budget.history_growth;
             if (c.found) {
-                for (const auto& t : c.traces) congestion.add_history_segment(t.segment(), 1.0);
+                for (const auto& t : c.traces) congestion.add_history_segment(t.segment(), 1.0 * hg);
                 for (const auto& vv : c.vias)
                     congestion.add_history_rect(
-                        Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm), 1.0);
+                        Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm), 1.0 * hg);
             } else {
                 int ti = batch_idx[arb.rejected[k]];
-                congestion.add_history_rect(corridors[ti].rect, 0.5);
+                congestion.add_history_rect(corridors[ti].rect, 0.5 * hg);
                 if (c.fail_reason == "budget_exhausted") budget_hit = true;
             }
         }
@@ -434,11 +1112,19 @@ RouteReport RouterEngine::run() {
             if (accepted) {
                 task_done[ti] = 1;
             } else {
-                if (in_batch[ti]) fail_count[ti]++;
+                if (ti < (int)in_batch.size() && in_batch[ti]) fail_count[ti]++;
                 next_remaining.push_back(ti);
             }
         }
         remaining = std::move(next_remaining);
+
+        // Issue #4: grow affected multi-terminal nets from the new copper.
+        // Only nets with an accepted commit are regenerated (§4).
+        if (!arb.accepted.empty()) {
+            std::set<NetId> affected;
+            for (std::size_t k : arb.accepted) affected.insert(tasks[batch_idx[k]].net);
+            for (NetId net : affected) regenerate_net(net);
+        }
 
         auto epoch_t1 = std::chrono::steady_clock::now();
         EpochInfo info;
@@ -452,6 +1138,18 @@ RouteReport RouterEngine::run() {
         info.expansions = ep_exp;
         info.workers = workers;
         info.time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(epoch_t1 - epoch_t0).count();
+        // Issue #3: batch IDs + pairwise scores + width/threshold stats.
+        info.batch_task_ids = bsel.selected;
+        info.interference_pairs = bsel.pair_scores;
+        info.interference_threshold_used = bsel.threshold_used;
+        info.interference_relax_steps = bsel.relax_steps;
+        info.interference_max = bsel.max_interference;
+        info.interference_mean = bsel.mean_interference;
+        info.effective_batch_width = bsel.effective_width;
+        // Issue #14: phase + maturity metrics + effective hyperparams.
+        info.maturity_phase = maturity_phase_name(maturity_state.phase);
+        info.maturity = maturity_state.to_json();
+        info.budget = active_budget.to_json();
         report.epochs.push_back(info);
         if (options_.progress) {
             JsonValue ev = info.to_json();
@@ -459,6 +1157,11 @@ RouteReport RouterEngine::run() {
             ev["remaining"] = static_cast<double>(remaining.size());
             options_.progress(ev);
         }
+        // Issue #14: acceptance history feeds the next epoch's maturity.
+        recent_accept.push_back(batch_n > 0 ? static_cast<double>(arb.accepted.size()) /
+                                                  static_cast<double>(batch_n)
+                                            : 1.0);
+        if (recent_accept.size() > 4) recent_accept.erase(recent_accept.begin());
 
         if (arb.accepted.empty()) {
             if (++stalled > kMaxStalledEpochs) break;
@@ -490,7 +1193,63 @@ RouteReport RouterEngine::run() {
             if (std::find(rec.modes_attempted.begin(), rec.modes_attempted.end(), mode_name) ==
                 rec.modes_attempted.end())
                 rec.modes_attempted.push_back(mode_name);
-            AStarConfig mode_cfg = astar_config_for_mode(options_.astar, mode);
+            AStarConfig mode_cfg;
+            HierarchyConfig rec_hier;
+            int width = 0;
+            int breadth = 0;
+            {
+                // Issue #14: maturity recomputed per recovery generation from
+                // live copper/stall/rip-up state. The generation consumes the
+                // single effective budget: the mode escalation multiplies the
+                // maturity-scaled A* headroom, and maturity floors deepen the
+                // branch/rip search on dense boards only (OPEN floors equal
+                // the legacy generation schedule). Explicit user caps win.
+                refresh_budget(stall.stalled_epochs, rec.ripups, rec.generations,
+                               static_cast<int>(report.epochs.size()), true, gen);
+                AStarConfig budget_base = options_.astar;
+                budget_base.max_expansions = active_budget.astar_max_expansions;
+                budget_base.weight_factor = active_budget.weight_factor;
+                mode_cfg = astar_config_for_mode(budget_base, mode);
+                rec_hier = options_.hierarchy;
+                rec_hier.max_coarse_expansions =
+                    active_budget.hier_max_coarse_expansions;
+                rec_hier.max_window_attempts = active_budget.hier_window_attempts;
+                rec_hier.tube_half_nm = active_budget.hier_tube_half_nm;
+                rec_hier.max_grid_cells = active_budget.hier_max_grid_cells;
+                width = std::min(std::max(branch_width_for_generation(gen),
+                                          active_budget.recovery_branches),
+                                 options_.max_ripup_branches);
+                breadth = std::max(max_rip_breadth_for_generation(gen),
+                                   active_budget.ripup_breadth);
+                if (breadth > options_.maturity.caps.max_rip_breadth)
+                    breadth = options_.maturity.caps.max_rip_breadth;
+            }
+            // Issue #22: effective multi-ply depth/beam for this generation.
+            // Requested values come from EngineOptions (0 = auto = defaults);
+            // maturity allowance + explicit caps + memory bound the effective
+            // values. Stored boards stay within depth*beam streaming caps.
+            int req_depth = options_.recovery_depth <= 0 ? kDefaultMultiplyDepth
+                                                         : options_.recovery_depth;
+            int req_beam = options_.recovery_beam <= 0 ? kDefaultMultiplyBeam
+                                                       : options_.recovery_beam;
+            int eff_depth =
+                effective_multiply_depth(req_depth, active_budget, options_.maturity.caps);
+            int eff_beam = effective_multiply_beam(req_beam, active_budget,
+                                                   options_.maturity.caps,
+                                                   options_.memory_budget_bytes);
+            while (eff_depth * eff_beam > kMaxStoredMultiplyNodes && eff_beam > 1)
+                --eff_beam;
+            if (rec.multiply_depth_requested == kDefaultMultiplyDepth &&
+                rec.multiply_beam_requested == kDefaultMultiplyBeam &&
+                rec.generations == 0) {
+                rec.multiply_depth_requested = req_depth;
+                rec.multiply_beam_requested = req_beam;
+            } else {
+                rec.multiply_depth_requested = req_depth;
+                rec.multiply_beam_requested = req_beam;
+            }
+            rec.multiply_depth_effective = eff_depth;
+            rec.multiply_beam_effective = eff_beam;
 
             // Refresh difficulties so previous failures + congestion count.
             refresh_difficulties(remaining);
@@ -500,8 +1259,6 @@ RouteReport RouterEngine::run() {
             if (graph.edges.empty()) break;  // keepout-only: nothing to rip
 
             std::vector<ConnectionTask> failed_tasks = graph.failed;
-            int width = std::min(branch_width_for_generation(gen), options_.max_ripup_branches);
-            int breadth = max_rip_breadth_for_generation(gen);
             std::vector<RipupMove> moves = generate_ripup_moves(
                 failed_tasks, graph, owned, history, pv_key, mode, width, breadth);
             if (moves.empty()) break;
@@ -527,9 +1284,27 @@ RouteReport RouterEngine::run() {
                     for (std::size_t i = 0; i < owned.size(); ++i)
                         if (!rip.count((int)i)) surviving.push_back(owned[i]);
                     // Tasks to retry: the failed task + every ripped task.
+                    // Issue #1: ripped escape stubs (task_pos=-1) map to the
+                    // global tasks covering their terminal/net so the pad can
+                    // reconnect; raw -1 indices are never routed.
                     std::vector<int> to_route;
                     to_route.push_back(remaining[m.failed_pos]);
-                    for (int oi : m.owned_idx) to_route.push_back(owned[oi].task_pos);
+                    for (int oi : m.owned_idx) {
+                        int tp = owned[oi].task_pos;
+                        if (tp >= 0) {
+                            to_route.push_back(tp);
+                        } else {
+                            TermId stub_term = owned[oi].task.a;
+                            NetId stub_net = owned[oi].task.net;
+                            for (std::size_t ti = 0; ti < tasks.size(); ++ti) {
+                                if (task_superseded[ti]) continue;
+                                if (task_done[ti]) continue;
+                                if (tasks[ti].net != stub_net) continue;
+                                if (tasks[ti].a == stub_term || tasks[ti].b == stub_term)
+                                    to_route.push_back(static_cast<int>(ti));
+                            }
+                        }
+                    }
                     std::sort(to_route.begin(), to_route.end());
                     to_route.erase(std::unique(to_route.begin(), to_route.end()),
                                    to_route.end());
@@ -537,7 +1312,8 @@ RouteReport RouterEngine::run() {
                     BranchResult r = reroute_branch(
                         board_, fixed_traces, fixed_vias, surviving, to_route, failed_ti,
                         tasks, remaining, corridors, resolver_, ctx, layer_mult, mode_cfg,
-                        congestion, mode_name, m);
+                        congestion, mode_name, m, rec_hier, &hier_cache,
+                        active_budget.reservation_strength);
                     // Issue #18: no transposition access on worker threads.
                     // The worker returns the outcome + exact remaining_task_ids
                     // and exact hash; pruning/recording happens serially on
@@ -570,15 +1346,102 @@ RouteReport RouterEngine::run() {
                 if (r.pruned) ++pruned;
             rec.branches_pruned += pruned;
 
-            // Deterministic selection in move order: first strictly-best wins.
-            int best = -1;
+            // Deterministic one-ply selection: first strictly-best wins.
+            int one_ply_best = -1;
             for (int b = 0; b < branch_n; ++b) {
                 if (!results[b].evaluated || results[b].pruned) continue;
-                if (best < 0 || branch_better(results[b], results[best])) best = b;
+                if (one_ply_best < 0 || branch_better(results[b], results[one_ply_best]))
+                    one_ply_best = b;
             }
-            if (best < 0) {
+            if (one_ply_best < 0) {
                 rec.transposition_hits = transposition.hits();
                 break;  // everything pruned: give up deterministically
+            }
+            // Issue #22: bounded multi-ply lookahead over immutable branch
+            // states. Depth=1 reproduces one-ply exactly (no lookahead).
+            // Otherwise the beam search ranks leaves by the same global
+            // objective and returns the first action of the best PV; only
+            // that first action's one-ply branch is committed below, then
+            // the engine replans from the new real board. Budget exhaustion
+            // falls back to the one-ply best.
+            int best = one_ply_best;
+            {
+                rec.multiply_threads_effective =
+                    std::max(rec.multiply_threads_effective, workers);
+                if (eff_depth > 1) {
+                    MultiPlyContext mctx;
+                    mctx.tasks = &tasks;
+                    mctx.corridors = &corridors;
+                    mctx.resolver = &resolver_;
+                    mctx.ectx = &ctx;
+                    mctx.layer_mult = &layer_mult;
+                    mctx.astar_cfg = mode_cfg;
+                    mctx.congestion_tpl = congestion;
+                    mctx.mode_name = mode_name;
+                    mctx.hier_cfg = rec_hier;
+                    mctx.hier_cache = &hier_cache;
+                    mctx.reservation_strength = active_budget.reservation_strength;
+                    mctx.fixed_traces = fixed_traces;
+                    mctx.fixed_vias = fixed_vias;
+                    mctx.last_attempt = last_attempt;
+                    mctx.history = history;
+                    mctx.pv_key = pv_key;
+                    mctx.mode = mode;
+                    mctx.max_moves = width;
+                    mctx.max_breadth = breadth;
+                    MultiPlyConfig mcfg;
+                    mcfg.depth = eff_depth;
+                    mcfg.beam = eff_beam;
+                    mcfg.max_nodes = options_.max_multiply_nodes;
+                    mcfg.max_moves_per_node = width;
+                    mcfg.max_breadth = breadth;
+                    mcfg.threads = workers;
+                    MultiPlyResult mpres = multiply_beam_search(
+                        moves, results, mctx, mcfg, transposition, deadline);
+                    report.stats.expansions_total += mpres.expansions_total;
+                    rec.multiply_nodes_evaluated += mpres.nodes_evaluated;
+                    rec.multiply_nodes_pruned += mpres.nodes_pruned;
+                    rec.branches_evaluated += mpres.nodes_evaluated;
+                    rec.branches_pruned += mpres.nodes_pruned;
+                    if (mpres.searched) {
+                        if (!mpres.fallback_to_one_ply &&
+                            mpres.best_first_move >= 0 &&
+                            mpres.best_first_move < branch_n &&
+                            results[mpres.best_first_move].evaluated &&
+                            !results[mpres.best_first_move].pruned) {
+                            best = mpres.best_first_move;
+                            rec.multiply_fallback_to_one_ply = false;
+                        } else {
+                            best = one_ply_best;
+                            rec.multiply_fallback_to_one_ply = true;
+                        }
+                        // Diagnostics: best PV reasons + leaf hash (last
+                        // generation wins; cumulative nodes above).
+                        rec.multiply_pv.clear();
+                        rec.multiply_best_hash.clear();
+                        if (!mpres.fallback_to_one_ply && mpres.has_best_leaf) {
+                            for (const auto& mv : mpres.best_pv)
+                                rec.multiply_pv.push_back(mv.reason);
+                            rec.multiply_best_hash =
+                                mpres.best_leaf.hash.to_hex();
+                        } else {
+                            rec.multiply_pv.push_back(moves[best].reason);
+                            rec.multiply_best_hash =
+                                results[best].hash.to_hex();
+                        }
+                    } else {
+                        best = one_ply_best;
+                        rec.multiply_fallback_to_one_ply = true;
+                        rec.multiply_pv.clear();
+                        rec.multiply_pv.push_back(moves[best].reason);
+                        rec.multiply_best_hash = results[best].hash.to_hex();
+                    }
+                } else {
+                    best = one_ply_best;
+                    rec.multiply_pv.clear();
+                    rec.multiply_pv.push_back(moves[best].reason);
+                    rec.multiply_best_hash = results[best].hash.to_hex();
+                }
             }
             const BranchResult& win = results[best];
             // Progress test: the failed task must be among newly_done AND
@@ -594,7 +1457,10 @@ RouteReport RouterEngine::run() {
             if (!failed_done || !fully_rerouted) {
                 // No branch reconnected its failed task: escalate (stronger
                 // history pressure on the failed corridors) and widen next gen.
-                for (int ti : remaining) congestion.add_history_rect(corridors[ti].rect, 1.0);
+                // Issue #14: history growth scales with maturity.
+                for (int ti : remaining)
+                    congestion.add_history_rect(corridors[ti].rect,
+                                                1.0 * active_budget.history_growth);
                 if (mode == RecoveryMode::EXHAUSTIVE_LOCAL) {
                     // Exhaustive still failed: record and stop (report budget).
                     for (const auto& r : results) report.stats.expansions_total += r.expansions;
@@ -607,14 +1473,23 @@ RouteReport RouterEngine::run() {
                 continue;
             }
             // Commit the winning branch atomically: replace copper + ownership.
+            // Issue #4: capture ripped nets BEFORE replacing owned.
+            std::set<NetId> ripped_nets;
+            for (int oi : moves[best].owned_idx)
+                if (oi >= 0 && oi < (int)owned.size()) ripped_nets.insert(owned[oi].task.net);
             board_ = win.board;
             resolver_.rebind(&board_);
             owned = win.owned;
             for (auto& o : owned) {
                 // Recompute protection under the winning mode; stable routes
-                // accumulate protection over generations.
+                // accumulate protection over generations. Issue #1: escape
+                // stubs (task_pos=-1) keep real escape protection; never
+                // index tasks[-1].
                 o.stable_epochs++;
-                o.protection = route_protection_score(o.is_escape_stub, tasks[o.task_pos].difficulty,
+                double diff = 0.0;
+                if (o.task_pos >= 0 && o.task_pos < static_cast<int>(tasks.size()))
+                    diff = tasks[o.task_pos].difficulty;
+                o.protection = route_protection_score(o.is_escape_stub, diff,
                                                       o.stable_epochs, false, mode);
             }
             // Update done/remaining deterministically.
@@ -622,12 +1497,19 @@ RouteReport RouterEngine::run() {
             // tasks_routed. Rerouted ripped routes were already counted in
             // the greedy phase; re-adding them would let tasks_routed exceed
             // tasks_total after multiple generations.
+            // Issue #4: superseded tasks never count toward routed.
             for (int ti : win.newly_done) task_done[ti] = 1;
             {
                 int routed = 0;
-                for (char d : task_done)
-                    if (d) ++routed;
-                report.stats.tasks_routed = routed;
+                for (std::size_t i = 0; i < task_done.size(); ++i)
+                    if (task_done[i] && !task_superseded[i]) ++routed;
+                // Newly routed ripped tasks were already counted: clamp to
+                // active total so regen never inflates the counter.
+                int active = 0;
+                for (char s : task_superseded)
+                    if (!s) ++active;
+                report.stats.tasks_total = active;
+                report.stats.tasks_routed = std::min(routed, active);
             }
             // Fail counts: only the tasks involved in this move that are
             // still not done count another failure (avoids inflating every
@@ -640,6 +1522,28 @@ RouteReport RouterEngine::run() {
             for (int ti : remaining)
                 if (!task_done[ti]) next.push_back(ti);
             remaining = std::move(next);
+            // Issue #4: rip-up changes components; regenerated tasks reflect
+            // the new topology. Only affected nets are touched.
+            {
+                std::set<NetId> affected = ripped_nets;
+                for (int ti : win.newly_done) affected.insert(tasks[ti].net);
+                for (const auto& o : win.owned) affected.insert(o.task.net);
+                affected.insert(moves[best].failed_task.net);
+                if (moves[best].blocker_net >= 0) affected.insert(moves[best].blocker_net);
+                for (NetId net : affected) regenerate_net(net);
+                // Refresh remaining after regen (regenerate_net already
+                // rebuilt it); drop any newly-redundant tasks.
+                std::vector<int> still;
+                for (int ti : remaining) {
+                    if (task_superseded[ti]) continue;
+                    if (task_already_connected(board_, tasks[ti])) {
+                        task_done[ti] = 1;
+                    } else {
+                        still.push_back(ti);
+                    }
+                }
+                remaining = std::move(still);
+            }
             // History reward + PV reuse for the next generation.
             {
                 const RipupMove& m = moves[best];
@@ -657,7 +1561,7 @@ RouteReport RouterEngine::run() {
                 report.stats.length_nm = 0;
                 report.stats.via_count = 0;
                 for (const auto& o : owned) {
-                    for (const auto& t : o.traces) report.stats.length_nm += manhattan(t.a, t.b);
+                    for (const auto& t : o.traces) report.stats.length_nm += euclid_len_nm(t.a, t.b);
                     report.stats.via_count += (int)o.vias.size();
                 }
             }
@@ -674,6 +1578,10 @@ RouteReport RouterEngine::run() {
                 info.expansions = win.expansions;
                 info.workers = workers;
                 info.time_ms = 0;
+                // Issue #14: the generation's maturity/budget snapshot.
+                info.maturity_phase = maturity_phase_name(maturity_state.phase);
+                info.maturity = maturity_state.to_json();
+                info.budget = active_budget.to_json();
                 report.epochs.push_back(info);
                 if (options_.progress) {
                     JsonValue ev = info.to_json();
@@ -688,18 +1596,335 @@ RouteReport RouterEngine::run() {
             stall.reset();
             // Strengthen history around the repaired region so later
             // generations avoid the same corridor fight.
-            for (int ti : win.newly_done) congestion.add_history_rect(corridors[ti].rect, 0.5);
+            // Issue #14: history growth scales with maturity.
+            for (int ti : win.newly_done)
+                congestion.add_history_rect(corridors[ti].rect,
+                                            0.5 * active_budget.history_growth);
         }
     }
     rec.transposition_hits = transposition.hits();
     report.recovery = rec;
 
+    // ---- Issue #12: post-route pair materialization ----
+    // Corridors were reserved with the ordinary global search. Now each
+    // routed corridor is replaced by its two coupled members, atomically:
+    // both commit after exact legality, or neither does and the pair is
+    // marked for corridor re-route/recovery (no one-member-only copper).
+    // Single-threaded, pair-id order: deterministic across thread counts.
+    // P/N never enter cleanup before this gate (there is no optimizer yet,
+    // so the guarantee is structural: materializer output is committed
+    // verbatim, never passed through generic bend removal).
+    report.diffpairs.clear();
+    if (!board_.diffpairs.empty()) {
+        std::vector<DiffPair> pairs_sorted = board_.diffpairs;
+        std::sort(pairs_sorted.begin(), pairs_sorted.end(),
+                  [](const DiffPair& a, const DiffPair& b) { return a.id < b.id; });
+        // Map pair id -> corridor task position (if any).
+        std::map<int, int> pair_task_pos;
+        for (std::size_t i = 0; i < tasks.size(); ++i) {
+            if (tasks[i].is_pair_corridor) pair_task_pos[tasks[i].pair_id] = (int)i;
+        }
+        for (const auto& pr : pairs_sorted) {
+            PairReport prep;
+            prep.pair_id = pr.id;
+            prep.name = pr.name;
+            prep.net_p = pr.net_p;
+            prep.net_n = pr.net_n;
+            const NetInfo* np = board_.find_net(pr.net_p);
+            const NetInfo* nn = board_.find_net(pr.net_n);
+            prep.net_p_name = np ? np->name : "?";
+            prep.net_n_name = nn ? nn->name : "?";
+            prep.gap_mm = nm_to_mm(pr.gap_nm);
+            prep.gap_tol_mm = nm_to_mm(pr.gap_tol_nm);
+            prep.occupied_width_mm = nm_to_mm(diffpair_occupied_width(board_, resolver_, pr, ctx));
+            prep.corridor_routed = false;
+            prep.materialized = false;
+
+            auto tp_it = pair_task_pos.find(pr.id);
+            bool invalid = false;
+            for (int bad : pair_invalid_ids) {
+                if (bad == pr.id) {
+                    invalid = true;
+                    break;
+                }
+            }
+            if (invalid || tp_it == pair_task_pos.end()) {
+                prep.status = "CORRIDOR_FAILED";
+                report.diffpairs.push_back(prep);
+                continue;
+            }
+            int ti = tp_it->second;
+            if (!task_done[ti] || task_superseded[ti]) {
+                prep.status = "CORRIDOR_FAILED";
+                report.diffpairs.push_back(prep);
+                continue;
+            }
+            // Locate the owned corridor.
+            int owned_idx = -1;
+            for (std::size_t i = 0; i < owned.size(); ++i) {
+                if (owned[i].task_pos == ti) {
+                    owned_idx = (int)i;
+                    break;
+                }
+            }
+            if (owned_idx < 0) {
+                prep.status = "CORRIDOR_FAILED";
+                report.diffpairs.push_back(prep);
+                continue;
+            }
+            prep.corridor_routed = true;
+            PairCorridor corr;
+            corr.pair_id = pr.id;
+            corr.net_p = pr.net_p;
+            corr.net_n = pr.net_n;
+            corr.center_traces = owned[owned_idx].traces;
+            corr.center_vias = owned[owned_idx].vias;
+            corr.occupied_width_nm = diffpair_occupied_width(board_, resolver_, pr, ctx);
+
+            // Remove the temporary corridor copper (exact match) so the
+            // pair is validated against real foreign copper.
+            auto erase_traces = [&](const std::vector<TraceSeg>& rm) {
+                for (const auto& s : rm) {
+                    for (auto it = board_.traces.begin(); it != board_.traces.end(); ++it) {
+                        if (it->net == s.net && it->layer == s.layer &&
+                            it->a == s.a && it->b == s.b && it->width_nm == s.width_nm) {
+                            board_.traces.erase(it);
+                            break;
+                        }
+                    }
+                }
+            };
+            auto erase_vias = [&](const std::vector<Via>& rm) {
+                for (const auto& s : rm) {
+                    for (auto it = board_.vias.begin(); it != board_.vias.end(); ++it) {
+                        if (it->net == s.net && it->pos == s.pos &&
+                            it->top_layer == s.top_layer &&
+                            it->bottom_layer == s.bottom_layer &&
+                            it->outer_d_nm == s.outer_d_nm &&
+                            it->hole_d_nm == s.hole_d_nm) {
+                            board_.vias.erase(it);
+                            break;
+                        }
+                    }
+                }
+            };
+            erase_traces(owned[owned_idx].traces);
+            erase_vias(owned[owned_idx].vias);
+            resolver_.rebind(&board_);
+
+            MaterializedPair mat =
+                materialize_pair(board_, resolver_, ctx, pr, corr);
+            if (!mat.ok) {
+                // Atomic revert: nothing committed. Revoke the corridor
+                // task and mark both members for re-route/recovery.
+                task_done[ti] = false;
+                if (report.stats.tasks_routed > 0) report.stats.tasks_routed--;
+                owned.erase(owned.begin() + owned_idx);
+                resolver_.rebind(&board_);
+                RouteFailure f;
+                f.net = pr.net_p;
+                f.net_name = prep.net_p_name;
+                f.a = tasks[ti].a;
+                f.b = tasks[ti].b;
+                f.reason = "materialization_failed:" + mat.reason;
+                fill_pair_fields(f, tasks[ti], board_);
+                f.blockers.push_back("pair_materialization:" + mat.reason);
+                if (mat.has_gap_violation_at) {
+                    f.blockers.push_back(
+                        "gap_violation_at_mm=" +
+                        std::to_string(nm_to_mm(mat.gap_violation_at.x)) + "," +
+                        std::to_string(nm_to_mm(mat.gap_violation_at.y)));
+                }
+                f.ripup_attempts = rec.generations > 0 ? rec.generations : 1;
+                f.modes_attempted = rec.modes_attempted;
+                {
+                    const Terminal* tta = board_.find_terminal(tasks[ti].a);
+                    TraceRule rule = resolver_.traceRule(
+                        pr.net_p, tta ? tta->layer : 0, kAnyRegion);
+                    f.required_width_mm =
+                        nm_to_mm(diffpair_occupied_width(board_, resolver_, pr, ctx));
+                    f.width_source = "pair_corridor";
+                    f.width_model = "pair_corridor";
+                    WidthDetails wd = resolver_.widthDetails(
+                        pr.net_p, tta ? tta->layer : 0, ctx);
+                    f.copper_weight_oz = wd.copper_weight_oz;
+                    f.temp_rise_c = wd.temp_rise_c;
+                    f.blockers = attribute_blockers(board_, tasks[ti],
+                                                    rule.pref_width_nm,
+                                                    nullptr);
+                    f.blockers.push_back("pair_materialization:" + mat.reason);
+                }
+                report.failures.push_back(f);
+                {
+                    // Companion entry for the N member (per-net queries).
+                    RouteFailure g = f;
+                    g.net = pr.net_n;
+                    g.net_name = prep.net_n_name;
+                    g.a = tasks[ti].pair_a_other;
+                    g.b = tasks[ti].pair_b_other;
+                    report.failures.push_back(g);
+                }
+                int ni = net_index(pr.net_p);
+                if (ni >= 0) net_ok[ni] = 0;
+                ni = net_index(pr.net_n);
+                if (ni >= 0) net_ok[ni] = 0;
+                prep.status = "MATERIALIZATION_FAILED:" + mat.reason;
+                report.diffpairs.push_back(prep);
+                continue;
+            }
+            // Atomic commit of both members.
+            OwnedRoute po;
+            po.task = tasks[ti];
+            po.task_pos = ti;
+            po.traces.insert(po.traces.end(), mat.traces_p.begin(), mat.traces_p.end());
+            po.traces.insert(po.traces.end(), mat.traces_n.begin(), mat.traces_n.end());
+            po.vias.insert(po.vias.end(), mat.vias_p.begin(), mat.vias_p.end());
+            po.vias.insert(po.vias.end(), mat.vias_n.begin(), mat.vias_n.end());
+            po.epoch_committed = owned[owned_idx].epoch_committed;
+            po.stable_epochs = owned[owned_idx].stable_epochs;
+            po.is_escape_stub = false;
+            po.is_pair_corridor = true;
+            po.pair_id = pr.id;
+            po.protection = owned[owned_idx].protection;
+            for (const auto& s : mat.traces_p) board_.traces.push_back(s);
+            for (const auto& s : mat.traces_n) board_.traces.push_back(s);
+            for (const auto& v : mat.vias_p) board_.vias.push_back(v);
+            for (const auto& v : mat.vias_n) board_.vias.push_back(v);
+            owned[owned_idx] = po;
+            resolver_.rebind(&board_);
+            prep.materialized = true;
+            prep.status = "MATERIALIZED";
+            prep.length_p_mm = nm_to_mm(mat.length_p_nm);
+            prep.length_n_mm = nm_to_mm(mat.length_n_nm);
+            prep.skew_mm = nm_to_mm(mat.skew_nm);
+            prep.worst_gap_err_mm = nm_to_mm(mat.worst_gap_err_nm);
+            prep.has_gap_location = mat.has_gap_violation_at;
+            prep.gap_x_mm = nm_to_mm(mat.gap_violation_at.x);
+            prep.gap_y_mm = nm_to_mm(mat.gap_violation_at.y);
+            prep.gap_layer = mat.traces_p.empty() ? 0 : mat.traces_p.front().layer;
+            prep.via_pairs = (int)corr.center_vias.size();
+            prep.vias_p = static_cast<int>(mat.vias_p.size());
+            prep.vias_n = static_cast<int>(mat.vias_n.size());
+            prep.via_mismatch.clear();
+            report.diffpairs.push_back(prep);
+        }
+        // Recompute length/via stats from final ownership (corridor copper
+        // replaced by materialized members; failures revoked theirs).
+        report.stats.length_nm = 0;
+        report.stats.via_count = 0;
+        for (const auto& o : owned) {
+            for (const auto& t : o.traces) report.stats.length_nm += euclid_len_nm(t.a, t.b);
+            report.stats.via_count += (int)o.vias.size();
+        }
+        {
+            int routed = 0;
+            for (std::size_t i = 0; i < task_done.size(); ++i)
+                if (task_done[i] && !task_superseded[i]) ++routed;
+            int active = 0;
+            for (char s : task_superseded)
+                if (!s) ++active;
+            report.stats.tasks_total = active;
+            report.stats.tasks_routed = std::min(routed, active);
+        }
+    }
+
+    // ---- Issue #15: post-route length/skew tuning ----
+    // Dedicated LengthTuner stage, invoked ONLY after global routing
+    // closure and #12 pair materialization above. Single-threaded
+    // post-phase in (pair-id, net-id) order: deterministic across thread
+    // counts. Each accepted transaction re-verifies the full BoardVerifier
+    // gate; infeasible targets yield explicit diagnostics and leave
+    // unrelated copper untouched. Committed tuning geometry is marked
+    // tuning_exempt so #17 simplification/cleanup must not collapse it.
+    {
+        bool closed = true;
+        for (std::size_t i = 0; i < tasks.size(); ++i) {
+            if (!task_superseded[i] && !task_done[i]) {
+                closed = false;
+                break;
+            }
+        }
+        LengthTuner tuner(&board_, &resolver_, &ctx, options_.tuning);
+        report.tuning = tuner.run(closed);
+        report.tuning.effective_threads = options_.threads > 0 ? options_.threads : 1;
+        if (!report.tuning.tuned_nets.empty()) {
+            for (auto& task : tasks) {
+                bool touched = false;
+                for (NetId n : report.tuning.tuned_nets) {
+                    if (task.net == n || task.pair_other_net == n) {
+                        touched = true;
+                        break;
+                    }
+                }
+                if (touched) task.tuning_exempt = true;
+            }
+            resolver_.rebind(&board_);
+            // Recompute copper stats from committed geometry (tuning adds
+            // trace length without new tasks/vias).
+            report.stats.length_nm = 0;
+            for (const auto& t : board_.traces)
+                report.stats.length_nm += euclid_len_nm(t.a, t.b);
+            report.stats.via_count = static_cast<int>(board_.vias.size());
+        }
+    }
+
     report.stats.epochs_count = static_cast<int>(report.epochs.size());
     report.stats.threads_used = threads_used_max;
+
+    // Issue #16: plane-access report from committed ownership. Each routed
+    // plane task contributes its chosen plane/layer/island, entry geometry,
+    // via bundle size and current-capacity margin. Sorted by (net,
+    // terminal) so identical inputs hash identically.
+    report.plane_access.clear();
+    for (const auto& o : owned) {
+        if (!o.task.has_plane_target) continue;
+        PlaneAccessInfo p;
+        p.net = o.task.net;
+        const NetInfo* ninfo = board_.find_net(o.task.net);
+        p.net_name = ninfo ? ninfo->name : "?";
+        p.terminal = o.task.a;
+        p.plane_id = o.task.plane_id;
+        p.plane_layer = o.task.plane_layer;
+        p.island = o.task.plane_island;
+        p.entry = o.task.plane_point;
+        p.via_count = static_cast<int>(o.vias.size());
+        bool dummy = false;
+        p.required_current_a =
+            ninfo ? resolver_.current().effective_current(*ninfo, board_.defaults, dummy)
+                  : 0.0;
+        if (!o.vias.empty()) {
+            p.via_style = o.vias.front().via_class;
+            ViaStyle st;
+            if (!p.via_style.empty() && resolver_.lookup_via_style(p.via_style, st)) {
+                p.via_capacity_a =
+                    st.max_current_a * std::max(1, static_cast<int>(o.vias.size()));
+            }
+        } else {
+            // Direct same-layer copper entry: no via bottleneck.
+            p.via_style = "direct_copper";
+            p.via_capacity_a = p.required_current_a;
+        }
+        p.current_margin_a = p.via_capacity_a - p.required_current_a;
+        report.plane_access.push_back(p);
+    }
+    std::sort(report.plane_access.begin(), report.plane_access.end(),
+              [](const PlaneAccessInfo& a, const PlaneAccessInfo& b) {
+                  if (a.net != b.net) return a.net < b.net;
+                  return a.terminal < b.terminal;
+              });
+
+    // Issue #11: per-net controlled-impedance resolutions for the report.
+    // Only nets with targets appear; deterministic net-id order.
+    report.impedance.clear();
+    for (const auto& net : board_.nets) {
+        if (!resolver_.impedance().has_target(net)) continue;
+        report.impedance.push_back(resolver_.impedanceResolution(net.id, ctx));
+    }
 
     // Failures for everything left unrouted.
     for (std::size_t i = 0; i < tasks.size(); ++i) {
         if (task_done[i]) continue;
+        if (task_superseded[i]) continue;
         const ConnectionTask& task = tasks[i];
         bool already = false;
         for (const auto& f : report.failures) {
@@ -716,6 +1941,8 @@ RouteReport RouterEngine::run() {
         f.net_name = n ? n->name : "?";
         f.a = task.a;
         f.b = task.b;
+        fill_plane_fields(f, task);
+        fill_pair_fields(f, task, board_);
         auto it = last_attempt.find(attempt_key(task));
         const CandidateRoute* last = it != last_attempt.end() ? &it->second : nullptr;
         if (!last) {
@@ -738,6 +1965,7 @@ RouteReport RouterEngine::run() {
             f.reason = last->fail_reason.empty() ? "unreachable" : last->fail_reason;
             if (f.reason == "budget_exhausted") budget_hit = true;
             f.expansions = last->expansions;
+            fill_hierarchy_fields(f, last);
             f.required_current_a = last->required_current_a;
             f.via_style = last->via_style;
             f.vias_required = last->vias_required;
@@ -746,6 +1974,7 @@ RouteReport RouterEngine::run() {
             f.has_frontier = true;
         } else if (last && last->found) {
             f.reason = "conflict";
+            fill_hierarchy_fields(f, last);
             f.required_current_a = last->required_current_a;
             f.via_style = last->via_style;
             f.vias_required = last->vias_required;
@@ -767,16 +1996,64 @@ RouteReport RouterEngine::run() {
         f.required_width_mm = nm_to_mm(rule.pref_width_nm);
         f.width_source = rule.width_source;
         f.width_model = rule.width_source;
+        if (task.is_pair_corridor) {
+            // Issue #12: report the atomic envelope, not one member.
+            for (const auto& pr : board_.diffpairs) {
+                if (pr.id == task.pair_id) {
+                    f.required_width_mm =
+                        nm_to_mm(diffpair_occupied_width(board_, resolver_, pr, ctx));
+                    f.width_source = "pair_corridor";
+                    f.width_model = "pair_corridor";
+                    break;
+                }
+            }
+        }
         {
             WidthDetails wd = resolver_.widthDetails(task.net, ta ? ta->layer : 0, ctx);
             f.width_model = wd.model;
             f.copper_weight_oz = wd.copper_weight_oz;
             f.temp_rise_c = wd.temp_rise_c;
         }
+        // Issue #11: controlled-impedance accounting on every failure so
+        // agents see target/selection/error/conflict without extra calls.
+        if (const NetInfo* fn = board_.find_net(task.net);
+            fn && resolver_.impedance().has_target(*fn)) {
+            ImpedanceResolution zir = resolver_.impedanceResolution(task.net, ctx);
+            f.has_impedance = true;
+            f.target_impedance_ohms = zir.target_ohms;
+            f.impedance_tolerance_pct = zir.tolerance_frac * 100.0;
+            f.impedance_layer = zir.selected_layer;
+            f.impedance_width_mm = nm_to_mm(zir.selected_width_nm);
+            f.impedance_model = zir.selected_model;
+            f.estimated_impedance_ohms = zir.estimated_ohms;
+            f.impedance_error_pct = zir.rel_error * 100.0;
+            f.impedance_conflict = zir.conflict;
+            f.impedance_detail = zir.conflict_detail;
+            if (zir.conflict && f.reason != "impedance_current_conflict" &&
+                f.reason != "impedance_infeasible") {
+                f.blockers.push_back("impedance_current_conflict:" +
+                                     zir.conflict_detail);
+            }
+        }
         f.blockers = attribute_blockers(board_, task, rule.pref_width_nm, last);
+        // Issue #1: carry unresolved escape records into the route report so
+        // agents see why a dense pad never escaped. Prevents silent bypass:
+        // a shallower pad's success never erases a deeper pad's record
+        // (escape_stage.unresolved_* is authoritative and append-only).
+        auto ea = escape_infeasible_reason.find(task.a);
+        if (ea != escape_infeasible_reason.end())
+            f.blockers.push_back("escape_infeasible:" + ea->second);
+        auto eb = escape_infeasible_reason.find(task.b);
+        if (eb != escape_infeasible_reason.end() && eb->first != task.a)
+            f.blockers.push_back("escape_infeasible:" + eb->second);
         report.failures.push_back(f);
         int ni = net_index(task.net);
         if (ni >= 0) net_ok[ni] = 0;
+        // Issue #12: a corridor failure strands both members.
+        if (task.is_pair_corridor) {
+            ni = net_index(task.pair_other_net);
+            if (ni >= 0) net_ok[ni] = 0;
+        }
     }
 
     for (char ok : net_ok)
@@ -790,7 +2067,12 @@ RouteReport RouterEngine::run() {
         }
         bool all_ok = true;
         for (std::size_t i = 0; i < tasks.size(); ++i) {
-            if (tasks[i].net != net.id || task_done[i]) continue;
+            if (task_superseded[i]) continue;
+            // Issue #12: pair members share their corridor task.
+            bool covers = tasks[i].net == net.id ||
+                          (tasks[i].is_pair_corridor &&
+                           tasks[i].pair_other_net == net.id);
+            if (!covers || task_done[i]) continue;
             all_ok = false;
             break;
         }
@@ -816,9 +2098,38 @@ RouteReport RouterEngine::run() {
     report.result_category = result_category(report.status);
     // Issue #2: independently verify committed copper before returning
     // COMPLETE. Bookkeeping alone must never declare success.
+    // Issue #13: the route JSON pair entries carry verifier-measured values
+    // (lengths/skew/gap/location/vias from committed copper, not router
+    // metadata) so post-cleanup constraint drift is visible. A verifier
+    // pair failure downgrades a MATERIALIZED entry and the gate above
+    // already refused COMPLETE.
     {
         BoardVerifier verifier;
         VerifyResult vr = verifier.verify(board_, resolver_, ctx);
+        for (auto& prep : report.diffpairs) {
+            for (const auto& vd : vr.pairs) {
+                if (vd.pair_id != prep.pair_id) continue;
+                prep.length_p_mm = vd.length_p_mm;
+                prep.length_n_mm = vd.length_n_mm;
+                prep.skew_mm = vd.skew_mm;
+                prep.worst_gap_err_mm = vd.worst_gap_err_mm;
+                prep.has_gap_location = vd.has_gap_location;
+                prep.gap_x_mm = vd.gap_x_mm;
+                prep.gap_y_mm = vd.gap_y_mm;
+                prep.gap_layer = vd.gap_layer;
+                prep.vias_p = vd.vias_p;
+                prep.vias_n = vd.vias_n;
+                prep.via_mismatch = vd.via_mismatch;
+                if (!vd.ok && prep.status == "MATERIALIZED")
+                    prep.status = "VERIFIER_FAILED:" + vd.status;
+                else if (!vd.ok && prep.status.rfind("MATERIALIZATION_FAILED",
+                                                     0) != 0 &&
+                           prep.status.rfind("CORRIDOR_FAILED", 0) != 0 &&
+                           prep.status.rfind("VERIFIER_FAILED", 0) != 0)
+                    prep.status = "VERIFIER_FAILED:" + vd.status;
+                break;
+            }
+        }
         apply_verifier_gate(report, vr);
     }
     if (options_.progress) {

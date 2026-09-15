@@ -1,0 +1,124 @@
+{
+  "schema": "copperline/board/1",
+  "board": {
+    "width_mm": 20,
+    "height_mm": 20
+  },
+  "layers": [
+    {
+      "id": 0,
+      "name": "Top"
+    },
+    {
+      "id": 1,
+      "name": "Bottom"
+    }
+  ],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0,
+      "name": "USB_P",
+      "current_a": 0.1,
+      "voltage_v": 3.3,
+      "terminals": [
+        {
+          "id": 0,
+          "x_mm": 2,
+          "y_mm": 10,
+          "layer": 0,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3
+        },
+        {
+          "id": 1,
+          "x_mm": 18,
+          "y_mm": 10,
+          "layer": 0,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "USB_N",
+      "current_a": 0.1,
+      "voltage_v": 3.3,
+      "terminals": [
+        {
+          "id": 2,
+          "x_mm": 2,
+          "y_mm": 10.5,
+          "layer": 0,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3
+        },
+        {
+          "id": 3,
+          "x_mm": 18,
+          "y_mm": 10.5,
+          "layer": 0,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3
+        }
+      ]
+    }
+  ],
+  "keepouts": [
+    {
+      "x1_mm": 0.5,
+      "y1_mm": 8.5,
+      "x2_mm": 7.0,
+      "y2_mm": 9.7,
+      "reason": "channel_west_south"
+    },
+    {
+      "x1_mm": 0.5,
+      "y1_mm": 10.7,
+      "x2_mm": 7.0,
+      "y2_mm": 11.5,
+      "reason": "channel_west_north"
+    },
+    {
+      "x1_mm": 9,
+      "y1_mm": 9.3,
+      "x2_mm": 11,
+      "y2_mm": 10.7,
+      "reason": "block"
+    },
+    {
+      "x1_mm": 14,
+      "y1_mm": 8.5,
+      "x2_mm": 17,
+      "y2_mm": 9.8,
+      "reason": "channel_east_south"
+    },
+    {
+      "x1_mm": 14,
+      "y1_mm": 10.7,
+      "x2_mm": 17,
+      "y2_mm": 11.5,
+      "reason": "channel_east_north"
+    }
+  ],
+  "diffpairs": [
+    {
+      "id": 0,
+      "name": "USB",
+      "p": 0,
+      "n": 1,
+      "gap_mm": 0.2,
+      "gap_tol_mm": 0.05,
+      "width_mm": 0.2,
+      "max_skew_mm": 2.0,
+      "via_policy": "paired"
+    }
+  ]
+}

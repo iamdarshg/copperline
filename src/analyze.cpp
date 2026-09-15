@@ -5,6 +5,7 @@
 #include <set>
 
 #include "router/density.h"
+#include "router/diffpair.h"
 #include "router/escape.h"
 #include "router/route_tree.h"
 #include "router/via_bundle.h"
@@ -37,6 +38,30 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
     for (std::size_t i = 0; i < board.terminals.size(); ++i)
         term_dens[board.terminals[i].id] = density.terminal_density[i];
 
+    // Issue #16: declared plane/zone inventory for agents and the
+    // scheduler. Per-plane owning net, layer, island and routability, plus
+    // per-net plane backing (drives plane-access tasks, not pad-to-pad).
+    JsonValue planes = JsonValue::array();
+    std::set<NetId> plane_backed;
+    for (const auto& z : board.planes) {
+        JsonValue o = JsonValue::object();
+        o["id"] = static_cast<double>(z.id);
+        const NetInfo* zn = board.find_net(z.net);
+        o["net"] = static_cast<double>(z.net);
+        o["net_name"] = zn ? zn->name : "?";
+        o["layer"] = static_cast<double>(z.layer);
+        o["island"] = static_cast<double>(z.island);
+        o["routable"] = z.routable;
+        Rect zb = z.bounds();
+        o["x1_mm"] = nm_to_mm(zb.x1);
+        o["y1_mm"] = nm_to_mm(zb.y1);
+        o["x2_mm"] = nm_to_mm(zb.x2);
+        o["y2_mm"] = nm_to_mm(zb.y2);
+        planes.as_array().push_back(o);
+        if (z.routable) plane_backed.insert(z.net);
+    }
+    r["planes"] = planes;
+
     JsonValue nets = JsonValue::array();
     std::vector<std::string> defaults_used;
     std::set<std::string> current_classes, voltage_classes;
@@ -45,6 +70,7 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         o["id"] = static_cast<double>(n.id);
         o["name"] = n.name;
         o["terminals"] = static_cast<double>(n.terminals.size());
+        o["plane_backed"] = plane_backed.count(n.id) > 0;
         bool def_used = resolver.default_current_used(n.id);
         bool dummy = false;
         double eff = resolver.current().effective_current(n, board.defaults, dummy);
@@ -58,6 +84,15 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         WidthDetails wd = resolver.widthDetails(n.id, 0, ctx);
         o["required_width_mm"] = nm_to_mm(wd.width_nm);
         o["width_source"] = wd.model;
+        // Issue #11: for impedance-controlled nets the routable width is
+        // the reconciled (impedance + ampacity floor) width, not the bare
+        // current floor above.
+        if (resolver.impedance().has_target(n)) {
+            std::string rsrc;
+            Coord rw = resolver.requiredTraceWidth(n.id, 0, ctx, &rsrc);
+            o["required_width_mm"] = nm_to_mm(rw);
+            o["width_source"] = rsrc;
+        }
         // Ampacity accounting (issue #7): which physical model and inputs
         // produced the required width, so agents can audit it.
         o["width_model"] = wd.model;
@@ -65,6 +100,9 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         o["copper_thickness_mm"] = wd.copper_weight_oz * 0.0348;
         o["temp_rise_c"] = wd.temp_rise_c;
         o["width_internal_layer"] = wd.internal_layer;
+        // Issue #11: controlled-impedance accounting (selected layer/width,
+        // model, target, estimate, tolerance error, conflict).
+        o["impedance"] = resolver.impedanceResolution(n.id, ctx).to_json();
         // Parallel-via diagnostics (issue #5): the current each layer
         // transition must carry and how many parallel vias that needs.
         {
@@ -146,13 +184,24 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
     r["defaults_used_for_current"] = du;
 
     // Bottlenecks: all tasks scored, hardest first (top 20).
+    // Issue #12: pair members never bottleneck individually; the atomic
+    // corridor task represents the pair's shared resource demand.
     std::vector<ConnectionTask> tasks;
-    for (const auto& n : board.nets) {
-        if (n.terminals.size() < 2) continue;
-        RouteTree tree = build_route_tree(board, n.id);
-        for (auto& t : tree.tasks) {
-            t.difficulty = task_difficulty(board, resolver, t, ctx, density.terminal_density);
-            tasks.push_back(t);
+    {
+        std::vector<std::string> pair_reasons;
+        std::vector<int> pair_bad;
+        if (board.diffpairs.empty()) {
+            for (const auto& n : board.nets) {
+                if (n.terminals.size() < 2) continue;
+                RouteTree tree = build_route_tree(board, n.id);
+                for (auto& t : tree.tasks) tasks.push_back(t);
+            }
+        } else {
+            tasks = build_global_tasks_with_pairs(board, pair_reasons, pair_bad);
+        }
+        for (auto& t : tasks) {
+            t.difficulty = task_difficulty(board, resolver, t, ctx,
+                                           density.terminal_density);
         }
     }
     sort_tasks_deterministic(tasks);
@@ -168,6 +217,12 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         o["terminal_a"] = static_cast<double>(t.a);
         o["terminal_b"] = static_cast<double>(t.b);
         o["difficulty"] = t.difficulty;
+        // Issue #12: corridor bottlenecks name the pair and both members.
+        o["is_pair_corridor"] = t.is_pair_corridor;
+        if (t.is_pair_corridor) {
+            o["pair_id"] = static_cast<double>(t.pair_id);
+            o["pair_other_net"] = static_cast<double>(t.pair_other_net);
+        }
         if (ta && tb) o["span_mm"] = nm_to_mm(manhattan(ta->pos, tb->pos));
         bn.as_array().push_back(o);
     }
@@ -176,6 +231,31 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
     JsonValue w = JsonValue::array();
     for (const auto& s : import_warnings) w.as_array().push_back(JsonValue(s));
     r["import_warnings"] = w;
+
+    // Issue #12: pair inventory for agents (members, gap, occupied width).
+    JsonValue dp = JsonValue::array();
+    for (const auto& pr : board.diffpairs) {
+        JsonValue o = JsonValue::object();
+        o["pair_id"] = static_cast<double>(pr.id);
+        o["name"] = pr.name;
+        o["net_p"] = static_cast<double>(pr.net_p);
+        o["net_n"] = static_cast<double>(pr.net_n);
+        const NetInfo* npp = board.find_net(pr.net_p);
+        const NetInfo* nnn = board.find_net(pr.net_n);
+        o["net_p_name"] = npp ? npp->name : "?";
+        o["net_n_name"] = nnn ? nnn->name : "?";
+        o["gap_mm"] = nm_to_mm(pr.gap_nm);
+        o["gap_tol_mm"] = nm_to_mm(pr.gap_tol_nm);
+        o["occupied_width_mm"] = nm_to_mm(diffpair_occupied_width(board, resolver, pr, ctx));
+        o["via_policy"] = pr.via_policy;
+        if (pr.has_max_skew) o["max_skew_mm"] = nm_to_mm(pr.max_skew_nm);
+        if (pr.has_impedance) o["target_impedance_ohms"] = pr.target_impedance_ohms;
+        std::string reason;
+        o["valid"] = diffpair_valid(board, pr, reason);
+        o["valid_reason"] = reason;
+        dp.as_array().push_back(o);
+    }
+    r["diffpairs"] = dp;
 
     out.data = r;
     return out;

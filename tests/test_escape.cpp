@@ -417,4 +417,73 @@ CT_TEST(multilayer_strategies_appear) {
     CT_CHECK(strategies.size() > 1);
 }
 
+CT_TEST(neckdown_rejected_on_internal_thin_layer) {
+    // Issue #24 regression: escape neckdown legality must use the
+    // layer-aware ampacity width (per-layer copper + internal derating),
+    // never the external/default width. 3 A on 1 oz external needs ~0.9 mm;
+    // the same current on the 0.5 oz internal layer needs ~4.7 mm. A 1.0 mm
+    // neck with a 0.1 mm max length passes the old external/default check
+    // (early "not a neckdown" return, length ignored) but is a true
+    // over-length neckdown on the internal layer and must be rejected there.
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    b.layers.push_back({1, "In1"});
+    b.layers.push_back({2, "In2"});
+    b.layers.push_back({3, "Bottom"});
+    b.layers[1].copper_weight_oz = 0.5;  // thin internal copper
+    NetInfo pwr = make_net(0, "PWR");
+    pwr.has_current = true;
+    pwr.current_a = 3.0;
+    pwr.allow_neckdown = true;
+    pwr.neck_width_nm = mm_to_nm(1.0);
+    pwr.neck_max_len_nm = mm_to_nm(0.1);
+    b.nets.push_back(pwr);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+
+    const NetInfo* n = b.find_net(0);
+    std::string src;
+    Coord req_ext = r.current().required_min_width(*n, b, 0, ctx, src);
+    Coord req_int = r.current().required_min_width(*n, b, 1, ctx, src);
+    CT_CHECK(req_int > req_ext);  // internal/thin needs strictly more width
+    CT_CHECK(mm_to_nm(1.0) >= req_ext);
+    CT_CHECK(mm_to_nm(1.0) < req_int);
+
+    // Old external/default overload accepts (the #24 bypass)...
+    CT_CHECK(r.current().neckdown_legal(*n, mm_to_nm(1.0), mm_to_nm(0.5),
+                                        b.defaults, ctx));
+    // ...while the layer-aware overload accepts on the external layer but
+    // rejects on the internal thin-copper layer (over max length).
+    CT_CHECK(r.current().neckdown_legal(*n, mm_to_nm(1.0), mm_to_nm(0.5),
+                                        b, 0, ctx));
+    CT_CHECK(!r.current().neckdown_legal(*n, mm_to_nm(1.0), mm_to_nm(0.5),
+                                         b, 1, ctx));
+
+    // End to end: 4x4 fine-pitch grid on the internal layer. The escape
+    // planner must not emit any necked candidate for these pads.
+    for (int ix = 0; ix < 4; ++ix) {
+        for (int iy = 0; iy < 4; ++iy) {
+            add_terminal(b, 0, 9.25 + 0.5 * ix, 9.25 + 0.5 * iy,
+                         /*layer=*/1, /*pad_mm=*/0.3, "U1");
+        }
+    }
+    RuleResolver r2 = RuleResolver::defaults_for(b);
+    EscapePlanner planner;
+    EscapeResult res = planner.plan(b, r2, ctx);
+    const auto* fp = find_fp(res, "U1");
+    CT_CHECK(fp != nullptr);
+    CT_CHECK(fp->footprint.pad_count == 16);
+    bool saw_viable = false;
+    for (const auto& p : fp->pads) {
+        if (p.has_viable) saw_viable = true;
+        for (const auto& c : p.candidates) {
+            CT_CHECK(!c.use_neckdown);  // no internal neckdown escapes
+        }
+    }
+    CT_CHECK(saw_viable);  // full-width escapes exist: the check is not vacuous
+}
+
 int main() { return copperline::test::run_all_tests(); }

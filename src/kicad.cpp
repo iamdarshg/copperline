@@ -391,7 +391,7 @@ class KicadImport {
             t.a = {mm_to_nm(num(sa[0], "segment start")), mm_to_nm(num(sa[1], "segment start"))};
             t.b = {mm_to_nm(num(ea[0], "segment end")), mm_to_nm(num(ea[1], "segment end"))};
             if (!t.segment().axis_aligned()) {
-                warn("non-Manhattan segment imported as-is (verify-only; router uses Manhattan)");
+                warn("non-Manhattan segment imported as-is (arbitrary-angle copper)");
             }
             t.width_nm = mm_to_nm(num(tail_atoms(width).at(0), "segment width"));
             b.traces.push_back(t);
@@ -481,7 +481,8 @@ class KicadImport {
             if (!is_keepout) {
                 if (!warned_zone_) {
                     warn("copper zones are not modeled in phase 1 and were ignored "
-                         "(full zone support lands in Prompt 5)");
+                         "(declare plane-aware pours via native JSON planes[], issue #16; "
+                         "full KiCad zone import lands in Prompt 5)");
                     warned_zone_ = true;
                 }
                 continue;

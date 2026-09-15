@@ -92,6 +92,18 @@ bool via_pos_legal(const Board& board, const RuleResolver& resolver, NetId net, 
         Rect orr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
         if (!gap_ok(vr, orr, c)) return false;
     }
+    // Issue #16: bundle barrels keep clearance from foreign pours on spanned
+    // layers; own-net pours are connectable and never block.
+    for (const auto& z : board.planes) {
+        if (z.net == net) continue;
+        if (z.layer < std::min(span.top, span.bottom) ||
+            z.layer > std::max(span.top, span.bottom))
+            continue;
+        Coord c = resolver.requiredClearance(net, z.net, z.layer, ctx, &cs);
+        if (vr.expanded(c).intersects(z.bounds())) {
+            if (plane_rect_poly_dist2(vr, z.poly) < (__int128)c * c) return false;
+        }
+    }
     return true;
 }
 
@@ -127,6 +139,15 @@ bool stub_seg_legal(const Board& board, const RuleResolver& resolver, NetId net,
         Coord c = resolver.requiredClearance(net, v.net, layer, ctx, &cs);
         Rect vr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
         if (!seg_ok_rect(s, vr, c + half_w)) return false;
+    }
+    // Issue #16: star stubs keep exact polygon clearance from foreign pours.
+    for (const auto& z : board.planes) {
+        if (z.net == net || z.layer != layer) continue;
+        Coord c = resolver.requiredClearance(net, z.net, layer, ctx, &cs);
+        Coord need = c + half_w;
+        if (s.bounds().expanded(need).intersects(z.bounds())) {
+            if (plane_seg_poly_dist2(s, z.poly) < (__int128)need * need) return false;
+        }
     }
     return true;
 }

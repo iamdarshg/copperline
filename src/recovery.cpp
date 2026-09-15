@@ -1,10 +1,16 @@
 #include "router/recovery.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <map>
 #include <set>
+#include <thread>
+
+#include "router/impact.h"
+#include "router/simplify.h"
 
 namespace copperline {
 
@@ -135,7 +141,8 @@ std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
     const Terminal* ta = board.find_terminal(task.a);
     const Terminal* tb = board.find_terminal(task.b);
     if (!ta || !tb) return out;
-    Rect corridor = Rect::from_points(ta->pos, tb->pos).expanded(width_nm);
+    // Issue #4: corridor covers the actual routing target (copper point).
+    Rect corridor = Rect::from_points(ta->pos, task_dst_point(board, task)).expanded(width_nm);
     struct Hit {
         BlockerHit h;
     };
@@ -375,11 +382,15 @@ StateHash128 state_hash128(const Board& board, const std::vector<ConnectionTask>
         hash_mix64(out.hi, vv ^ static_cast<std::uint64_t>(v.outer_d_nm + v.top_layer * 77));
     }
     // Remaining set, sorted for stability.
+    // Issue #12: pair-corridor tasks carry their pair identity so a corridor
+    // and a plain task on the same (net, a, b) never alias in the table.
     std::vector<std::string> keys;
     for (int ti : remaining) {
         const ConnectionTask& t = tasks[ti];
-        keys.push_back(std::to_string(t.net) + ":" + std::to_string(std::min(t.a, t.b)) + ":" +
-                       std::to_string(std::max(t.a, t.b)));
+        std::string k = std::to_string(t.net) + ":" + std::to_string(std::min(t.a, t.b)) + ":" +
+                        std::to_string(std::max(t.a, t.b));
+        if (t.is_pair_corridor) k += ":pair" + std::to_string(t.pair_id);
+        keys.push_back(k);
     }
     std::sort(keys.begin(), keys.end());
     for (const auto& k : keys) {
@@ -612,10 +623,57 @@ bool branch_better(const BranchResult& a, const BranchResult& b) {
         return a.newly_connected_global > b.newly_connected_global;
     // 4. Lower disruption wins: fewer ripped/replaced routes.
     if (a.disrupted_routes != b.disrupted_routes) return a.disrupted_routes < b.disrupted_routes;
-    // 5. Fewer vias, then shorter global copper, then deterministic hash.
+    // 5. Fewer vias, then shorter global copper, then lower future
+    // obstruction (issue #9/#22), then deterministic hash. Impact never
+    // outranks connectivity/legality/disruption: it only breaks ties among
+    // globally equivalent boards, so connectivity-first is preserved at
+    // every depth. Branches without a score (no rerouted candidates) never
+    // win on impact alone.
     if (a.via_count != b.via_count) return a.via_count < b.via_count;
     if (a.length_nm != b.length_nm) return a.length_nm < b.length_nm;
+    if (a.has_impact && b.has_impact) {
+        double d = a.impact_obstruction - b.impact_obstruction;
+        if (std::fabs(d) > 1e-9) return a.impact_obstruction < b.impact_obstruction;
+    }
     return a.hash.to_hex() < b.hash.to_hex();
+}
+
+int effective_multiply_depth(int requested_depth, const EffectiveSearchBudget& budget,
+                             const MaturityCaps& caps) {
+    int req = requested_depth <= 0 ? kDefaultMultiplyDepth : requested_depth;
+    if (req < 1) req = 1;
+    if (req > kMaxMultiplyDepth) req = kMaxMultiplyDepth;
+    int eff = req;
+    // Maturity allowance is an advisory ceiling (user cap wins).
+    if (budget.recovery_depth >= 1 && eff > budget.recovery_depth)
+        eff = budget.recovery_depth;
+    if (caps.max_recovery_depth >= 1 && eff > caps.max_recovery_depth)
+        eff = caps.max_recovery_depth;
+    if (eff < 1) eff = 1;
+    return eff;
+}
+
+int effective_multiply_beam(int requested_beam, const EffectiveSearchBudget& budget,
+                            const MaturityCaps& caps, std::size_t memory_budget_bytes) {
+    int req = requested_beam <= 0 ? kDefaultMultiplyBeam : requested_beam;
+    if (req < 1) req = 1;
+    if (req > kMaxMultiplyBeam) req = kMaxMultiplyBeam;
+    // Maturity may raise the beam on dense boards (floor); it never lowers
+    // the explicit/default request.
+    int eff = req;
+    if (budget.recovery_beam > eff) eff = budget.recovery_beam;
+    if (caps.max_beam >= 1 && eff > caps.max_beam) eff = caps.max_beam;
+    if (eff < 1) eff = 1;
+    if (eff > kMaxMultiplyBeam) eff = kMaxMultiplyBeam;
+    // Memory: one stored beam member ~ kMultiplyMemPerBeamBytes; stream
+    // beams so only depth*beam boards coexist. Clamp the beam to the budget.
+    if (memory_budget_bytes > 0 && kMultiplyMemPerBeamBytes > 0) {
+        std::size_t bound = memory_budget_bytes / kMultiplyMemPerBeamBytes;
+        if (bound < 1) bound = 1;
+        if (static_cast<std::size_t>(eff) > bound) eff = static_cast<int>(bound);
+        if (eff < 1) eff = 1;
+    }
+    return eff;
 }
 
 BranchResult reroute_branch(const Board& base_template, const std::vector<TraceSeg>& fixed_traces,
@@ -628,7 +686,10 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
                             const RuleResolver& resolver, const ElectricalContext& ctx,
                             const std::vector<double>& layer_mult, const AStarConfig& astar_cfg,
                             const CongestionMap& congestion_tpl,
-                            const std::string& mode_name, const RipupMove& move) {
+                            const std::string& mode_name, const RipupMove& move,
+                            const HierarchyConfig& hier_cfg,
+                            const HierarchyCache* hier_cache,
+                            double reservation_strength) {
     BranchResult out;
     out.evaluated = true;
     out.mode = mode_name;
@@ -666,9 +727,12 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         ordered_diff.push_back(tasks[ti].difficulty);
     }
     reservations.build(ordered_tasks, ordered_corr, ordered_diff);
+    // Issue #14: maturity-driven reservation strength (soft cost only).
+    reservations.set_strength(reservation_strength);
 
     std::vector<OwnedRoute> new_owned = surviving;
     std::vector<int> done;
+    std::vector<CandidateRoute> branch_cands;  // issue #9: scored below for #22
     std::int64_t expansions = 0;
     for (std::size_t k = 0; k < order.size(); ++k) {
         int ti = order[k];
@@ -680,7 +744,7 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
             }
         CandidateRoute cand = route_candidate_task(work, r, tasks[ti], pos, tasks[ti].difficulty,
                                                    ctx, layer_mult, astar_cfg, congestion,
-                                                   reservations);
+                                                   reservations, hier_cfg, hier_cache);
         expansions += cand.expansions;
         if (!cand.found) continue;
         std::string why;
@@ -711,6 +775,7 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         o.protection = 1.0 + tasks[ti].difficulty * 0.1;
         new_owned.push_back(o);
         done.push_back(ti);
+        branch_cands.push_back(cand);
         for (const auto& t : cand.traces) congestion.add_history_segment(t.segment(), 0.25);
     }
     out.board = work;
@@ -722,7 +787,7 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
     Coord len = 0;
     int vias = 0;
     for (const auto& o : new_owned) {
-        for (const auto& t : o.traces) len += manhattan(t.a, t.b);
+        for (const auto& t : o.traces) len += euclid_len_nm(t.a, t.b);
         vias += (int)o.vias.size();
     }
     out.length_nm = len;
@@ -751,7 +816,301 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         out.disrupted_routes = (int)move.owned_idx.size();
         out.hard_violations = 0;  // branch commits only legal-vs-board + conflict-free copper
         out.resource_overuse = 0;
+        // Issue #9: expose the branch's future-obstruction to multi-ply
+        // recovery (#22). Mean weighted obstruction of this branch's newly
+        // committed candidates vs the branch's exact unfinished set. Scored
+        // on the final work board with default weights; streaming, O(done *
+        // remaining) with O(1) scratch. Never affects branch_better ranking.
+        if (!branch_cands.empty()) {
+            ImpactContext bctx;
+            bctx.board = &work;
+            bctx.resolver = &r;
+            bctx.ctx = &ctx;
+            for (int ti : rem) {
+                if (ti < 0 || ti >= (int)tasks.size()) continue;
+                bctx.remaining_tasks.push_back(tasks[ti]);
+                if (ti < (int)corridors.size()) bctx.remaining_corridors.push_back(corridors[ti]);
+            }
+            WeightedImpactScorer wsc;
+            double sum = 0;
+            for (const auto& bc : branch_cands) sum += wsc.score(bc, bctx).total;
+            out.impact_obstruction = sum / static_cast<double>(branch_cands.size());
+            out.has_impact = true;
+        }
     }
+    return out;
+}
+
+MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
+                                    const std::vector<BranchResult>& first_results,
+                                    const MultiPlyContext& mctx, const MultiPlyConfig& cfg,
+                                    TranspositionTable& tt,
+                                    std::chrono::steady_clock::time_point deadline) {
+    MultiPlyResult out;
+    int workers = cfg.threads < 1 ? 1 : cfg.threads;
+    auto one_ply_best_index = [&]() -> int {
+        int best = -1;
+        for (std::size_t i = 0; i < first_results.size(); ++i) {
+            if (!first_results[i].evaluated || first_results[i].pruned) continue;
+            if (best < 0 || branch_better(first_results[i], first_results[best]))
+                best = static_cast<int>(i);
+        }
+        return best;
+    };
+    if (cfg.depth <= 1 || first_moves.empty() || first_results.empty()) {
+        out.searched = false;
+        out.fallback_to_one_ply = true;
+        out.best_first_move = one_ply_best_index();
+        return out;
+    }
+    if (!mctx.tasks || !mctx.corridors || !mctx.resolver || !mctx.ectx ||
+        !mctx.layer_mult) {
+        out.searched = false;
+        out.fallback_to_one_ply = true;
+        out.best_first_move = one_ply_best_index();
+        return out;
+    }
+    int beam = cfg.beam < 1 ? 1 : cfg.beam;
+    if (beam > kMaxMultiplyBeam) beam = kMaxMultiplyBeam;
+    std::int64_t max_nodes = cfg.max_nodes < 0 ? 0 : cfg.max_nodes;
+    out.searched = true;
+
+    // Seed beam from the non-pruned first-ply outcomes (immutable copies).
+    struct BeamEntry {
+        BranchResult state;
+        std::vector<RipupMove> pv;
+        int first_idx = -1;
+    };
+    std::vector<BeamEntry> cur;
+    for (std::size_t i = 0; i < first_moves.size() && i < first_results.size(); ++i) {
+        const BranchResult& r = first_results[i];
+        if (!r.evaluated || r.pruned) continue;
+        BeamEntry e;
+        e.state = r;  // immutable branch state copy (bounded: beam width)
+        e.pv.push_back(first_moves[i]);
+        e.first_idx = static_cast<int>(i);
+        cur.push_back(std::move(e));
+    }
+    if (cur.empty()) {
+        out.fallback_to_one_ply = true;
+        out.best_first_move = -1;
+        return out;
+    }
+    std::sort(cur.begin(), cur.end(), [](const BeamEntry& a, const BeamEntry& b) {
+        if (branch_better(a.state, b.state)) return true;
+        if (branch_better(b.state, a.state)) return false;
+        return a.first_idx < b.first_idx;
+    });
+    if (static_cast<int>(cur.size()) > beam) cur.resize(beam);
+
+    int one_ply_best = one_ply_best_index();
+    // Best leaf across all depths (starts at the one-ply beam best).
+    BeamEntry best_leaf = cur.front();
+    // Depth loop: cur holds the beam at depth d (d=0 is first ply).
+    for (int d = 1; d < cfg.depth; ++d) {
+        if (std::chrono::steady_clock::now() > deadline) {
+            out.fallback_to_one_ply = true;
+            out.best_first_move = one_ply_best;
+            if (one_ply_best >= 0 && one_ply_best < static_cast<int>(first_results.size())) {
+                out.best_leaf = first_results[one_ply_best];
+                out.has_best_leaf = true;
+                out.best_pv.clear();
+                out.best_pv.push_back(first_moves[one_ply_best]);
+            }
+            return out;
+        }
+        if (out.nodes_evaluated >= max_nodes) {
+            out.fallback_to_one_ply = true;
+            out.best_first_move = one_ply_best;
+            if (one_ply_best >= 0 && one_ply_best < static_cast<int>(first_results.size())) {
+                out.best_leaf = first_results[one_ply_best];
+                out.has_best_leaf = true;
+                out.best_pv.clear();
+                out.best_pv.push_back(first_moves[one_ply_best]);
+            }
+            return out;
+        }
+        // Stream parents: expand one parent at a time, merging children
+        // into a global top-beam. Stored boards stay bounded to
+        // beam (parents) + max_moves (current children) + beam (merged).
+        std::vector<BeamEntry> next_all;
+        bool budget_hit = false;
+        for (std::size_t pi = 0; pi < cur.size(); ++pi) {
+            if (std::chrono::steady_clock::now() > deadline) {
+                budget_hit = true;
+                break;
+            }
+            if (out.nodes_evaluated >= max_nodes) {
+                budget_hit = true;
+                break;
+            }
+            const BeamEntry& parent = cur[pi];
+            const std::vector<int>& prem = parent.state.remaining_task_ids;
+            if (prem.empty()) continue;  // complete leaf: nothing to expand
+            // Rebuild blocker attribution on the parent's immutable board.
+            RuleResolver r = *mctx.resolver;
+            r.rebind(&parent.state.board);
+            DependencyGraph graph = build_dependency_graph(
+                parent.state.board, r, *mctx.ectx, *mctx.tasks, prem,
+                mctx.last_attempt);
+            if (graph.edges.empty()) continue;  // keepout-only: dead end
+            std::vector<ConnectionTask> failed_tasks = graph.failed;
+            int max_moves = mctx.max_moves > 0 ? mctx.max_moves : cfg.max_moves_per_node;
+            if (max_moves < 1) max_moves = 1;
+            std::vector<RipupMove> moves = generate_ripup_moves(
+                failed_tasks, graph, parent.state.owned, mctx.history,
+                mctx.pv_key, mctx.mode, max_moves, mctx.max_breadth);
+            if (moves.empty()) continue;
+            // Cap this parent's fan-out against the remaining node budget
+            // deterministically (leading moves only). Exhaustion of the
+            // deeper budget falls back to one-ply per spec.
+            std::int64_t room = max_nodes - out.nodes_evaluated;
+            // Reserve room for the remaining parents' minimal progress: we
+            // still expand this parent fully when room allows; otherwise
+            // fall back rather than committing a truncated lookahead.
+            if (room < static_cast<std::int64_t>(moves.size())) {
+                // Deterministic truncation would bias the beam; fall back.
+                budget_hit = true;
+                break;
+            }
+            struct ChildSpec {
+                RipupMove move;
+                std::vector<OwnedRoute> surviving;
+                std::vector<int> to_route;
+                int failed_ti = -1;
+            };
+            std::vector<ChildSpec> specs;
+            specs.reserve(moves.size());
+            std::set<int> prem_set(prem.begin(), prem.end());
+            for (const auto& m : moves) {
+                ChildSpec s;
+                s.move = m;
+                std::set<int> rip(m.owned_idx.begin(), m.owned_idx.end());
+                for (std::size_t i = 0; i < parent.state.owned.size(); ++i)
+                    if (!rip.count(static_cast<int>(i)))
+                        s.surviving.push_back(parent.state.owned[i]);
+                if (m.failed_pos < 0 ||
+                    m.failed_pos >= static_cast<int>(prem.size()))
+                    continue;
+                int failed_ti = prem[m.failed_pos];
+                s.failed_ti = failed_ti;
+                std::vector<int> to_route;
+                to_route.push_back(failed_ti);
+                for (int oi : m.owned_idx) {
+                    if (oi < 0 ||
+                        oi >= static_cast<int>(parent.state.owned.size()))
+                        continue;
+                    int tp = parent.state.owned[oi].task_pos;
+                    if (tp >= 0) {
+                        to_route.push_back(tp);
+                    } else {
+                        TermId stub_term = parent.state.owned[oi].task.a;
+                        NetId stub_net = parent.state.owned[oi].task.net;
+                        for (int ti : prem) {
+                            if (ti < 0 ||
+                                ti >= static_cast<int>(mctx.tasks->size()))
+                                continue;
+                            const ConnectionTask& t = (*mctx.tasks)[ti];
+                            if (t.net != stub_net) continue;
+                            if (t.a == stub_term || t.b == stub_term)
+                                to_route.push_back(ti);
+                        }
+                    }
+                }
+                std::sort(to_route.begin(), to_route.end());
+                to_route.erase(
+                    std::unique(to_route.begin(), to_route.end()),
+                    to_route.end());
+                s.to_route = std::move(to_route);
+                specs.push_back(std::move(s));
+            }
+            if (specs.empty()) continue;
+            // Parallel reroute of this parent's children (indexed slots).
+            int child_n = static_cast<int>(specs.size());
+            int wcap = std::max(1, std::min(workers, child_n));
+            std::vector<BranchResult> cres(child_n);
+            auto fn = [&](int w) {
+                for (int c = w; c < child_n; c += wcap) {
+                    const ChildSpec& s = specs[c];
+                    BranchResult r = reroute_branch(
+                        parent.state.board, mctx.fixed_traces,
+                        mctx.fixed_vias, s.surviving, s.to_route,
+                        s.failed_ti, *mctx.tasks, prem, *mctx.corridors,
+                        *mctx.resolver, *mctx.ectx, *mctx.layer_mult,
+                        mctx.astar_cfg, mctx.congestion_tpl, mctx.mode_name,
+                        s.move, mctx.hier_cfg, mctx.hier_cache,
+                        mctx.reservation_strength);
+                    cres[c] = std::move(r);
+                }
+            };
+            if (wcap == 1) {
+                fn(0);
+            } else {
+                std::vector<std::thread> pool;
+                for (int w = 0; w < wcap; ++w)
+                    pool.emplace_back(fn, w);
+                for (auto& th : pool) th.join();
+            }
+            // Serial TT prune in deterministic (parent, move-index) order.
+            for (int c = 0; c < child_n; ++c) {
+                BranchResult& br = cres[c];
+                if (!br.evaluated) continue;
+                int undone = static_cast<int>(br.remaining_task_ids.size());
+                if (tt.should_prune(br.hash, undone)) {
+                    br.pruned = true;
+                    ++out.nodes_pruned;
+                } else {
+                    tt.record(br.hash, undone);
+                }
+            }
+            for (int c = 0; c < child_n; ++c) {
+                BranchResult& br = cres[c];
+                out.expansions_total += br.expansions;
+                if (!br.evaluated || br.pruned) continue;
+                BeamEntry e;
+                e.state = std::move(br);
+                e.pv = parent.pv;
+                e.pv.push_back(specs[c].move);
+                e.first_idx = parent.first_idx;
+                next_all.push_back(std::move(e));
+            }
+            out.nodes_evaluated += child_n;
+        }
+        if (budget_hit) {
+            out.fallback_to_one_ply = true;
+            out.best_first_move = one_ply_best;
+            if (one_ply_best >= 0 && one_ply_best < static_cast<int>(first_results.size())) {
+                out.best_leaf = first_results[one_ply_best];
+                out.has_best_leaf = true;
+                out.best_pv.clear();
+                out.best_pv.push_back(first_moves[one_ply_best]);
+            }
+            return out;
+        }
+        if (next_all.empty()) break;  // no deeper leaves: keep current best
+        std::sort(next_all.begin(), next_all.end(),
+                  [](const BeamEntry& a, const BeamEntry& b) {
+                      if (branch_better(a.state, b.state)) return true;
+                      if (branch_better(b.state, a.state)) return false;
+                      if (a.first_idx != b.first_idx)
+                          return a.first_idx < b.first_idx;
+                      return a.state.hash.to_hex() < b.state.hash.to_hex();
+                  });
+        if (static_cast<int>(next_all.size()) > beam)
+            next_all.resize(beam);
+        // Track the best leaf across all depths (connectivity-first).
+        if (branch_better(next_all.front().state, best_leaf.state))
+            best_leaf = next_all.front();
+        cur = std::move(next_all);
+        // Stored-node cap: depth*beam boards max (streaming bound).
+        if (static_cast<int>(cur.size()) > kMaxStoredMultiplyNodes)
+            cur.resize(kMaxStoredMultiplyNodes);
+    }
+    out.best_first_move = best_leaf.first_idx;
+    out.best_leaf = best_leaf.state;
+    out.has_best_leaf = true;
+    out.best_pv = best_leaf.pv;
+    out.fallback_to_one_ply = false;
     return out;
 }
 
@@ -766,6 +1125,18 @@ JsonValue RecoveryInfo::to_json() const {
     for (const auto& m : modes_attempted) modes.as_array().push_back(JsonValue(m));
     o["modes_attempted"] = modes;
     o["dependency_graph"] = last_graph.to_json();
+    o["multiply_depth_requested"] = static_cast<double>(multiply_depth_requested);
+    o["multiply_depth_effective"] = static_cast<double>(multiply_depth_effective);
+    o["multiply_beam_requested"] = static_cast<double>(multiply_beam_requested);
+    o["multiply_beam_effective"] = static_cast<double>(multiply_beam_effective);
+    o["multiply_threads_effective"] = static_cast<double>(multiply_threads_effective);
+    o["multiply_nodes_evaluated"] = static_cast<double>(multiply_nodes_evaluated);
+    o["multiply_nodes_pruned"] = static_cast<double>(multiply_nodes_pruned);
+    o["multiply_fallback_to_one_ply"] = multiply_fallback_to_one_ply;
+    JsonValue pv = JsonValue::array();
+    for (const auto& s : multiply_pv) pv.as_array().push_back(JsonValue(s));
+    o["multiply_pv"] = pv;
+    o["multiply_best_hash"] = multiply_best_hash;
     return o;
 }
 

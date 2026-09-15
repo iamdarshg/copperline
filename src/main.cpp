@@ -24,7 +24,9 @@
 #include "router/board.h"
 #include "router/engine.h"
 #include "router/escape.h"
+#include "router/maturity.h"
 #include "router/rules.h"
+#include "router/tuning.h"
 #include "router/verifier.h"
 
 #ifndef COPPERLINE_VERSION
@@ -49,9 +51,23 @@ struct Flags {
     bool progress = false;  // NDJSON epoch events on stderr
     std::string config;
     unsigned seed = 42;
-    int threads = 1;
+    int threads = 0;  // issue #3: 0 = auto (all CPUs, bounded by 2048MB)
+    int route_k = 0;  // issue #8: 0 = auto (maturity route-K), else 1..15 wins
+    bool no_impact = false;  // issue #9: disable obstruction scoring
+    bool impact_mlp = false;  // issue #9: tiny fixed-weight MLP scorer
     double timeout_s = 0;
     std::int64_t max_search_nodes = 200000;
+    bool no_hierarchy = false;  // issue #10: disable coarse-to-fine guidance
+    int recovery_depth = 2;     // issue #22: 1 = one-ply, default 2
+    int recovery_beam = 4;      // issue #22: beam width, default 4
+    std::int64_t max_multiply_nodes = 64;  // issue #22: deeper node budget
+    bool recovery_depth_set = false;
+    bool recovery_beam_set = false;
+    bool max_multiply_nodes_set = false;
+    bool no_tuning = false;  // issue #15: disable post-route length tuning
+    double tuning_amplitude_mm = 0;  // issue #15: 0 = config default
+    double tuning_pitch_mm = 0;      // issue #15: 0 = config default
+    double tuning_max_added_mm = 0;  // issue #15: 0 = config default
     std::string output;
     std::string report;
     std::string board;
@@ -162,6 +178,19 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
                 return false;
             }
             ++i;
+        } else if (a == "--route-k") {
+            if (!need_value(i, "--route-k", v)) return false;
+            try {
+                f.route_k = std::stoi(v);
+            } catch (...) {
+                err = "bad --route-k value";
+                return false;
+            }
+            if (f.route_k < 0 || f.route_k > 15) {
+                err = "--route-k must be in [0, 15] (0 = auto)";
+                return false;
+            }
+            ++i;
         } else if (a == "--max-search-nodes") {
             if (!need_value(i, "--max-search-nodes", v)) return false;
             try {
@@ -175,6 +204,95 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
                 return false;
             }
             ++i;
+        } else if (a == "--recovery-depth") {
+            if (!need_value(i, "--recovery-depth", v)) return false;
+            try {
+                f.recovery_depth = std::stoi(v);
+            } catch (...) {
+                err = "bad --recovery-depth value";
+                return false;
+            }
+            if (f.recovery_depth < 1 || f.recovery_depth > 8) {
+                err = "--recovery-depth must be in [1, 8] (1 = one-ply)";
+                return false;
+            }
+            f.recovery_depth_set = true;
+            ++i;
+        } else if (a == "--recovery-beam") {
+            if (!need_value(i, "--recovery-beam", v)) return false;
+            try {
+                f.recovery_beam = std::stoi(v);
+            } catch (...) {
+                err = "bad --recovery-beam value";
+                return false;
+            }
+            if (f.recovery_beam < 1 || f.recovery_beam > 8) {
+                err = "--recovery-beam must be in [1, 8]";
+                return false;
+            }
+            f.recovery_beam_set = true;
+            ++i;
+        } else if (a == "--max-multiply-nodes") {
+            if (!need_value(i, "--max-multiply-nodes", v)) return false;
+            try {
+                f.max_multiply_nodes = std::stoll(v);
+            } catch (...) {
+                err = "bad --max-multiply-nodes value";
+                return false;
+            }
+            if (f.max_multiply_nodes < 0) {
+                err = "--max-multiply-nodes must be >= 0";
+                return false;
+            }
+            f.max_multiply_nodes_set = true;
+            ++i;
+        } else if (a == "--no-hierarchy") {
+            f.no_hierarchy = true;
+        } else if (a == "--no-tuning") {
+            f.no_tuning = true;  // issue #15
+        } else if (a == "--tuning-amplitude-mm") {
+            if (!need_value(i, "--tuning-amplitude-mm", v)) return false;
+            try {
+                f.tuning_amplitude_mm = std::stod(v);
+            } catch (...) {
+                err = "bad --tuning-amplitude-mm value";
+                return false;
+            }
+            if (f.tuning_amplitude_mm <= 0) {
+                err = "--tuning-amplitude-mm must be > 0";
+                return false;
+            }
+            ++i;
+        } else if (a == "--tuning-pitch-mm") {
+            if (!need_value(i, "--tuning-pitch-mm", v)) return false;
+            try {
+                f.tuning_pitch_mm = std::stod(v);
+            } catch (...) {
+                err = "bad --tuning-pitch-mm value";
+                return false;
+            }
+            if (f.tuning_pitch_mm <= 0) {
+                err = "--tuning-pitch-mm must be > 0";
+                return false;
+            }
+            ++i;
+        } else if (a == "--tuning-max-added-mm") {
+            if (!need_value(i, "--tuning-max-added-mm", v)) return false;
+            try {
+                f.tuning_max_added_mm = std::stod(v);
+            } catch (...) {
+                err = "bad --tuning-max-added-mm value";
+                return false;
+            }
+            if (f.tuning_max_added_mm <= 0) {
+                err = "--tuning-max-added-mm must be > 0";
+                return false;
+            }
+            ++i;
+        } else if (a == "--no-impact") {
+            f.no_impact = true;
+        } else if (a == "--impact-mlp") {
+            f.impact_mlp = true;
         } else if (a == "--output") {
             if (!need_value(i, "--output", v)) return false;
             f.output = v;
@@ -250,6 +368,77 @@ bool load_resolver(const Flags& f, const Board& board, RuleResolver& out, std::s
     }
 }
 
+// Issue #14: optional "maturity" object inside --config JSON overrides the
+// adaptive-budget thresholds/caps. The resolver load already validated the
+// file above, so this re-read only applies the maturity section.
+bool load_maturity_opt(const Flags& f, EngineOptions& opt, std::string& msg) {
+    if (f.config.empty()) return true;
+    std::string text, err;
+    if (!read_file(f.config, text, err)) return true;
+    try {
+        JsonValue cfg = parse_json(text);
+        if (const JsonValue* m = cfg.find("maturity")) {
+            if (!apply_maturity_json(opt.maturity, *m, msg)) return false;
+        }
+        // Issue #22: optional "recovery" object {depth, beam, max_nodes}.
+        if (const JsonValue* r = cfg.find("recovery")) {
+            if (!r->is_object()) {
+                msg = "recovery: expected an object";
+                return false;
+            }
+            if (r->has("depth")) {
+                const JsonValue* v = r->find("depth");
+                if (!v->is_number()) {
+                    msg = "recovery.depth: expected a number";
+                    return false;
+                }
+                long long d = static_cast<long long>(v->as_number());
+                if (d < 1 || d > 8) {
+                    msg = "recovery.depth: expected a number in [1, 8]";
+                    return false;
+                }
+                opt.recovery_depth = static_cast<int>(d);
+            }
+            if (r->has("beam")) {
+                const JsonValue* v = r->find("beam");
+                if (!v->is_number()) {
+                    msg = "recovery.beam: expected a number";
+                    return false;
+                }
+                long long b = static_cast<long long>(v->as_number());
+                if (b < 1 || b > 8) {
+                    msg = "recovery.beam: expected a number in [1, 8]";
+                    return false;
+                }
+                opt.recovery_beam = static_cast<int>(b);
+            }
+            if (r->has("max_nodes")) {
+                const JsonValue* v = r->find("max_nodes");
+                if (!v->is_number()) {
+                    msg = "recovery.max_nodes: expected a number";
+                    return false;
+                }
+                long long n = static_cast<long long>(v->as_number());
+                if (n < 0 || n > 1000000) {
+                    msg = "recovery.max_nodes: out of range";
+                    return false;
+                }
+                opt.max_multiply_nodes = n;
+            }
+        }
+        // Issue #15: optional "tuning" object (amplitude/pitch/max-added,
+        // candidate/region caps, style, symmetric_pairs, enabled).
+        if (const JsonValue* t = cfg.find("tuning")) {
+            if (!tuning_config_from_json(cfg, opt.tuning, msg)) return false;
+            (void)t;
+        }
+    } catch (const std::exception& e) {
+        msg = std::string("bad config JSON: ") + e.what();
+        return false;
+    }
+    return true;
+}
+
 JsonValue capabilities_json() {
     JsonValue r = JsonValue::object();
     r["schema"] = "copperline/capabilities/1";
@@ -286,12 +475,20 @@ JsonValue capabilities_json() {
     feat["single_thread_astar"] = true;
     feat["current_aware"] = true;
     feat["ampacity_model"] = true;
+    feat["impedance_aware"] = true;
     feat["voltage_aware"] = true;
     feat["pin_density"] = true;
     feat["parallel_routing"] = true;
     feat["deterministic_epochs"] = true;
     feat["congestion_negotiation"] = true;
     feat["fine_pitch_escape"] = true;
+    feat["plane_routing"] = true;
+    feat["hierarchical_guidance"] = true;  // issue #10: coarse-to-fine A* guidance
+    feat["maturity_adaptive_budgets"] = true;  // issue #14: maturity-driven budgets
+    feat["route_portfolio"] = true;  // issue #8: diverse K-alternative portfolios
+    feat["future_obstruction_scoring"] = true;  // issue #9: impact scorer
+    feat["multiply_recovery"] = true;  // issue #22: bounded multi-ply beam search
+    feat["length_tuning"] = true;  // issue #15: post-route meander stage
     feat["ripup_reroute"] = true;
     feat["meta_search"] = true;
     feat["recovery_modes"] = true;
@@ -424,9 +621,39 @@ int cmd_route(const Flags& f) {
 
     EngineOptions opt;
     opt.seed = f.seed;
-    opt.threads = f.threads;
+    // Issue #3: default to all CPUs (hardware_concurrency); explicit
+    // --threads wins. Batch formation stays thread-independent so geometry
+    // is deterministic; memory stays bounded (sparse interference + batch
+    // width min(8, floor(2048MB/per-task))).
+    {
+        int eff = f.threads > 0 ? f.threads : static_cast<int>(std::thread::hardware_concurrency());
+        if (eff < 1) eff = 4;
+        opt.threads = eff;
+    }
     opt.timeout_s = f.timeout_s;
     opt.astar.max_expansions = f.max_search_nodes;
+    opt.hierarchy.enabled = !f.no_hierarchy;  // issue #10
+    opt.impact.enabled = !f.no_impact;        // issue #9
+    opt.impact.use_mlp = f.impact_mlp;        // issue #9: fixed MLP + fallback
+    opt.recovery_depth = f.recovery_depth;    // issue #22
+    opt.recovery_beam = f.recovery_beam;      // issue #22
+    opt.max_multiply_nodes = f.max_multiply_nodes;  // issue #22
+    // Issue #15: explicit tuning CLI wins over --config; --no-tuning off.
+    if (f.no_tuning) opt.tuning.enabled = false;
+    if (f.tuning_amplitude_mm > 0) opt.tuning.amplitude_nm = mm_to_nm(f.tuning_amplitude_mm);
+    if (f.tuning_pitch_mm > 0) opt.tuning.pitch_nm = mm_to_nm(f.tuning_pitch_mm);
+    if (f.tuning_max_added_mm > 0) opt.tuning.max_added_nm = mm_to_nm(f.tuning_max_added_mm);
+    {
+        std::string merr;
+        if (!load_maturity_opt(f, opt, merr))
+            return fail(f, kBadRules, "malformed_rules", merr);
+        // Issue #8: explicit --route-k wins over the maturity cap.
+        if (f.route_k >= 1) opt.maturity.caps.max_route_k = f.route_k;
+        // Issue #22: explicit CLI depth/beam/nodes win over --config.
+        if (f.recovery_depth_set) opt.recovery_depth = f.recovery_depth;
+        if (f.recovery_beam_set) opt.recovery_beam = f.recovery_beam;
+        if (f.max_multiply_nodes_set) opt.max_multiply_nodes = f.max_multiply_nodes;
+    }
     if (f.progress) {
         opt.progress = [](const JsonValue& ev) {
             std::cerr << serialize_json(ev) << "\n";
@@ -461,9 +688,23 @@ int cmd_route(const Flags& f) {
     JsonValue rj = report.to_json();
     JsonValue params = JsonValue::object();
     params["seed"] = static_cast<double>(f.seed);
-    params["threads_requested"] = static_cast<double>(f.threads);
+    params["threads_requested"] = static_cast<double>(opt.threads);
+    params["threads_flag"] = static_cast<double>(f.threads);  // 0 = auto
     params["timeout_s"] = f.timeout_s;
     params["max_search_nodes"] = static_cast<double>(f.max_search_nodes);
+    params["hierarchy_enabled"] = !f.no_hierarchy;  // issue #10
+    params["maturity_enabled"] = opt.maturity.enabled;  // issue #14
+    params["route_k_requested"] = static_cast<double>(f.route_k);  // issue #8: 0=auto
+    params["route_k_cap"] = static_cast<double>(opt.maturity.caps.max_route_k);
+    params["impact_enabled"] = !f.no_impact;  // issue #9
+    params["impact_scorer"] = f.impact_mlp ? "mlp" : "weighted";  // issue #9
+    params["recovery_depth"] = static_cast<double>(opt.recovery_depth);  // issue #22
+    params["recovery_beam"] = static_cast<double>(opt.recovery_beam);    // issue #22
+    params["max_multiply_nodes"] = static_cast<double>(opt.max_multiply_nodes);  // #22
+    params["tuning_enabled"] = !f.no_tuning && opt.tuning.enabled;  // issue #15
+    params["tuning_amplitude_mm"] = nm_to_mm(opt.tuning.amplitude_nm);
+    params["tuning_pitch_mm"] = nm_to_mm(opt.tuning.pitch_nm);
+    params["tuning_max_added_mm"] = nm_to_mm(opt.tuning.max_added_nm);
     rj["params"] = params;
 
     const Board& routed = engine.committed();
@@ -488,8 +729,8 @@ int cmd_route(const Flags& f) {
                   << report.stats.tasks_total << " tasks, " << report.stats.via_count << " vias, "
                   << nm_to_mm(report.stats.length_nm) << "mm, " << report.stats.expansions_total
                   << " expansions, " << report.stats.time_ms << "ms, "
-                  << report.stats.epochs_count << " epochs, " << report.stats.threads_used
-                  << "/" << f.threads << " workers, hash " << report.board_hash << ")\n";
+                   << report.stats.epochs_count << " epochs, " << report.stats.threads_used
+                   << "/" << opt.threads << " workers, hash " << report.board_hash << ")\n";
         for (const auto& fl : report.failures)
             std::cout << "  failed: net " << fl.net_name << " (" << fl.reason << ")\n";
     }
@@ -526,16 +767,30 @@ int cmd_benchmark(const Flags& f) {
     unsigned hw = std::thread::hardware_concurrency();
     if (hw == 0) hw = 4;
     int par_threads = f.threads > 1 ? f.threads : static_cast<int>(hw);
+    // Issue #14: benchmark runs share the route maturity config (if any).
+    EngineOptions bench_base;
+    bench_base.seed = f.seed;
+    bench_base.timeout_s = f.timeout_s;
+    bench_base.astar.max_expansions = f.max_search_nodes;
+    bench_base.hierarchy.enabled = !f.no_hierarchy;  // issue #10
+    bench_base.recovery_depth = f.recovery_depth;    // issue #22
+    bench_base.recovery_beam = f.recovery_beam;      // issue #22
+    bench_base.max_multiply_nodes = f.max_multiply_nodes;  // issue #22
+    {
+        std::string merr;
+        if (!load_maturity_opt(f, bench_base, merr))
+            return fail(f, kBadRules, "malformed_rules", merr);
+        if (f.recovery_depth_set) bench_base.recovery_depth = f.recovery_depth;
+        if (f.recovery_beam_set) bench_base.recovery_beam = f.recovery_beam;
+        if (f.max_multiply_nodes_set) bench_base.max_multiply_nodes = f.max_multiply_nodes;
+    }
 
     auto run_once = [&](int threads) {
         Board b = lb.board;  // immutable input snapshot per run
         RuleResolver r = base;
         r.rebind(&b);  // point at this run's copy (engine rebinds to owned board anyway)
-        EngineOptions opt;
-        opt.seed = f.seed;
+        EngineOptions opt = bench_base;
         opt.threads = threads;
-        opt.timeout_s = f.timeout_s;
-        opt.astar.max_expansions = f.max_search_nodes;
         auto t0 = std::chrono::steady_clock::now();
         RouterEngine engine(std::move(b), std::move(r), opt);
         RouteReport rep = engine.run();
@@ -593,9 +848,14 @@ int run(const std::vector<std::string>& args) {
                      "  router capabilities [--json]\n"
                      "  router analyze <board> [--json] [--config cfg.json]\n"
                      "  router verify <board> [--json] [--config cfg.json]\n"
-                      "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
-                      "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
-                      "                       [--output routed.json] [--report report.json]\n"
+                         "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
+                         "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
+                      "                       [--route-k K] [--output routed.json] [--report report.json]\n"
+                      "                       [--no-hierarchy] [--no-impact] [--impact-mlp]\n"
+                      "                       [--recovery-depth D] [--recovery-beam B]\n"
+                      "                       [--max-multiply-nodes N]\n"
+                      "                       [--no-tuning] [--tuning-amplitude-mm A]\n"
+                      "                       [--tuning-pitch-mm P] [--tuning-max-added-mm M]\n"
                       "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n"
                       "  router benchmark <board> [--json] [--config cfg.json] [--seed N]\n"
                       "                       [--threads N] [--timeout S] [--max-search-nodes N]\n\n"

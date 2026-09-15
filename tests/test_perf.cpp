@@ -10,6 +10,11 @@
 //   perf32 (32 tasks, maze cells): single ~270ms / ~2000 exp,
 //                                  parallel-16 ~61ms, speedup ~4.4x,
 //                                  identical geometry hash.
+// Post issue #10 (hierarchical guidance, same machine class): exact
+// expansions collapse (~100 for 32 tasks, all guided first-try) while
+// coarse guidance adds ~70k expansions; wall ~0.9s single / ~0.2s
+// parallel, speedup ~5x, identical geometry. The exp_per_s floor below
+// therefore counts total search work (exact + coarse).
 #include <chrono>
 #include <cstdio>
 #include <thread>
@@ -83,9 +88,19 @@ CT_TEST(perf_single_thread_throughput_floor) {
     CT_CHECK(rep.status == "COMPLETE");
     CT_CHECK(rep.stats.tasks_routed == 32);
     double tasks_per_s = 32.0 / std::max(wall, 1e-3);
-    double exp_per_s = (double)rep.stats.expansions_total / std::max(wall, 1e-3);
+    // Issue #10: hierarchical guidance moves search work into the coarse
+    // levels, so exact expansions drop by design. Throughput counts all
+    // pathfinding work (exact + coarse); the tasks/s floor above still
+    // guards end-to-end routing independently.
+    std::int64_t search_total =
+        rep.stats.expansions_total + rep.stats.hierarchy_coarse_expansions;
+    double exp_per_s = (double)search_total / std::max(wall, 1e-3);
     std::printf("  [perf] single: %.3fs wall, %.1f tasks/s, %.0f expansions/s\n", wall,
                 tasks_per_s, exp_per_s);
+    std::printf("  [perf]   exact=%lld coarse=%lld guided=%d fallbacks=%d\n",
+                (long long)rep.stats.expansions_total,
+                (long long)rep.stats.hierarchy_coarse_expansions,
+                rep.stats.hierarchy_guided_tasks, rep.stats.hierarchy_fallback_tasks);
     CT_CHECK(wall < 15.0);        // completes a 32-task board quickly
     CT_CHECK(tasks_per_s > 5.0);  // minimal routing throughput
     CT_CHECK(exp_per_s > 100.0);  // minimal search throughput
