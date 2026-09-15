@@ -753,6 +753,10 @@ bool path_to_candidate(const SparseRoutingGraph& graph, const AStarResult& res, 
 EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolver,
                                  const ElectricalContext& ctx) const {
     EscapeResult result;
+    const auto expired = [&]() {
+        return std::chrono::steady_clock::now() >= options_.deadline;
+    };
+    bool aborted = false;
     FinePitchDetector detector;
     std::vector<FinePitchFootprint> fps = detector.detect(board, resolver, ctx);
     CentreDepthAnalyzer depth_analyzer;
@@ -763,6 +767,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
     Board work = board;
 
     for (const auto& fp : fps) {
+        if (expired()) {
+            aborted = true;
+            break;
+        }
         FootprintEscapeResult fr;
         fr.footprint = fp;
         fr.boundary = build_escape_boundary(board, fp, 0);
@@ -773,6 +781,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
         std::map<TermId, int> vias;
         std::map<TermId, double> dens, downstream;
         for (TermId tid : fp.members) {
+            if (expired()) {
+                aborted = true;
+                break;
+            }
             const Terminal* t = board.find_terminal(tid);
             if (!t) continue;
             std::string ws;
@@ -799,6 +811,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
             downstream[tid] =
                 span_mm + 40.0 * nm_to_mm(w) + 30.0 * nm_to_mm(max_clear) + 0.5 * dens[tid];
         }
+        if (aborted) {
+            result.footprints.push_back(std::move(fr));
+            break;
+        }
 
         std::vector<TermId> order =
             eligibility_order(board, resolver, ctx, fp, depth, exits, vias, dens, downstream);
@@ -818,6 +834,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
         // Portals nearest-first per pad are tried; deterministic.
         int elig_idx = 0;
         for (TermId tid : order) {
+            if (expired()) {
+                aborted = true;
+                break;
+            }
             PadEscapeResult pr;
             pr.terminal = tid;
             pr.centre_depth = depth.count(tid) ? depth.at(tid) : 0;
@@ -939,12 +959,20 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
             bool interior = pr.exit_sectors.empty();
             auto collect_on = [&](const Board& gb, const EscapePortal& portal, Coord w,
                                   bool is_neck, bool via_only) {
+                if (expired()) {
+                    aborted = true;
+                    return;
+                }
                 // Same-layer attempt (skipped for via-first interior pads).
                 if (!via_only) {
                     SparseRoutingGraph g = SparseRoutingGraph::build(
                         gb, resolver, t->net, t->pos, portal.pos, t->layer, t->layer, w,
                         ctx);
                     AStarResult res = astar_route(g, pad_layer_mult, cfg);
+                    if (expired()) {
+                        aborted = true;
+                        return;
+                    }
                     if (res.found) {
                         EscapeCandidate c;
                         if (path_to_candidate(g, res, t->net, t->layer, w, style, have_via,
@@ -969,6 +997,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                         gb, resolver, t->net, t->pos, portal.pos, t->layer, alt_layer, w,
                         ctx);
                     AStarResult res = astar_route(g, pad_layer_mult, cfg);
+                    if (expired()) {
+                        aborted = true;
+                        return;
+                    }
                     if (res.found) {
                         EscapeCandidate c;
                         if (path_to_candidate(g, res, t->net, t->layer, w, style, have_via,
@@ -990,6 +1022,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                 bool via_first = interior && multilayer_possible;
                 int tried = 0;
                 for (const auto& portal : portals) {
+                    if (expired()) {
+                        aborted = true;
+                        break;
+                    }
                     if (tried >= options_.max_fallback_portals ||
                         static_cast<int>(by_sig.size()) >= kNeed)
                         break;
@@ -998,28 +1034,41 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                                         .expanded(2 * pitch2 + full_w + fp.clearance_nm);
                     Board local = local_escape_board(work, corridor);
                     collect_on(local, portal, full_w, false, via_first);
+                    if (aborted) break;
                 }
                 if (by_sig.empty() && neck_ok()) {
                     for (const auto& portal : portals) {
+                        if (expired()) {
+                            aborted = true;
+                            break;
+                        }
                         if (!by_sig.empty()) break;
                         Rect corridor = Rect::from_points(t->pos, portal.pos)
                                             .expanded(2 * pitch2 + neck_w + fp.clearance_nm);
                         Board local = local_escape_board(work, corridor);
                         collect_on(local, portal, neck_w, true, via_first);
+                        if (aborted) break;
                     }
                 }
             }
+            if (aborted) break;
             if (by_sig.empty()) {
                 // Recall safety net: corridor filtering may hide a wide detour.
                 Board wide = local_escape_board(
                     work, fr.boundary.rect.expanded(2 * pitch2 + full_w));
                 int tried = 0;
                 for (const auto& portal : portals) {
+                    if (expired()) {
+                        aborted = true;
+                        break;
+                    }
                     if (!by_sig.empty() || tried >= 3) break;
                     ++tried;
                     collect_on(wide, portal, full_w, false, false);
+                    if (aborted) break;
                 }
             }
+            if (aborted) break;
 
             std::vector<EscapeCandidate> cands;
             for (auto& [sig, c] : by_sig) {
@@ -1088,8 +1137,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
             fr.pads.push_back(pr);
         }
         result.footprints.push_back(std::move(fr));
+        if (aborted) break;
     }
 
+    result.timed_out = aborted;
     for (const auto& fp : result.footprints) {
         for (const auto& p : fp.pads) {
             ++result.pads_total;
@@ -1108,7 +1159,10 @@ JsonValue EscapeResult::to_json() const {
     r["pads_total"] = static_cast<double>(pads_total);
     r["pads_with_candidates"] = static_cast<double>(pads_with_candidates);
     r["pads_infeasible"] = static_cast<double>(pads_infeasible);
-    r["status"] = pads_infeasible == 0 ? JsonValue("COMPLETE") : JsonValue("INCOMPLETE");
+    r["timed_out"] = timed_out;
+    r["status"] = timed_out ? JsonValue("TIMEOUT")
+                             : (pads_infeasible == 0 ? JsonValue("COMPLETE")
+                                                     : JsonValue("INCOMPLETE"));
     JsonValue fps = JsonValue::array();
     for (const auto& fp : footprints) {
         JsonValue o = JsonValue::object();

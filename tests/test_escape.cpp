@@ -368,6 +368,20 @@ CT_TEST(escape_is_deterministic) {
     CT_CHECK(serialize_json(j1) == serialize_json(j2));
 }
 
+CT_TEST(escape_honors_expired_preprocessing_deadline) {
+    Board b = load_fixture("bga_4x4.json");
+    RuleResolver r = defaults_for_board(b);
+    ElectricalContext ctx;
+    EscapeOptions options;
+    options.deadline = std::chrono::steady_clock::now();
+    EscapePlanner planner(options);
+    EscapeResult result = planner.plan(b, r, ctx);
+    CT_CHECK(result.timed_out);
+    CT_CHECK(result.pads_with_candidates == 0);
+    CT_CHECK(result.to_json().get_bool("timed_out", false));
+    CT_CHECK(result.to_json().get_string("status") == "TIMEOUT");
+}
+
 CT_TEST(via_fixture_inner_rings_need_vias) {
     Board b = load_fixture("bga_8x8_via.json");
     RuleResolver r = defaults_for_board(b);

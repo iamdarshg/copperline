@@ -17,6 +17,7 @@
 //   commit in eligibility order, recording infeasibility where needed.
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -171,6 +172,11 @@ struct EscapeOptions {
     int max_portals_per_pad = 12;
     // A* portal attempts per pad in the fallback phase (same+alt share it).
     int max_fallback_portals = 4;
+    // The route command owns one wall-clock budget. Escape preprocessing
+    // checks the same deadline between bounded searches so a dense board
+    // cannot consume the entire run before the global worker pool starts.
+    std::chrono::steady_clock::time_point deadline =
+        std::chrono::steady_clock::time_point::max();
 };
 
 struct EscapeResult {
@@ -178,6 +184,7 @@ struct EscapeResult {
     int pads_total = 0;
     int pads_with_candidates = 0;
     int pads_infeasible = 0;
+    bool timed_out = false;
     JsonValue to_json() const;
 };
 

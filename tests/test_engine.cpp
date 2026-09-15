@@ -365,6 +365,27 @@ CT_TEST(route_logs_escape_before_global_epochs) {
     }
 }
 
+CT_TEST(route_timeout_covers_escape_preprocessing) {
+    Board b = load_fixture_board("bga_4x4.json");
+    RuleResolver r = RuleResolver::defaults_for(b);
+    EngineOptions opt;
+    opt.threads = 1;
+    opt.timeout_s = 1e-9;
+    std::vector<JsonValue> events;
+    opt.progress = [&](const JsonValue& ev) { events.push_back(ev); };
+    RouterEngine engine(std::move(b), std::move(r), opt);
+    RouteReport report = engine.run();
+    CT_CHECK(report.status == "TIMEOUT");
+    CT_CHECK(report.stats.threads_requested == 1);
+    CT_CHECK(!report.failures.empty());
+    CT_CHECK(report.failures.front().reason == "timeout");
+    CT_CHECK(events.size() == 2);
+    CT_CHECK(events[0].get_string("event") == "preprocessing_timeout");
+    CT_CHECK(events[0].get_string("phase") == "escape");
+    CT_CHECK(events[1].get_string("event") == "done");
+    CT_CHECK(events[1].get_string("status") == "TIMEOUT");
+}
+
 CT_TEST(route_global_tasks_originate_at_escape_portals) {
     // After the escape stage commits pad->portal stubs, the global
     // RouteTree for an escaped 2-terminal net must target committed escape

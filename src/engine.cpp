@@ -333,8 +333,18 @@ void apply_verifier_gate(RouteReport& report, const VerifyResult& vr) {
 
 RouteReport RouterEngine::run() {
     auto t0 = std::chrono::steady_clock::now();
+    const std::chrono::steady_clock::time_point deadline =
+        options_.timeout_s > 0
+            ? t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                       std::chrono::duration<double>(options_.timeout_s))
+            : std::chrono::steady_clock::time_point::max();
     RouteReport report;
     report.total_terminals = static_cast<int>(board_.terminals.size());
+    // Resolve this before preprocessing so timeout reports still describe
+    // the requested worker capacity truthfully. Escape planning is currently
+    // deterministic and serial; the global epochs use this full capacity.
+    const int effective_threads = resolve_worker_threads(options_.threads);
+    report.stats.threads_requested = effective_threads;
 
     // Fixed user copper: everything committed before routing starts. It is
     // the only copper that is absolutely protected (never ripped).
@@ -353,7 +363,9 @@ RouteReport RouterEngine::run() {
     std::map<TermId, std::string> escape_infeasible_reason;
     std::map<TermId, int> escape_centre_depth;  // Prompt 5: failure attribution
     {
-        EscapePlanner planner;
+        EscapeOptions escape_options;
+        escape_options.deadline = deadline;
+        EscapePlanner planner(escape_options);
         EscapeResult esc = planner.plan(board_, resolver_, ctx);
         report.escape_stage.pads_total = esc.pads_total;
         report.escape_stage.pads_escaped = esc.pads_with_candidates;
@@ -438,6 +450,38 @@ RouteReport RouterEngine::run() {
             options_.progress(ev);
         }
         resolver_.rebind(&board_);
+        if (esc.timed_out) {
+            report.status = "TIMEOUT";
+            report.result_category = result_category(report.status);
+            report.stats.nets_total = static_cast<int>(board_.nets.size());
+            report.stats.time_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - t0)
+                    .count();
+            report.board_hash = geometry_hash(board_);
+            RouteFailure f;
+            f.reason = "timeout";
+            f.blockers.push_back("escape preprocessing deadline reached");
+            f.category = report.result_category;
+            report.failures.push_back(std::move(f));
+            BoardVerifier verifier;
+            apply_verifier_gate(report, verifier.verify(board_, resolver_, ctx));
+            if (options_.progress) {
+                JsonValue ev = JsonValue::object();
+                ev["event"] = "preprocessing_timeout";
+                ev["phase"] = "escape";
+                ev["status"] = report.status;
+                options_.progress(ev);
+                JsonValue done = JsonValue::object();
+                done["event"] = "done";
+                done["status"] = report.status;
+                done["connected_terminals"] =
+                    static_cast<double>(report.connected_terminals);
+                done["total_terminals"] = static_cast<double>(report.total_terminals);
+                options_.progress(done);
+            }
+            return report;
+        }
     }
 
     // Rebuild density AFTER escape copper is committed so global routing sees
@@ -538,9 +582,6 @@ RouteReport RouterEngine::run() {
     // Issue #3: 0 = auto (all CPUs); explicit --threads wins. Workers affect
     // concurrency only: batch membership is a pure function of the scheduler
     // order + interference weights, so geometry stays identical at 1/2/4/N.
-    const int effective_threads = resolve_worker_threads(options_.threads);
-    report.stats.threads_requested = effective_threads;
-
     // Layer cost multipliers for A*.
     std::vector<double> layer_mult;
     {
@@ -561,11 +602,6 @@ RouteReport RouterEngine::run() {
     // branches reuse obstacle data exactly where the board permits.
     HierarchyCache hier_cache;
 
-    std::chrono::steady_clock::time_point deadline =
-        options_.timeout_s > 0
-            ? t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                       std::chrono::duration<double>(options_.timeout_s))
-            : std::chrono::steady_clock::time_point::max();
     bool timed_out = false;
     bool budget_hit = false;
 
