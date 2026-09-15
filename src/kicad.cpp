@@ -3,9 +3,10 @@
 // Phase-1 subset: board outline from Edge.Cuts drawings, copper layers,
 // nets + net classes (width/clearance/via rules), footprints + pads
 // (rect/circle/oval/trapezoid/roundrect approximated by bounding boxes),
-// tracks, vias, and keepout rule areas. Everything approximated or skipped
-// is reported in ImportResult::warnings; copper zones are NOT yet modeled
-// (Prompt 5) and produce a warning instead of silent acceptance.
+// tracks, vias, keepout rule areas, and copper zones (fills map to
+// PlaneZone entries with owning net/layer/polygon/island; unresolvable
+// zones warn explicitly, never silently). Everything approximated or
+// skipped is reported in ImportResult::warnings.
 #include "router/board.h"
 
 #include <cmath>
@@ -69,6 +70,10 @@ struct PendingPad {
     bool has_size = false;
 };
 
+// Memory bound (router <= 2048MB total): copper-zone polygons are capped;
+// larger outlines warn and skip instead of buffering unbounded copper.
+constexpr std::size_t kMaxZoneVertices = 16384;
+
 class KicadImport {
   public:
     ImportResult run(const std::string& text, const std::string& path) {
@@ -115,6 +120,7 @@ class KicadImport {
     double edge_x1_ = 0, edge_y1_ = 0, edge_x2_ = 0, edge_y2_ = 0;
     int next_net_id_ = 0;
     int next_term_id_ = 0;
+    int zone_seq_ = 0;  // unique island id per imported copper zone
     bool warned_zone_ = false;
     bool warned_tht_ = false;
 
@@ -432,6 +438,113 @@ class KicadImport {
         }
     }
 
+    // Copper fills become PlaneZone entries (issue #16 machinery): owning
+    // net + layer + polygon + own island + routable. Each zone keeps its
+    // own island id (no silent stitching across zones); overlapping zones
+    // still bridge geometrically in the verifier. Unresolvable zones
+    // (no net/layer/polygon) keep an explicit warning, never silent.
+    void parse_copper_zone(const SexprNode* z) {
+        Board& b = result_.board;
+        NetId net = -1;
+        if (const SexprNode* nn = z->find_child("net")) {
+            auto a = tail_atoms(nn);
+            if (!a.empty()) {
+                int nnum = static_cast<int>(num(a[0], "zone net"));
+                auto it = net_num_to_id_.find(nnum);
+                if (it != net_num_to_id_.end()) net = it->second;
+            }
+        }
+        if (net < 0) {
+            // Fall back to (net_name "...").
+            std::string want;
+            if (const SexprNode* nn = z->find_child("net_name")) {
+                auto a = tail_atoms(nn);
+                if (!a.empty()) want = a[0];
+            }
+            if (!want.empty()) {
+                auto it = net_name_to_id_.find(want);
+                if (it != net_name_to_id_.end()) net = it->second;
+            }
+        }
+        // Copper layers listed by the zone (usually exactly one).
+        std::vector<std::string> layers;
+        if (const SexprNode* l = z->find_child("layers")) layers = tail_atoms(l);
+        if (const SexprNode* l = z->find_child("layer")) {
+            auto a = tail_atoms(l);
+            layers.insert(layers.end(), a.begin(), a.end());
+        }
+        std::vector<LayerId> copper;
+        for (const auto& l : layers) {
+            if (!ends_with_ci(l, ".Cu")) continue;
+            LayerId id = copper_layer(l, true);
+            if (id >= 0) copper.push_back(id);
+        }
+        // Filled geometry wins when it names the target layer, else the
+        // outline polygon. Collect per-layer filled polygons first.
+        std::map<LayerId, const SexprNode*> filled_by_layer;
+        std::vector<const SexprNode*> filled_all;
+        for (const SexprNode* fp : z->find_all("filled_polygon")) {
+            filled_all.push_back(fp);
+            if (const SexprNode* l = fp->find_child("layer")) {
+                auto a = tail_atoms(l);
+                if (!a.empty()) {
+                    LayerId id = copper_layer(a[0], true);
+                    if (id >= 0) filled_by_layer[id] = fp;
+                }
+            }
+        }
+        const SexprNode* outline = z->find_child("polygon");
+        auto zone_pts = [&](const SexprNode* poly) -> std::vector<Point> {
+            std::vector<Point> out;
+            if (!poly) return out;
+            const SexprNode* pts = poly->find_child("pts");
+            if (!pts) return out;
+            for (const SexprNode* xy : pts->find_all("xy")) {
+                auto a = tail_atoms(xy);
+                if (a.size() < 2) continue;
+                out.push_back({mm_to_nm(num(a[0], "zone pts")), mm_to_nm(num(a[1], "zone pts"))});
+                if (out.size() > kMaxZoneVertices) {
+                    out.clear();
+                    return out;  // over cap: caller warns and skips
+                }
+            }
+            return out;
+        };
+        if (net < 0 || copper.empty()) {
+            warn("copper zone ignored with warning: unknown net/layer (no net/layer "
+                 "resolved; zones need (net N)/(net_name ..) and a copper layer)");
+            return;
+        }
+        bool any = false;
+        for (LayerId lid : copper) {
+            const SexprNode* src = nullptr;
+            auto fit = filled_by_layer.find(lid);
+            if (fit != filled_by_layer.end()) src = fit->second;
+            if (!src && !filled_all.empty()) src = filled_all.front();
+            if (!src) src = outline;
+            std::vector<Point> poly = zone_pts(src);
+            if (poly.size() < 3) {
+                warn("copper zone ignored with warning: degenerate polygon or over "
+                     "vertex cap (16384) on layer '" +
+                     result_.board.layers[lid].name + "'");
+                continue;
+            }
+            PlaneZone plane;
+            plane.id = static_cast<int>(b.planes.size());
+            plane.net = net;
+            plane.layer = lid;
+            plane.poly = std::move(poly);
+            plane.island = zone_seq_++;
+            plane.routable = true;
+            b.planes.push_back(std::move(plane));
+            any = true;
+        }
+        if (!any && !warned_zone_) {
+            warn("copper zone ignored with warning: no usable polygon on any listed layer");
+            warned_zone_ = true;
+        }
+    }
+
     void note_edge_point(double x, double y) {
         if (!have_edge_) {
             edge_x1_ = edge_x2_ = x;
@@ -479,12 +592,7 @@ class KicadImport {
         for (const SexprNode* z : pcb->find_all("zone")) {
             bool is_keepout = z->find_child("keepout") != nullptr;
             if (!is_keepout) {
-                if (!warned_zone_) {
-                    warn("copper zones are not modeled in phase 1 and were ignored "
-                         "(declare plane-aware pours via native JSON planes[], issue #16; "
-                         "full KiCad zone import lands in Prompt 5)");
-                    warned_zone_ = true;
-                }
+                parse_copper_zone(z);
                 continue;
             }
             // Keepout rule area: bbox of its polygon points, per listed layer.
@@ -586,6 +694,12 @@ class KicadImport {
         for (auto& k : b.keepouts) {
             k.rect = {k.rect.x1 - mm_to_nm(ox), k.rect.y1 - mm_to_nm(oy),
                       k.rect.x2 - mm_to_nm(ox), k.rect.y2 - mm_to_nm(oy)};
+        }
+        for (auto& z : b.planes) {
+            for (auto& p : z.poly) {
+                p.x -= mm_to_nm(ox);
+                p.y -= mm_to_nm(oy);
+            }
         }
         b.width_nm = mm_to_nm(x1 - x0);
         b.height_nm = mm_to_nm(y1 - y0);

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- copperline IPC-2581C flat-subset fixture -->
+<Ipc2581 unit="mm" revision="C">
+  <Content>
+    <Ecad>
+      <CadHeader>
+        <Datum width="20" height="20"/>
+      </CadHeader>
+      <CadData>
+        <Layers>
+          <Layer name="Top" type="signal"/>
+          <Layer name="Bottom" type="signal"/>
+        </Layers>
+        <Nets>
+          <Net name="SIG1"/>
+          <Net name="VBAT"/>
+        </Nets>
+        <NetClass name="PWR" width="0.8" clearance="0.2">
+          <Net name="VBAT"/>
+        </NetClass>
+        <Components>
+          <Component refDes="U1">
+            <Pad net="SIG1" x="2" y="10" width="0.5" height="0.5" layer="Top"/>
+            <Pad net="VBAT" x="2" y="5" width="0.6" height="0.6" layer="Top"/>
+          </Component>
+          <Component refDes="U2">
+            <Pad net="SIG1" x="18" y="10" width="0.5" height="0.5" layer="Top"/>
+            <Pad net="VBAT" x="18" y="5" width="0.6" height="0.6" layer="Top"/>
+          </Component>
+        </Components>
+        <Traces>
+          <Trace net="SIG1" layer="Top" x1="2" y1="10" x2="18" y2="10" width="0.2"/>
+        </Traces>
+        <Vias>
+          <Via net="VBAT" x="10" y="5" outer="0.6" hole="0.3" top="Top" bottom="Bottom"/>
+        </Vias>
+        <Profile>
+          <Rect x1="0" y1="0" x2="20" y2="20"/>
+        </Profile>
+      </CadData>
+    </Ecad>
+  </Content>
+</Ipc2581>

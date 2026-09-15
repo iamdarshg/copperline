@@ -943,23 +943,30 @@ JsonValue board_to_json(const Board& board) {
     return root;
 }
 
-std::vector<std::string> supported_formats() { return {"json", "kicad_pcb"}; }
+std::vector<std::string> supported_formats() {
+    return {"json", "kicad_pcb", "dsn", "gerber", "ipc-2581"};
+}
 
 ImportResult import_board_auto(const std::string& path) {
     std::string text = read_file(path);
     std::string head = text.substr(0, std::min<std::size_t>(text.size(), 4096));
     // Static importers to avoid repeating construction.
     static const JsonBoardImporter kJson;
-    // KiCad importer is defined in kicad.cpp; declared here to keep
-    // board.cpp independent of its header weight.
+    // KiCad / DSN / Gerber / IPC-2581 importers live in their own TUs;
+    // declared here to keep board.cpp independent of their header weight.
     extern const BoardImporter& kicad_importer_singleton();
-    const BoardImporter* importers[] = {&kJson, &kicad_importer_singleton()};
+    extern const BoardImporter& dsn_importer_singleton();
+    extern const BoardImporter& gerber_importer_singleton();
+    extern const BoardImporter& ipc2581_importer_singleton();
+    const BoardImporter* importers[] = {&kJson, &kicad_importer_singleton(),
+                                        &dsn_importer_singleton(), &gerber_importer_singleton(),
+                                        &ipc2581_importer_singleton()};
     for (const BoardImporter* imp : importers) {
         if (imp->claims(path, head)) return imp->import_file(path);
     }
     throw BoardError(InputKind::kInvalid,
-                     "unsupported board format; supported: json, kicad_pcb (.kicad_pcb). "
-                     "Specctra DSN / SES / IPC-2581 land in Prompt 5.");
+                     "unsupported board format; supported: json, kicad_pcb (.kicad_pcb), "
+                     "dsn (.dsn), gerber (.gbr/.gtl/.gbl/...), ipc-2581 (.xml).");
 }
 
 }  // namespace copperline

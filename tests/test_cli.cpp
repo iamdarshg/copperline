@@ -84,7 +84,7 @@ CT_TEST(capabilities_parallel_phase) {
     std::string out = run_cli("capabilities --json", rc);
     CT_CHECK(rc == 0);
     JsonValue v = must_parse(out);
-    CT_CHECK(v.get_string("phase") == "prompt-4-recovery");
+    CT_CHECK(v.get_string("phase") == "prompt-5-release");
     CT_CHECK(v.find("features")->get_bool("parallel_routing", false));
     CT_CHECK(v.find("features")->get_bool("ripup_reroute", false));
     bool has_benchmark = false;
@@ -328,6 +328,117 @@ CT_TEST(route_complete_carries_verifier_ok) {
     CT_CHECK(v.get_bool("verifier_ok", false));
     CT_CHECK(v.has("verification"));
     CT_CHECK(v.find("verification")->get_bool("ok", false));
+}
+
+CT_TEST(explain_failure_renders_report) {
+    int rc = 0;
+    std::string rep = temp_path("explain_report.json");
+    run_cli("route " + fixture("blocked_impossible.json") + " --json --report \"" + rep +
+                "\" --seed 42",
+            rc);
+    CT_CHECK(rc == 4);
+    int rc2 = 0;
+    std::string out = run_cli("explain-failure \"" + rep + "\" --json", rc2);
+    CT_CHECK(rc2 == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("schema") == "copperline/failure-explanation/1");
+    CT_CHECK(v.get_number("failure_count", 0) >= 1);
+    const JsonValue& fl = v.find("failures")->as_array().front();
+    CT_CHECK(fl.get_string("net_name") == "SIG1");
+    CT_CHECK(!fl.get_string("category").empty());
+    CT_CHECK(fl.has("top_blockers"));
+    CT_CHECK(fl.has("suggestion"));
+    CT_CHECK(fl.get_number("candidate_count", -1) >= 0);
+}
+
+CT_TEST(threads_zero_means_auto) {
+    int rc = 0;
+    std::string out = run_cli("route " + fixture("open_2layer.json") +
+                                  " --json --seed 7 --threads 0",
+                              rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    CT_CHECK(v.find("params")->get_number("threads_effective", 0) >= 1);
+    CT_CHECK(v.find("params")->get_number("memory_budget_mb", 0) == 2048);
+}
+
+CT_TEST(dsn_ses_workflow) {
+    int rc = 0;
+    std::string ses = temp_path("golden_demo_cli.ses");
+    std::string out = run_cli("route " + fixture("golden_demo.dsn") + " --json --seed 42 " +
+                                  "--output \"" + ses + "\"",
+                              rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    CT_CHECK(v.get_string("output_format") == "ses");
+    int rc2 = 0;
+    std::string vout = run_cli("verify " + fixture("golden_demo.dsn") + " --routes \"" +
+                                   ses + "\" --json",
+                               rc2);
+    CT_CHECK(rc2 == 0);
+    JsonValue vv = must_parse(vout);
+    CT_CHECK(vv.get_bool("ok", false));
+}
+
+CT_TEST(route_optimizer_reported) {
+    int rc = 0;
+    std::string out = run_cli("route " + fixture("open_2layer.json") + " --json --seed 7", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.has("optimizer"));
+    CT_CHECK(v.find("optimizer")->get_bool("ran", false));
+    CT_CHECK(v.find("optimizer")->get_string("schema") == "copperline/optimizer-report/1");
+}
+
+CT_TEST(capabilities_unsupported_empty) {
+    int rc = 0;
+    std::string out = run_cli("capabilities --json", rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.find("unsupported")->as_array().empty());
+    CT_CHECK(v.find("features")->get_bool("kicad_export", false));
+    CT_CHECK(v.find("features")->get_bool("gerber_import", false));
+    CT_CHECK(v.find("features")->get_bool("ipc2581_import", false));
+    CT_CHECK(v.find("features")->get_bool("copper_pours", false));
+    bool has_gerber = false, has_ipc = false;
+    for (const auto& f : v.find("formats")->find("supported")->as_array()) {
+        if (f.as_string() == "gerber") has_gerber = true;
+        if (f.as_string() == "ipc-2581") has_ipc = true;
+    }
+    CT_CHECK(has_gerber && has_ipc);
+    CT_CHECK(v.find("formats")->find("planned")->as_array().empty());
+}
+
+CT_TEST(route_kicad_export_verify) {
+    int rc = 0;
+    std::string routed = temp_path("routed_kicad.kicad_pcb");
+    std::string out = run_cli("route " + fixture("minimal.kicad_pcb") +
+                                  " --json --seed 42 --output \"" + routed + "\"",
+                              rc);
+    CT_CHECK(rc == 0);
+    JsonValue v = must_parse(out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    CT_CHECK(v.get_string("output_format") == "kicad_pcb");
+    int rc2 = 0;
+    std::string vout = run_cli("verify \"" + routed + "\" --json", rc2);
+    CT_CHECK(rc2 == 0);
+    JsonValue vv = must_parse(vout);
+    CT_CHECK(vv.get_bool("ok", false));
+}
+
+CT_TEST(analyze_gerber_and_ipc2581) {
+    int rc = 0;
+    std::string gout = run_cli("analyze " + fixture("gerber_copper.gbr") + " --json", rc);
+    CT_CHECK(rc == 0);
+    JsonValue g = must_parse(gout);
+    CT_CHECK(g.get_string("schema") == "copperline/analyze-report/1");
+    int rc2 = 0;
+    std::string iout = run_cli("analyze " + fixture("ipc2581_demo.xml") + " --json", rc2);
+    CT_CHECK(rc2 == 0);
+    JsonValue iv = must_parse(iout);
+    CT_CHECK(iv.find("board")->get_number("terminals", 0) == 4);
 }
 
 int main() { return copperline::test::run_all_tests(); }

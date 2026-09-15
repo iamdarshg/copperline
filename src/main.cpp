@@ -22,6 +22,7 @@
 
 #include "router/analyze.h"
 #include "router/board.h"
+#include "router/dsn.h"
 #include "router/engine.h"
 #include "router/escape.h"
 #include "router/maturity.h"
@@ -51,7 +52,7 @@ struct Flags {
     bool progress = false;  // NDJSON epoch events on stderr
     std::string config;
     unsigned seed = 42;
-    int threads = 0;  // issue #3: 0 = auto (all CPUs, bounded by 2048MB)
+    int threads = 0;  // Prompt 5: 0 = auto (hardware_concurrency, bounded)
     int route_k = 0;  // issue #8: 0 = auto (maturity route-K), else 1..15 wins
     bool no_impact = false;  // issue #9: disable obstruction scoring
     bool impact_mlp = false;  // issue #9: tiny fixed-weight MLP scorer
@@ -65,12 +66,14 @@ struct Flags {
     bool recovery_beam_set = false;
     bool max_multiply_nodes_set = false;
     bool no_tuning = false;  // issue #15: disable post-route length tuning
+    bool no_optimizer = false;  // Prompt 5: disable cleanup optimizer
     double tuning_amplitude_mm = 0;  // issue #15: 0 = config default
     double tuning_pitch_mm = 0;      // issue #15: 0 = config default
     double tuning_max_added_mm = 0;  // issue #15: 0 = config default
     std::string output;
     std::string report;
     std::string board;
+    std::string routes;  // Prompt 5: `verify <board> --routes <routed>` merge file
 };
 
 void warn(const Flags& f, const std::string& msg) {
@@ -160,8 +163,11 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
                 err = "bad --threads value";
                 return false;
             }
-            if (f.threads < 1) {
-                err = "--threads must be >= 1";
+            // Prompt 5: 0 = auto (all CPUs via hardware_concurrency);
+            // explicit N >= 1 wins. Total stays within the 2048MB budget
+            // via bounded batch widths (see EngineOptions).
+            if (f.threads < 0) {
+                err = "--threads must be >= 0 (0 = auto)";
                 return false;
             }
             ++i;
@@ -250,6 +256,8 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
             f.no_hierarchy = true;
         } else if (a == "--no-tuning") {
             f.no_tuning = true;  // issue #15
+        } else if (a == "--no-optimizer") {
+            f.no_optimizer = true;  // Prompt 5
         } else if (a == "--tuning-amplitude-mm") {
             if (!need_value(i, "--tuning-amplitude-mm", v)) return false;
             try {
@@ -300,6 +308,10 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
         } else if (a == "--report") {
             if (!need_value(i, "--report", v)) return false;
             f.report = v;
+            ++i;
+        } else if (a == "--routes") {
+            if (!need_value(i, "--routes", v)) return false;
+            f.routes = v;
             ++i;
         } else if (!a.empty() && a[0] == '-') {
             err = "unknown flag: " + a;
@@ -368,6 +380,28 @@ bool load_resolver(const Flags& f, const Board& board, RuleResolver& out, std::s
     }
 }
 
+// Prompt 5: extend (never replace) the sidecar system. A "nets" object in
+// --config carries current/voltage intent for formats (DSN/KiCad) that lack
+// it. Applied to the imported board before the resolver is built.
+bool apply_sidecar(const Flags& f, Board& board, std::string& msg) {
+    if (f.config.empty()) return true;
+    std::string text, err;
+    if (!read_file(f.config, text, err)) {
+        msg = err;
+        return false;
+    }
+    try {
+        JsonValue cfg = parse_json(text);
+        apply_sidecar_nets(board, cfg);
+    } catch (const BoardError& e) {
+        msg = e.what();
+        return false;
+    } catch (const std::exception& e) {
+        msg = std::string("bad config JSON: ") + e.what();
+        return false;
+    }
+    return true;
+}
 // Issue #14: optional "maturity" object inside --config JSON overrides the
 // adaptive-budget thresholds/caps. The resolver load already validated the
 // file above, so this re-read only applies the maturity section.
@@ -444,23 +478,34 @@ JsonValue capabilities_json() {
     r["schema"] = "copperline/capabilities/1";
     r["name"] = "copperline";
     r["version"] = COPPERLINE_VERSION;
-    r["phase"] = "prompt-4-recovery";
+    r["phase"] = "prompt-5-release";
     JsonValue cmds = JsonValue::array();
-    for (const char* c : {"capabilities", "analyze", "verify", "route", "escape", "benchmark"})
+    for (const char* c : {"capabilities", "analyze", "verify", "route", "escape",
+                          "benchmark", "explain-failure"})
         cmds.as_array().push_back(JsonValue(c));
     r["commands"] = cmds;
     JsonValue planned = JsonValue::array();
-    for (const char* c : {"explain-failure"})
-        planned.as_array().push_back(JsonValue(c));
     r["planned_commands"] = planned;
     JsonValue formats = JsonValue::object();
     JsonValue sup = JsonValue::array();
     for (const auto& s : supported_formats()) sup.as_array().push_back(JsonValue(s));
     formats["supported"] = sup;
     JsonValue fut = JsonValue::array();
-    for (const char* c : {"dsn", "ses", "ipc-2581", "gerber"})
-        fut.as_array().push_back(JsonValue(c));
     formats["planned"] = fut;
+    formats["notes"] =
+        "json: native round-trip; "
+        "kicad_pcb: ingest + export (outline, nets + net classes, footprints/pads, "
+        "tracks, vias, copper zones as planes, keepout rule areas); "
+        "dsn: Specctra subset (structure/network/library/placement) + SES route "
+        "export; planes + copper_pour map to planes when net+layer resolve, "
+        "otherwise skipped with explicit warning (never silent); "
+        "gerber: RS-274X subset (apertures D10+, draws/flashes/regions, polarity, "
+        "inch/mm, zero-suppression modes) on copper layers into single-net "
+        "(COPPER) pads/traces/pours + obstacles; outline from profile layer "
+        "when present, else copper bbox + 1mm; no embedded netlist; "
+        "ipc-2581: IPC-2581C flat-subset XML (Datum, Layers, Nets, Components/"
+        "Pads, Traces/Vias, Profiles, NetClass widths/clearances); see README "
+        "honest-limits sections for each format";
     r["formats"] = formats;
     JsonValue codes = JsonValue::object();
     codes["0"] = "success";
@@ -492,7 +537,19 @@ JsonValue capabilities_json() {
     feat["ripup_reroute"] = true;
     feat["meta_search"] = true;
     feat["recovery_modes"] = true;
-    feat["optimizer"] = false;
+    feat["optimizer"] = true;
+    feat["cleanup_optimizer"] = true;
+    feat["explain_failure"] = true;
+    feat["dsn_import"] = true;
+    feat["ses_export"] = true;
+    feat["kicad_export"] = true;
+    feat["gerber_import"] = true;
+    feat["ipc2581_import"] = true;
+    feat["copper_pours"] = true;
+    feat["sidecar_nets"] = true;
+    feat["golden_suite"] = true;
+    JsonValue unsup = JsonValue::array();
+    r["unsupported"] = unsup;
     r["features"] = feat;
     return r;
 }
@@ -501,10 +558,11 @@ int cmd_capabilities(const Flags& f) {
     if (f.json) {
         emit_json(f, capabilities_json());
     } else if (!f.quiet) {
-        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-4 recovery)\n"
-                  << "commands: capabilities, analyze, verify, route, escape, benchmark\n"
-                  << "planned: explain-failure\n"
-                  << "formats: json, kicad_pcb (.kicad_pcb)\n"
+        std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-5 release)\n"
+                  << "commands: capabilities, analyze, verify, route, escape, benchmark,\n"
+                  << "          explain-failure\n"
+                  << "formats: json, kicad_pcb (.kicad_pcb), dsn (.dsn),\n"
+                  << "         gerber (.gbr/.gtl/.gbl/...), ipc-2581 (.xml)\n"
                   << "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
                   << "            5 rule violation, 6 internal failure, 7 budget exhausted\n";
     }
@@ -516,6 +574,9 @@ int cmd_analyze(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    if (!apply_sidecar(f, lb.board, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
     if (!f.config.empty()) {
         if (!load_resolver(f, lb.board, resolver, msg))
@@ -542,6 +603,19 @@ int cmd_verify(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    if (!apply_sidecar(f, lb.board, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
+    // Prompt 5 DSN+SES workflow: `verify board.dsn --routes routed.ses`.
+    if (!f.routes.empty()) {
+        try {
+            for (const auto& w : merge_routes_file(lb.board, f.routes)) warn(f, "routes: " + w);
+        } catch (const BoardError& e) {
+            return fail(f, e.kind == InputKind::kRule ? kBadRules : kInvalidInput,
+                        e.kind == InputKind::kRule ? "malformed_rules" : "invalid_input",
+                        e.what());
+        }
+    }
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
     if (!f.config.empty()) {
         if (!load_resolver(f, lb.board, resolver, msg))
@@ -573,6 +647,9 @@ int cmd_escape(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    if (!apply_sidecar(f, lb.board, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
     if (!f.config.empty()) {
         if (!load_resolver(f, lb.board, resolver, msg))
@@ -611,6 +688,9 @@ int cmd_route(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    if (!apply_sidecar(f, lb.board, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
     if (!f.config.empty()) {
         if (!load_resolver(f, lb.board, resolver, msg))
@@ -640,6 +720,8 @@ int cmd_route(const Flags& f) {
     opt.max_multiply_nodes = f.max_multiply_nodes;  // issue #22
     // Issue #15: explicit tuning CLI wins over --config; --no-tuning off.
     if (f.no_tuning) opt.tuning.enabled = false;
+    // Prompt 5: cleanup optimizer on by default (gated on COMPLETE inside).
+    if (f.no_optimizer) opt.optimizer.enabled = false;
     if (f.tuning_amplitude_mm > 0) opt.tuning.amplitude_nm = mm_to_nm(f.tuning_amplitude_mm);
     if (f.tuning_pitch_mm > 0) opt.tuning.pitch_nm = mm_to_nm(f.tuning_pitch_mm);
     if (f.tuning_max_added_mm > 0) opt.tuning.max_added_nm = mm_to_nm(f.tuning_max_added_mm);
@@ -705,14 +787,34 @@ int cmd_route(const Flags& f) {
     params["tuning_amplitude_mm"] = nm_to_mm(opt.tuning.amplitude_nm);
     params["tuning_pitch_mm"] = nm_to_mm(opt.tuning.pitch_nm);
     params["tuning_max_added_mm"] = nm_to_mm(opt.tuning.max_added_nm);
+    params["optimizer_enabled"] = !f.no_optimizer;  // Prompt 5
+    // Prompt 5 diagnostics: effective threads/memory actually used.
+    params["threads_effective"] = static_cast<double>(opt.threads);
+    params["memory_budget_mb"] =
+        static_cast<double>(opt.memory_budget_bytes / (1024ULL * 1024ULL));
+    params["optimizer_max_candidates"] =
+        static_cast<double>(opt.optimizer.max_candidates);
     rj["params"] = params;
 
     const Board& routed = engine.committed();
+    auto has_suffix = [](const std::string& s, const std::string& suf) {
+        return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+    };
     if (!f.output.empty()) {
         std::string err;
-        if (!write_file(f.output, serialize_json(board_to_json(routed), true), err))
-            return fail(f, kInvalidInput, "write_failed", err);
+        bool ok = false;
+        if (has_suffix(f.output, ".ses")) {
+            ok = write_file(f.output, board_to_ses(routed, f.board), err);
+        } else if (has_suffix(f.output, ".kicad_pcb")) {
+            ok = write_file(f.output, board_to_kicad_pcb(routed), err);
+        } else {
+            ok = write_file(f.output, serialize_json(board_to_json(routed), true), err);
+        }
+        if (!ok) return fail(f, kInvalidInput, "write_failed", err);
         rj["output"] = f.output;
+        rj["output_format"] = has_suffix(f.output, ".ses")
+                                  ? "ses"
+                                  : (has_suffix(f.output, ".kicad_pcb") ? "kicad_pcb" : "json");
     } else {
         rj["board"] = board_to_json(routed);
     }
@@ -766,7 +868,9 @@ int cmd_benchmark(const Flags& f) {
     }
     unsigned hw = std::thread::hardware_concurrency();
     if (hw == 0) hw = 4;
-    int par_threads = f.threads > 1 ? f.threads : static_cast<int>(hw);
+    // Prompt 5: explicit --threads wins; 0/default = all CPUs. Bound by the
+    // 2048MB router budget via fixed batch widths (never by thread count).
+    int par_threads = f.threads >= 1 ? f.threads : static_cast<int>(hw);
     // Issue #14: benchmark runs share the route maturity config (if any).
     EngineOptions bench_base;
     bench_base.seed = f.seed;
@@ -812,13 +916,26 @@ int cmd_benchmark(const Flags& f) {
         JsonValue o = JsonValue::object();
         o["threads"] = static_cast<double>(threads);
         o["status"] = rep.status;
+        o["result_category"] = rep.result_category;
         o["wall_ms"] = static_cast<double>(wall);
         o["engine_ms"] = static_cast<double>(rep.stats.time_ms);
         o["expansions"] = static_cast<double>(rep.stats.expansions_total);
         o["tasks_routed"] = static_cast<double>(rep.stats.tasks_routed);
         o["tasks_total"] = static_cast<double>(rep.stats.tasks_total);
+        o["connected_terminals"] = static_cast<double>(rep.connected_terminals);
+        o["total_terminals"] = static_cast<double>(rep.total_terminals);
+        o["connected_pct"] = rep.total_terminals > 0
+                                 ? 100.0 * rep.connected_terminals / rep.total_terminals
+                                 : 100.0;
         o["epochs"] = static_cast<double>(rep.stats.epochs_count);
+        o["ripup_generations"] = static_cast<double>(rep.recovery.generations);
+        o["accepted"] = static_cast<double>(rep.stats.candidates_accepted);
+        o["rejected"] = static_cast<double>(rep.stats.candidates_rejected);
         o["threads_used"] = static_cast<double>(rep.stats.threads_used);
+        o["via_count"] = static_cast<double>(rep.stats.via_count);
+        o["length_mm"] = nm_to_mm(rep.stats.length_nm);
+        o["optimizer_applied"] = static_cast<double>(rep.optimizer.applied);
+        o["optimizer_reverted"] = static_cast<double>(rep.optimizer.reverted);
         o["board_hash"] = rep.board_hash;
         return o;
     };
@@ -826,6 +943,11 @@ int cmd_benchmark(const Flags& f) {
     r["parallel"] = side(repN, wallN, par_threads);
     r["identical_geometry"] = rep1.board_hash == repN.board_hash;
     r["speedup"] = wallN > 0 ? static_cast<double>(wall1) / static_cast<double>(wallN) : 0.0;
+    // Prompt 5 resource accounting (honest bounds, not sampled RSS).
+    r["memory_budget_mb"] =
+        static_cast<double>(bench_base.memory_budget_bytes / (1024ULL * 1024ULL));
+    r["batch_width_cap"] = 8.0;  // kParallelBatchSize: threads never widen batches
+    r["cpu_threads"] = static_cast<double>(hw);
     if (f.json) {
         emit_json(f, r);
     } else if (!f.quiet) {
@@ -836,31 +958,140 @@ int cmd_benchmark(const Flags& f) {
     return kOk;
 }
 
+int cmd_explain_failure(const Flags& f) {
+    // Prompt 5: render a route report's per-connection failures for agents.
+    // Input is a route-report.json file (from `route --report` or --output).
+    if (f.board.empty())
+        return fail(f, kInvalidInput, "missing_report", "no route report file given");
+    std::string text, err;
+    if (!read_file(f.board, text, err))
+        return fail(f, kInvalidInput, "invalid_input", err);
+    JsonValue rep;
+    try {
+        rep = parse_json(text);
+    } catch (const std::exception& e) {
+        return fail(f, kInvalidInput, "invalid_input",
+                    std::string("bad report JSON: ") + e.what());
+    }
+    if (rep.get_string("schema") != "copperline/route-report/1")
+        return fail(f, kInvalidInput, "invalid_input",
+                    "not a copperline/route-report/1 file (got '" +
+                        rep.get_string("schema") + "')");
+    JsonValue out = JsonValue::object();
+    out["schema"] = "copperline/failure-explanation/1";
+    out["status"] = rep.get_string("status");
+    out["result_category"] = rep.get_string("result_category");
+    out["connected_terminals"] = rep.get_number("connected_terminals", 0);
+    out["total_terminals"] = rep.get_number("total_terminals", 0);
+    out["remaining_terminals"] = rep.get_number("remaining_terminals", 0);
+    out["board_hash"] = rep.get_string("board_hash");
+    const JsonValue* fails = rep.find("failures");
+    JsonValue list = JsonValue::array();
+    std::size_t nfail = (fails && fails->is_array()) ? fails->as_array().size() : 0;
+    if (fails && fails->is_array()) {
+        for (const auto& fl : fails->as_array()) {
+            JsonValue e = JsonValue::object();
+            e["net"] = fl.get_number("net", -1);
+            e["net_name"] = fl.get_string("net_name");
+            e["terminal_a"] = fl.get_number("terminal_a", -1);
+            e["terminal_b"] = fl.get_number("terminal_b", -1);
+            e["src_component"] = fl.get_string("src_component");
+            e["src_pin"] = fl.get_string("src_pin");
+            e["dst_component"] = fl.get_string("dst_component");
+            e["dst_pin"] = fl.get_string("dst_pin");
+            e["reason"] = fl.get_string("reason");
+            e["category"] = fl.get_string("category", rep.get_string("result_category"));
+            e["required_width_mm"] = fl.get_number("required_width_mm", 0);
+            e["width_source"] = fl.get_string("width_source");
+            e["required_current_a"] = fl.get_number("required_current_a", 0);
+            e["centre_depth"] = fl.get_number("centre_depth", -1);
+            e["pin_density_per_mm2"] = fl.get_number("pin_density_per_mm2", 0);
+            e["candidate_count"] = fl.get_number("candidate_count", 0);
+            e["expansions"] = fl.get_number("expansions", 0);
+            e["ripup_attempts"] = fl.get_number("ripup_attempts", 0);
+            e["best_partial"] = fl.get_string("best_partial");
+            if (const JsonValue* b = fl.find("blockers")) e["top_blockers"] = *b;
+            if (const JsonValue* m = fl.find("modes_attempted")) e["modes_attempted"] = *m;
+            if (const JsonValue* al = fl.find("attempted_layers")) e["attempted_layers"] = *al;
+            if (const JsonValue* av = fl.find("attempted_via_classes"))
+                e["attempted_via_classes"] = *av;
+            if (const JsonValue* fr = fl.find("frontier")) e["frontier"] = *fr;
+            // Actionable suggestion, deterministic per reason.
+            std::string reason = fl.get_string("reason");
+            std::string hint;
+            if (reason == "budget_exhausted" || reason == "unattempted")
+                hint = "raise --max-search-nodes / --timeout, or widen recovery beam";
+            else if (reason == "conflict")
+                hint = "inspect top_blockers: rip-up already tried; consider rule or placement change";
+            else if (reason == "no_via")
+                hint = "check via_classes for a style covering required_current_a";
+            else if (reason.rfind("hard_violation", 0) == 0)
+                hint = "pre-existing illegal copper: fix input or relax the violated rule";
+            else if (reason == "impedance_current_conflict" || reason == "impedance_infeasible")
+                hint = "ampacity floor vs impedance band conflict: change stackup or targets";
+            else
+                hint = "corridor blocked: see top_blockers + congestion_hotspots in the report";
+            e["suggestion"] = hint;
+            list.as_array().push_back(e);
+        }
+    }
+    out["failure_count"] = static_cast<double>(nfail);
+    out["failures"] = list;
+    if (const JsonValue* hs = rep.find("congestion_hotspots")) out["hotspots"] = *hs;
+    if (f.json) {
+        emit_json(f, out);
+    } else if (!f.quiet) {
+        std::cout << "failures: " << nfail << " (" << out.get_string("status") << "/"
+                  << out.get_string("result_category") << ")\n";
+        for (const auto& e : list.as_array()) {
+            std::cout << "  net " << e.get_string("net_name") << " terminals "
+                      << e.get_number("terminal_a", -1) << "->" << e.get_number("terminal_b", -1);
+            std::string sc = e.get_string("src_component");
+            if (!sc.empty())
+                std::cout << " (" << sc << "." << e.get_string("src_pin") << " -> "
+                          << e.get_string("dst_component") << "." << e.get_string("dst_pin")
+                          << ")";
+            std::cout << " reason=" << e.get_string("reason")
+                      << " candidates=" << e.get_number("candidate_count", 0)
+                      << " ripups=" << e.get_number("ripup_attempts", 0) << "\n";
+            std::cout << "    suggestion: " << e.get_string("suggestion") << "\n";
+        }
+    }
+    return kOk;
+}
+
 int run(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "usage: router <capabilities|analyze|verify|route|escape|benchmark> [board] [flags]\n"
+        std::cerr << "usage: router <capabilities|analyze|verify|route|escape|benchmark|explain-failure> [board] [flags]\n"
                      "       router --help | router --version\n";
         return kInvalidInput;
     }
     if (args[1] == "--help" || args[1] == "-h" || args[1] == "help") {
         std::cout << "copperline " << COPPERLINE_VERSION
                   << " - headless PCB autorouter for agents\n\n"
-                     "  router capabilities [--json]\n"
-                     "  router analyze <board> [--json] [--config cfg.json]\n"
-                     "  router verify <board> [--json] [--config cfg.json]\n"
-                         "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
-                         "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
-                      "                       [--route-k K] [--output routed.json] [--report report.json]\n"
+                      "  router capabilities [--json]\n"
+                      "  router analyze <board> [--json] [--config cfg.json]\n"
+                      "  router verify <board> [--json] [--config cfg.json] [--routes routed.ses]\n"
+                      "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
+                      "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
+                      "                       [--route-k K] [--output routed.ses] [--report report.json]\n"
                       "                       [--no-hierarchy] [--no-impact] [--impact-mlp]\n"
                       "                       [--recovery-depth D] [--recovery-beam B]\n"
-                      "                       [--max-multiply-nodes N]\n"
+                      "                       [--max-multiply-nodes N] [--no-optimizer]\n"
                       "                       [--no-tuning] [--tuning-amplitude-mm A]\n"
                       "                       [--tuning-pitch-mm P] [--tuning-max-added-mm M]\n"
                       "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n"
                       "  router benchmark <board> [--json] [--config cfg.json] [--seed N]\n"
-                      "                       [--threads N] [--timeout S] [--max-search-nodes N]\n\n"
+                      "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
+                      "  router explain-failure <route-report.json> [--json]\n\n"
                       "route flags: --progress emits NDJSON epoch events on stderr\n"
-                      "boards: .json (native) or .kicad_pcb\n";
+                      "boards: .json (native), .kicad_pcb, .dsn (Specctra subset),\n"
+                      "        .gbr/.gtl/.gbl (Gerber RS-274X subset), .xml (IPC-2581C subset)\n"
+                      "route --output: .json (native), .ses (Specctra session),\n"
+                      "                or .kicad_pcb (KiCad board)\n"
+                      "threads: 0 = auto (all CPUs); explicit N wins; memory <= 2048MB\n"
+                      "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
+                      "            5 rule violation, 6 internal failure, 7 budget exhausted\n";
         return kOk;
     }
     if (args[1] == "--version") {
@@ -883,9 +1114,7 @@ int run(const std::vector<std::string>& args) {
         if (cmd == "route") return cmd_route(f);
         if (cmd == "escape") return cmd_escape(f);
         if (cmd == "benchmark") return cmd_benchmark(f);
-        if (cmd == "explain-failure")
-            return fail(f, kInvalidInput, "not_implemented",
-                        "command 'explain-failure' lands in Prompt 5");
+        if (cmd == "explain-failure") return cmd_explain_failure(f);
         return fail(f, kInvalidInput, "unknown_command",
                     "unknown command '" + cmd + "' (see router --help)");
     } catch (const BoardError& e) {

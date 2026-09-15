@@ -31,6 +31,7 @@
 #include "router/impact.h"
 #include "router/json.h"
 #include "router/maturity.h"
+#include "router/optimizer.h"
 #include "router/parallel.h"
 #include "router/recovery.h"
 #include "router/rules.h"
@@ -64,6 +65,24 @@ struct RouteFailure {
     std::vector<std::string> modes_attempted;
     FrontierDiag frontier;
     bool has_frontier = false;
+    // Prompt 5 agent-stable failure attribution (stable IDs for iteration):
+    // source/target component+pin, centre depth (fine-pitch, -1 when n/a),
+    // endpoint pin density, failed candidate count, best partial state and
+    // the per-connection reason category.
+    std::string src_component;
+    std::string src_pin;
+    std::string dst_component;
+    std::string dst_pin;
+    int centre_depth = -1;
+    double pin_density = 0.0;
+    int candidate_count = 0;
+    std::string best_partial;
+    // SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS |
+    // UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET
+    std::string category = "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET";
+    // Prompt 5: attempted layers / via classes for this connection.
+    std::vector<LayerId> attempted_layers;
+    std::vector<std::string> attempted_via_classes;
     // Issue #11: controlled-impedance accounting for this task's net.
     bool has_impedance = false;
     double target_impedance_ohms = 0.0;
@@ -152,6 +171,7 @@ struct RouteReport {
     std::vector<ImpedanceResolution> impedance;  // issue #11: per-net Z report
     std::vector<PairReport> diffpairs;  // issue #12: corridor + materialization
     TuningSummary tuning;  // issue #15: post-route length/skew tuning stage
+    OptimizerReport optimizer;  // Prompt 5: transactional cleanup (COMPLETE only)
     VerifyResult verification;  // independent BoardVerifier gate on final copper
     // Issue #14: maturity/budget schedule over the run (one entry per greedy
     // epoch plus one per recovery generation) + the final effective state.
@@ -203,6 +223,9 @@ struct EngineOptions {
     // after global closure + pair materialization, only when targets
     // exist). --no-tuning or tuning.enabled=false disables the stage.
     TuningConfig tuning;
+    // Prompt 5: transactional cleanup optimizer (on by default; runs only
+    // after COMPLETE + independent verifier pass). --no-optimizer disables.
+    OptimizerOptions optimizer;
 };
 
 class RouterEngine {

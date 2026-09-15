@@ -284,6 +284,12 @@ std::vector<std::string> supported_formats();
 // Serialize a (possibly routed) board back to native JSON.
 JsonValue board_to_json(const Board& board);
 
+// Serialize a (possibly routed) board to KiCad `.kicad_pcb` s-expression
+// text (round-trip safe: import -> export -> re-import preserves nets,
+// pads, tracks, vias, zones and net-class rules; see kicad_export.cpp
+// for the documented approximations).
+std::string board_to_kicad_pcb(const Board& board);
+
 // ---- Issue #16: integer-nm polygon helpers for plane geometry ----
 
 // Exact point-in-polygon (boundary counts as inside). Deterministic.

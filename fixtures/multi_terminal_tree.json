@@ -1,0 +1,30 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 30, "height_mm": 30},
+  "layers": [{"id": 0, "name": "Top"}, {"id": 1, "name": "Bottom"}],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "TREE", "current_a": 0.2, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 0, "x_mm": 3, "y_mm": 15, "layer": 0, "component": "U1", "pin": "1"},
+        {"id": 1, "x_mm": 27, "y_mm": 15, "layer": 0, "component": "U2", "pin": "1"},
+        {"id": 2, "x_mm": 15, "y_mm": 3, "layer": 0, "component": "U3", "pin": "1"},
+        {"id": 3, "x_mm": 15, "y_mm": 27, "layer": 0, "component": "U4", "pin": "1"}
+      ]
+    },
+    {
+      "id": 1, "name": "SIG", "current_a": 0.1, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 4, "x_mm": 3, "y_mm": 5, "layer": 0, "component": "U1", "pin": "2"},
+        {"id": 5, "x_mm": 27, "y_mm": 25, "layer": 0, "component": "U2", "pin": "2"}
+      ]
+    }
+  ]
+}

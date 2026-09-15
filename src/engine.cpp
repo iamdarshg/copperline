@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <thread>
@@ -119,6 +120,22 @@ JsonValue RouteReport::to_json() const {
         JsonValue ma = JsonValue::array();
         for (const auto& m : f.modes_attempted) ma.as_array().push_back(JsonValue(m));
         o["modes_attempted"] = ma;
+        // Prompt 5 agent-stable attribution (stable IDs for iteration).
+        o["src_component"] = f.src_component;
+        o["src_pin"] = f.src_pin;
+        o["dst_component"] = f.dst_component;
+        o["dst_pin"] = f.dst_pin;
+        o["centre_depth"] = static_cast<double>(f.centre_depth);
+        o["pin_density_per_mm2"] = f.pin_density;
+        o["candidate_count"] = static_cast<double>(f.candidate_count);
+        o["best_partial"] = f.best_partial;
+        o["category"] = f.category;
+        JsonValue al = JsonValue::array();
+        for (LayerId l : f.attempted_layers) al.as_array().push_back(JsonValue(static_cast<double>(l)));
+        o["attempted_layers"] = al;
+        JsonValue av = JsonValue::array();
+        for (const auto& v : f.attempted_via_classes) av.as_array().push_back(JsonValue(v));
+        o["attempted_via_classes"] = av;
         // Issue #11: controlled-impedance accounting.
         o["has_impedance"] = f.has_impedance;
         if (f.has_impedance) {
@@ -178,6 +195,8 @@ JsonValue RouteReport::to_json() const {
     r["diffpairs"] = dp;
     // Issue #15: post-route length/skew tuning report.
     r["tuning"] = tuning.to_json();
+    // Prompt 5: transactional cleanup optimizer report.
+    r["optimizer"] = optimizer.to_json();
     r["recovery"] = recovery.to_json();
     r["escape"] = escape_stage.to_json();
     // Issue #14: maturity/budget schedule + final effective state. Agents
@@ -265,7 +284,8 @@ void apply_verifier_gate(RouteReport& report, const VerifyResult& vr) {
     if (!vr.legal) {
         if (report.status != "VIOLATION") {
             report.status = "VIOLATION";
-            report.result_category = result_category(report.status);
+    report.result_category = result_category(report.status);
+    for (auto& f : report.failures) f.category = report.result_category;
         }
         // Ensure failures explain the violation even when bookkeeping was
         // COMPLETE (failures empty). One synthetic entry per violation keeps
@@ -331,6 +351,7 @@ RouteReport RouterEngine::run() {
     // copper-target RouteTree growth) instead of raw dense pads.
     std::vector<OwnedRoute> owned;
     std::map<TermId, std::string> escape_infeasible_reason;
+    std::map<TermId, int> escape_centre_depth;  // Prompt 5: failure attribution
     {
         EscapePlanner planner;
         EscapeResult esc = planner.plan(board_, resolver_, ctx);
@@ -375,6 +396,7 @@ RouteReport RouterEngine::run() {
                 report.escape_stage.escaped_terminals.push_back(tid);
             }
             for (const auto& p : fp.pads) {
+                escape_centre_depth[p.terminal] = p.centre_depth;
                 if (!p.has_viable) {
                     report.escape_stage.unresolved_terminals.push_back(p.terminal);
                     std::string reason = p.infeasibility.recorded
@@ -556,6 +578,7 @@ RouteReport RouterEngine::run() {
     // Last epoch in which each task was given a worker attempt (-1 = never).
     std::vector<int> last_epoch(tasks.size(), -1);
     std::map<std::pair<NetId, std::pair<TermId, TermId>>, CandidateRoute> last_attempt;
+    std::map<std::pair<NetId, std::pair<TermId, TermId>>, int> attempt_counts;  // P5
     auto attempt_key = [](const ConnectionTask& t) {
         return std::make_pair(t.net, std::make_pair(std::min(t.a, t.b), std::max(t.a, t.b)));
     };
@@ -1083,6 +1106,7 @@ RouteReport RouterEngine::run() {
         for (std::size_t k = 0; k < batch_n; ++k) {
             int ti = batch_idx[k];
             last_attempt[attempt_key(tasks[ti])] = candidates[k];
+            attempt_counts[attempt_key(tasks[ti])]++;  // Prompt 5: failure report
         }
         for (std::size_t k = 0; k < arb.rejected.size(); ++k) {
             const CandidateRoute& c = candidates[arb.rejected[k]];
@@ -1990,6 +2014,59 @@ RouteReport RouterEngine::run() {
         auto rit = ripup_attempts.find(rk);
         f.ripup_attempts = rit != ripup_attempts.end() ? rit->second : (rec.generations > 0 ? 1 : 0);
         f.modes_attempted = rec.modes_attempted;
+        // Prompt 5 agent-stable attribution: endpoints, density, attempts.
+        {
+            const Terminal* ta = board_.find_terminal(task.a);
+            const Terminal* tb = board_.find_terminal(task.b);
+            if (ta) {
+                f.src_component = ta->component;
+                f.src_pin = ta->pin;
+            }
+            if (tb) {
+                f.dst_component = tb->component;
+                f.dst_pin = tb->pin;
+            }
+            int depth = -1;
+            auto da = escape_centre_depth.find(task.a);
+            if (da != escape_centre_depth.end()) depth = std::max(depth, da->second);
+            auto db = escape_centre_depth.find(task.b);
+            if (db != escape_centre_depth.end()) depth = std::max(depth, db->second);
+            f.centre_depth = depth;
+            // Endpoint pin density: terminals within 5 mm of the task
+            // midpoint, per mm^2. Deterministic, integer-geometry based.
+            if (ta && tb) {
+                Coord mx = (ta->pos.x + tb->pos.x) / 2;
+                Coord my = (ta->pos.y + tb->pos.y) / 2;
+                Coord r = mm_to_nm(5.0);
+                __int128 r2 = (__int128)r * r;
+                int n = 0;
+                for (const auto& t : board_.terminals) {
+                    __int128 dx = (__int128)t.pos.x - mx;
+                    __int128 dy = (__int128)t.pos.y - my;
+                    if (dx * dx + dy * dy <= r2) n++;
+                }
+                f.pin_density = n / (3.14159265358979 * 25.0);
+            }
+            auto cit = attempt_counts.find(attempt_key(task));
+            int greedy_tries = cit != attempt_counts.end() ? cit->second : 0;
+            f.candidate_count = greedy_tries + f.ripup_attempts;
+            for (const auto& l : board_.layers) f.attempted_layers.push_back(l.id);
+            for (const auto& vs :
+                 resolver_.allowedVias(task.net, LayerSpan{board_.layers.front().id,
+                                                          board_.layers.back().id}))
+                f.attempted_via_classes.push_back(vs.name);
+            if (f.has_frontier) {
+                char buf[128];
+                std::snprintf(buf, sizeof(buf), "frontier_gap_mm=%.4f expansions=%lld",
+                              nm_to_mm(f.frontier.closest_goal_dist_nm),
+                              (long long)f.expansions);
+                f.best_partial = buf;
+            } else if (!last) {
+                f.best_partial = "unattempted: no worker candidate produced";
+            } else {
+                f.best_partial = "candidate_rejected_by_arbiter";
+            }
+        }
         const Terminal* ta = board_.find_terminal(task.a);
         TraceRule rule = resolver_.traceRule(
             task.net, ta ? ta->layer : 0, kAnyRegion);
@@ -2131,6 +2208,36 @@ RouteReport RouterEngine::run() {
             }
         }
         apply_verifier_gate(report, vr);
+    }
+    // Prompt 5: transactional cleanup optimizer. Runs ONLY after complete
+    // legal connectivity (engine + independent verifier agree). Every
+    // transform re-verifies and reverts on harm; stats/hashes refresh after.
+    if (report.status == "COMPLETE" && report.verification.ok) {
+        OptimizerOptions oo = options_.optimizer;
+        // Bound optimizer scratch by the router memory budget.
+        oo.max_candidates = std::min<std::size_t>(
+            oo.max_candidates, options_.memory_budget_bytes / (4 * options_.per_task_bytes));
+        if (oo.max_candidates < 8) oo.max_candidates = 8;
+        CleanupOptimizer opt(&board_, &resolver_, ctx, oo);
+        report.optimizer = opt.run();
+        resolver_.rebind(&board_);
+        if (report.optimizer.ran) {
+            report.stats.length_nm = 0;
+            for (const auto& s : board_.traces)
+                report.stats.length_nm += euclid_len_nm(s.a, s.b);
+            report.stats.via_count = static_cast<int>(board_.vias.size());
+            BoardVerifier recheck;
+            VerifyResult vr2 = recheck.verify(board_, resolver_, ctx);
+            apply_verifier_gate(report, vr2);
+            report.board_hash = geometry_hash(board_);
+            report.state_hash = state_hash128(board_, tasks, remaining);
+            for (auto& f : report.failures) f.category = report.result_category;
+        }
+    } else {
+        report.optimizer.enabled = options_.optimizer.enabled;
+        report.optimizer.gate_reason =
+            std::string("gated: status=") + report.status +
+            (report.verification.ok ? "" : " (verifier not ok)");
     }
     if (options_.progress) {
         JsonValue done = JsonValue::object();

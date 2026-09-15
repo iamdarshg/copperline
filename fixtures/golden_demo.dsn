@@ -1,0 +1,21 @@
+# Copperline golden DSN: 2 nets, 2-layer, open routing (Prompt 5 adapter E2E).
+(pcb "golden_dsn_demo"
+  (unit mm)
+  (structure
+    (layer Top (type signal))
+    (layer Bottom (type signal))
+    (boundary (rect 0 0 20 20))
+    (via STD 0.6 0.3)
+    (rule (width 0.2) (clearance 0.15)))
+  (placement
+    (component U1 (place SO8 2 10 front 0))
+    (component U2 (place SO8 18 10 front 0))
+    (component U3 (place SO8 2 5 front 0))
+    (component U4 (place SO8 18 5 front 0)))
+  (library
+    (image SO8 (pin 1 0 0) (pin 2 0 0)))
+  (network
+    (class SIGNAL (rule (width 0.2) (clearance 0.15)))
+    (class PWR (rule (width 0.8) (clearance 0.2)) (circuit (use_via STD)))
+    (net SIG1 (pins U1-1 U2-1) (class SIGNAL))
+    (net VBAT (pins U3-2 U4-2) (class PWR))))

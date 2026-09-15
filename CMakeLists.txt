@@ -18,6 +18,10 @@ add_library(router_core
   src/sexpr.cpp
   src/board.cpp
   src/kicad.cpp
+  src/kicad_export.cpp
+  src/dsn.cpp
+  src/gerber.cpp
+  src/ipc2581.cpp
   src/rules.cpp
   src/spatial_index.cpp
   src/density.cpp
@@ -35,6 +39,7 @@ add_library(router_core
   src/portfolio.cpp
   src/impact.cpp
   src/recovery.cpp
+  src/optimizer.cpp
   src/engine.cpp
   src/verifier.cpp
   src/analyze.cpp
@@ -84,3 +89,5 @@ copperline_test(test_cli)
 copperline_test(test_diffpair)
 copperline_test(test_pair_verify)
 copperline_test(test_tuning)
+copperline_test(test_golden)
+copperline_test(test_formats)

@@ -1,0 +1,22 @@
+{
+  "ampacity": {"model": "ipc2221", "temp_rise_c": 20.0, "copper_weight_oz": 1.0,
+               "min_mm": 0.15, "max_mm": 10.0},
+  "voltage_table": [
+    {"delta_v_min": 0, "clearance_mm": 0.15},
+    {"delta_v_min": 50, "clearance_mm": 1.0}
+  ],
+  "width_classes": [
+    {"name": "SIGNAL", "min_width_mm": 0.15},
+    {"name": "PWR", "min_width_mm": 0.8, "max_current_a": 5.0}
+  ],
+  "via_classes": [
+    {"name": "STD", "outer_mm": 0.6, "hole_mm": 0.3, "max_current_a": 2.0},
+    {"name": "POWER", "outer_mm": 1.2, "hole_mm": 0.6, "max_current_a": 8.0}
+  ],
+  "nets": {
+    "VBAT": {"current_a": 8.0, "voltage_v": 16.8, "trace_width_min_mm": 1.2,
+             "class": "HIGH_CURRENT", "via_class": "POWER"},
+    "GND": {"current_a": 2.0, "voltage_v": 0.0, "width_class": "PWR"},
+    "HV_SW": {"voltage_v": 48.0, "voltage_class": "HV", "clearance_mm": 0.5}
+  }
+}

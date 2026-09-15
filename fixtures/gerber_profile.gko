@@ -1,0 +1,14 @@
+G04 copperline gerber profile fixture*
+%FSLAX46Y46*%
+%MOMM*%
+%TF.FileFunction,Profile*%
+%ADD10C,0.100*%
+D10*
+G36*
+X0Y0D02*
+X20000000Y0D01*
+X20000000Y20000000D01*
+X0Y20000000D01*
+X0Y0D01*
+G37*
+M02*

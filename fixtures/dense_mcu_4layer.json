@@ -1,0 +1,75 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 40, "height_mm": 40},
+  "layers": [
+    {"id": 0, "name": "Top"},
+    {"id": 1, "name": "GND"},
+    {"id": 2, "name": "VCC"},
+    {"id": 3, "name": "Bottom"}
+  ],
+  "defaults": {
+    "trace_width_mm": 0.15,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.5,
+    "via_hole_mm": 0.25,
+    "default_current_a": 0.3
+  },
+  "nets": [
+    {
+      "id": 0, "name": "VBAT", "current_a": 3.0, "voltage_v": 12.0,
+      "terminals": [
+        {"id": 0, "x_mm": 3, "y_mm": 36, "layer": 0, "component": "J1", "pin": "1"},
+        {"id": 1, "x_mm": 37, "y_mm": 36, "layer": 0, "component": "U1", "pin": "VDD"}
+      ]
+    },
+    {
+      "id": 1, "name": "GND", "current_a": 1.0, "voltage_v": 0,
+      "terminals": [
+        {"id": 2, "x_mm": 3, "y_mm": 32, "layer": 0, "component": "J1", "pin": "2"},
+        {"id": 3, "x_mm": 37, "y_mm": 32, "layer": 0, "component": "U1", "pin": "VSS"}
+      ]
+    },
+    {
+      "id": 2, "name": "SDA", "current_a": 0.05, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 4, "x_mm": 5, "y_mm": 5, "layer": 0, "component": "U1", "pin": "SDA"},
+        {"id": 5, "x_mm": 35, "y_mm": 8, "layer": 0, "component": "U2", "pin": "SDA"}
+      ]
+    },
+    {
+      "id": 3, "name": "SCL", "current_a": 0.05, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 6, "x_mm": 5, "y_mm": 9, "layer": 0, "component": "U1", "pin": "SCL"},
+        {"id": 7, "x_mm": 35, "y_mm": 12, "layer": 0, "component": "U2", "pin": "SCL"}
+      ]
+    },
+    {
+      "id": 4, "name": "TX", "current_a": 0.05, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 8, "x_mm": 5, "y_mm": 13, "layer": 0, "component": "U1", "pin": "TX"},
+        {"id": 9, "x_mm": 35, "y_mm": 16, "layer": 0, "component": "U2", "pin": "RX"}
+      ]
+    },
+    {
+      "id": 5, "name": "RX", "current_a": 0.05, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 10, "x_mm": 5, "y_mm": 17, "layer": 0, "component": "U1", "pin": "RX"},
+        {"id": 11, "x_mm": 35, "y_mm": 20, "layer": 0, "component": "U2", "pin": "TX"}
+      ]
+    },
+    {
+      "id": 6, "name": "HV_SW", "current_a": 0.5, "voltage_v": 48.0,
+      "terminals": [
+        {"id": 12, "x_mm": 5, "y_mm": 24, "layer": 0, "component": "U3", "pin": "SW"},
+        {"id": 13, "x_mm": 35, "y_mm": 26, "layer": 0, "component": "L1", "pin": "1"}
+      ]
+    },
+    {
+      "id": 7, "name": "nRST", "current_a": 0.02, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 14, "x_mm": 8, "y_mm": 28, "layer": 3, "component": "U1", "pin": "RST"},
+        {"id": 15, "x_mm": 32, "y_mm": 4, "layer": 0, "component": "J2", "pin": "RST"}
+      ]
+    }
+  ]
+}

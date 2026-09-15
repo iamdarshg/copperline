@@ -6,14 +6,14 @@ EDA pipelines: every important operation has a stable machine-readable JSON
 representation, documented nonzero exit codes, and deterministic output for a
 given `(board, rules, seed)`.
 
-> Status: **Prompt 4 recovery** — rip-up/reroute + chess-engine-style
-> meta-search (stall detection, blocker attribution, dependency graph,
-> protection-weighted selective rip-up, 128-bit state hashing, transposition
-> table, history heuristic, PV reuse, iterative deepening/widening, parallel
-> speculative branches, `FAST → RECOVERY → EXHAUSTIVE_LOCAL_RECOVERY`) on top
-> of Prompt 1 foundation + Prompt 2 escape + Prompt 3 parallel epochs.
-> Adapters/optimizer/release (P5) are explicitly planned and reported as
-> such by `router capabilities`.
+> Status: **Prompt 5 release (v0.1.0) + format completion** — DSN import +
+> SES export, KiCad export, Gerber RS-274X import, IPC-2581C import,
+> DSN/KiCad copper-pour import, sidecar `nets` intent, transactional
+> cleanup optimizer, `explain-failure`, golden suite (10 routable +
+> impossible), determinism + benchmark evidence, on top of Prompt 4
+> recovery + Prompt 3 parallel epochs + Prompt 2 escape.
+> `router capabilities` reports exactly what is done (`unsupported` is
+> now empty; per-format honest limits live below and in `formats.notes`).
 
 ## Quick start (agents: copy/paste)
 
@@ -22,8 +22,8 @@ given `(board, rules, seed)`.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 
-# Run the full test suite (156 cases, 12 binaries, ~21 s)
-ctest --test-dir build --output-on-failure
+# Run the full test suite (303 cases, 27 binaries)
+ctest --test-dir build --parallel 4 --output-on-failure
 
 # Route a board, machine-readable
 ./build/router route fixtures/open_2layer.json --json --seed 42 \
@@ -43,6 +43,19 @@ ctest --test-dir build --output-on-failure
 # Compare single-thread vs multicore with real measured numbers
 ./build/router benchmark fixtures/obstacle_detour.json --json --threads 8
 
+# One real PCB workflow: Specctra DSN in, SES out, independent verify
+./build/router route fixtures/golden_demo.dsn --json --seed 42 \
+  --output routed.ses --report report.json
+./build/router verify fixtures/golden_demo.dsn --routes routed.ses --json
+
+# Route with electrical sidecar intent (DSN/KiCad carry no current intent)
+./build/router route fixtures/dense_mcu_4layer.json \
+  --config fixtures/rules_sidecar_nets.json --json --seed 42 \
+  --output routed.json --report report.json
+
+# Explain an incomplete route without a GUI (stable net/terminal/blocker IDs)
+./build/router explain-failure report.json --json
+
 # Verify committed copper independently of the router's search state
 ./build/router verify routed.json --json
 
@@ -54,9 +67,14 @@ ctest --test-dir build --output-on-failure
 ./build/router escape fixtures/bga_8x8.json --json --report escape.json
 # rc 4 + "INCOMPLETE" when any pad carries an infeasibility record
 
-# Ingest a KiCad board directly
+# Ingest a KiCad board directly, route it, write it back, verify it
 ./build/router analyze fixtures/minimal.kicad_pcb --json
-./build/router route  my_board.kicad_pcb --json --output routed.json
+./build/router route  my_board.kicad_pcb --json --output routed.kicad_pcb
+./build/router verify routed.kicad_pcb --json
+
+# Gerber / IPC-2581 ingest (honest subsets, see Board formats)
+./build/router analyze fixtures/gerber_copper.gbr --json
+./build/router analyze fixtures/ipc2581_demo.xml --json
 
 # What can this build do?
 ./build/router capabilities --json
@@ -78,8 +96,8 @@ ctest --test-dir build --output-on-failure
 | 6 | internal failure (unexpected exception) |
 | 7 | search budget exhausted (`--max-search-nodes` / `--timeout` hit) |
 
-Future commands (`benchmark`, `explain-failure`) exit 2 with
-`"code": "not_implemented"` until their prompt lands. `escape` returns 4
+Future commands: none — all of `analyze/route/verify/escape/benchmark/
+explain-failure/capabilities` are implemented. `escape` returns 4
 when any pad ends infeasible (records included in the JSON report).
 
 ## Electrical awareness
@@ -116,7 +134,10 @@ per-net floors (KiCad net-class semantics: max wins). The model lives in
 `CurrentCapacityModel` / `VoltageClearanceModel` behind `RuleResolver` —
 never inside A*.
 
-Sidecar `--config` (JSON) example — see `fixtures/rules_demo.json`:
+Sidecar `--config` (JSON) example — see `fixtures/rules_demo.json`.
+A `"nets"` object adds current/voltage intent for formats that lack it
+(DSN, KiCad) — see `fixtures/rules_sidecar_nets.json`. It extends, never
+replaces, the blocks below (unknown net names are hard errors):
 
 ```json
 {
@@ -129,7 +150,12 @@ Sidecar `--config` (JSON) example — see `fixtures/rules_demo.json`:
   "class_pairs": [{"a": "HV", "b": "LOGIC", "clearance_mm": 1.5}],
   "pair_rules": [{"a": "MAINS_L", "b": "SELV", "clearance_mm": 3.0}],
   "width_classes": [{"name": "SIGNAL", "min_width_mm": 0.15}],
-  "via_classes": [{"name": "POWER", "outer_mm": 1.2, "hole_mm": 0.6, "max_current_a": 8.0}]
+  "via_classes": [{"name": "POWER", "outer_mm": 1.2, "hole_mm": 0.6, "max_current_a": 8.0}],
+  "nets": {
+    "VBAT": {"current_a": 8.0, "voltage_v": 16.8, "trace_width_min_mm": 1.2,
+             "class": "HIGH_CURRENT", "via_class": "POWER"},
+    "HV_SW": {"voltage_v": 48.0, "voltage_class": "HV", "clearance_mm": 0.5}
+  }
 }
 ```
 
@@ -138,14 +164,62 @@ Sidecar `--config` (JSON) example — see `fixtures/rules_demo.json`:
 | Format | Status |
 | ------ | ------ |
 | Native JSON (`copperline/board/1`) | full round-trip (input + `--output`) |
-| KiCad `.kicad_pcb` | **ingest**: outline, copper layers, nets + net classes (width/clearance/via rules), footprints/pads, tracks, vias, keepout rule areas |
-| Specctra DSN / SES, IPC-2581, Gerber | Prompt 5 (importer interface `BoardImporter` is ready) |
+| Specctra DSN (documented subset) | **import**: unit/structure/boundary/vias/rules, library+placement pads, network nets+pins+classes, planes + `copper_pour` as plane zones, keepout shapes; `--output *.ses` exports the session |
+| Specctra SES | **export** from `route --output routed.ses`; **import** via `verify --routes routed.ses` |
+| KiCad `.kicad_pcb` | **ingest + export**: outline, copper layers, nets + net classes (width/clearance/via rules), footprints/pads, tracks, vias, keepout rule areas, copper zones as plane zones; `route --output routed.kicad_pcb` re-verifies clean |
+| Gerber RS-274X (documented subset) | **import**: apertures D10+ (C/R/O/P + circle/rect macro subset), draws/flashes/regions, dark/clear polarity, inch/mm, leading/trailing-zero + absolute/incremental modes; copper lands on one net (`COPPER`) + obstacles; outline from profile layer when present |
+| IPC-2581C XML (flat subset) | **import**: `Datum`, `Layer`s, `Net`s, `Component`/`Pad`s, `Trace`/`Via`s, `Profile`, `NetClass` widths/clearances, net names/classes preserved |
 
 KiCad phase-1 approximations (all surfaced in `import_warnings`): pad shapes
 reduce to rotated bounding boxes; thru-hole pads fan to one terminal per
-copper layer; non-Manhattan tracks import as-is (verify-only); copper zones
-are **ignored with a warning** (full pour support is Prompt 5); coordinate
-translation to a `(0,0)` origin is internal only.
+copper layer; non-Manhattan tracks import as-is (verify-only). Copper zones
+import as `PlaneZone` entries (owning net + layer + polygon, own island id
+each — no silent stitching across zones; overlaps bridge geometrically);
+zones without a resolvable net/layer/polygon are skipped with an explicit
+warning, never silently. `board_to_kicad_pcb` writes the board back
+losslessly for everything modeled (pads re-fan identically, zones keep
+polygons, net classes keep width/clearance rules); import → export →
+re-import preserves nets/pads/tracks/vias/zones. Board-wide keepouts
+expand to one keepout zone per copper layer on re-import (same
+enforcement); component-less terminals group into virtual footprints
+(geometry exact, refs synthesized).
+
+DSN subset notes: coordinates carry the file `(unit ...)`; pads resolve via
+`library (image ...)` + `placement`; net classes map to min-width /
+min-clearance / via-class; `(plane ...)` and `(copper_pour ...)` map to a
+`PlaneZone` (own island each) when net + layer resolve, otherwise skipped
+with an explicit warning (never silent). Pour shapes: `polygon` exact,
+`rect` exact, `circle` as octagon (warned), `path` closed into a polygon
+(warned), `(window ...)` cutouts ignored (warned); polygons over 16384
+vertices are skipped with a warning. `(wire|via|place|bend|elongate)_keepout`
+shapes become rect keepouts (polygons by bbox, warned). `(wiring ...)`
+pre-routes are re-routed from pads (warned).
+
+Gerber honest limits: no embedded netlist exists in RS-274X, so ALL dark
+copper lands on a single net (`COPPER`, id 0) — flashes become pads, draws
+become traces (width = min aperture extent), dark regions become routable
+pours (own island each); clear-polarity features become rect keepouts
+(regions by bbox, warned). Polygon apertures reduce to bounding boxes;
+macro apertures honor only circle/rect primitives (bbox, warned); arcs are
+linearized into ≤256 chords (warned); step-repeat is replicated (bounded,
+warned when clamped). Non-copper `FileFunction`s parse as copper with a
+warning; inner copper layers collapse onto Bottom (2-layer board model,
+warned); the board is always Top+Bottom signal layers. Without a profile
+(`FileFunction,Profile`, profile-ish filename, or `G04 COPPERLINE:PROFILE`)
+the outline is the copper bbox + 1mm margin (warned). Streaming 64KB parse;
+region vertices capped at 32768 (truncated, warned); primitives capped at
+2M (hard error).
+
+IPC-2581C honest limits: flat-subset only — `Datum` (else profile bbox,
+else copper bbox + 1mm, warned), layers (absent ⇒ Top/Bottom), nets (else
+derived from pad refs, warned), component pads (unknown net ⇒ warn+skip,
+unknown layer ⇒ default Top + warn), traces/vias (same policy),
+`NetClass` width/clearance floors, profile polygons/rects/points (capped at
+32768 vertices, truncated + warned). Tag/attribute matching is
+case-insensitive. NOT modeled (warned once): stackup dielectrics, padstack
+libraries, embedded parts, hierarchy, DFM/BOM, microvias, multi-step panels
+(first `<Step>` only). Streaming 64KB scan, no DOM; primitives capped at
+2M (hard error).
 
 ## Architecture
 
@@ -161,18 +235,24 @@ order legal alternatives.
 include/router  geometry.h  json.h  sexpr.h  board.h  rules.h
                 spatial_index.h  density.h  route_tree.h
                 sparse_graph.h  astar.h  escape.h  parallel.h  recovery.h
-                engine.h  verifier.h  analyze.h
-src             json/sexpr/board/kicad/rules/spatial_index/density/...
+                dsn.h  gerber.h  ipc2581.h  optimizer.h  engine.h
+                verifier.h  analyze.h
+src             json/sexpr/board/kicad/kicad_export/dsn/gerber/ipc2581/...
+                rules/spatial_index/density/...
                 route_tree/sparse_graph/astar/escape/parallel/recovery/...
-                engine/verifier/analyze/main(CLI)
-tests           12 binaries, 156 cases (no third-party framework)
+                optimizer/engine/verifier/analyze/main(CLI)
+tests           27 binaries (no third-party framework)
 fixtures        6 Prompt-1/3 JSON boards (open_2layer, obstacle_detour,
                 high_current, voltage_clearance, narrow_channel, ...)
                 + 9 fine-pitch golden boards
                 (bga_4x4, bga_8x8, bga_8x8_via, irregular_array, dense_qfn,
                 high_current_bga, mixed_voltage_bga, greedy_outside_first,
-                impossible_escape) + forced_ripup (Prompt 4) + rules sidecar
-                + KiCad sample + violation board
+                impossible_escape) + forced_ripup (Prompt 4)
+                + multi_terminal_tree, dense_mcu_4layer, golden_demo.dsn,
+                rules_sidecar_nets.json (Prompt 5) + rules sidecar
+                + KiCad samples (minimal, pour_zone) + violation board
+                + pour_test.dsn, gerber_copper.gbr, gerber_profile.gko,
+                ipc2581_demo.xml (format completion)
 ```
 
 Global acceptance is lexicographic (connectivity > hard violations >
@@ -254,17 +334,81 @@ single-layer U-enclosure). Recovery repairs this without touching legality:
   decisions (escape bundle, channel owner, layer strategy, rip set, retry
   order — failed task first), A* keeps detailed geometry.
 
-## Known limitations (Prompt 4)
+## Cleanup optimizer (Prompt 5)
 
-- No optimizer — cleanup passes (bend/via/length) are Prompt 5; recovery
-  targets connectivity, not polish.
-- Impossible boards report `INCOMPLETE`/`BUDGET_EXHAUSTED` with blocker hints.
+After COMPLETE + an independent verifier pass only (`--no-optimizer`
+disables), transactional passes run in deterministic order: collinear merge,
+bend removal, via elimination, preferred-layer. Each candidate re-verifies
+the whole board and reverts on any connectivity/legality/electrical harm
+(length-tuned and pair-coupled nets are structurally untouched). The report
+carries `optimizer` (`copperline/optimizer-report/1`: applied/reverted,
+bends/vias/length deltas). Stats and `board_hash` refresh after, with a
+second verifier gate.
+
+## Failure reports (Prompt 5)
+
+Every route failure carries stable agent IDs: net, `terminal_a/b`,
+`src_component/src_pin`, `dst_component/dst_pin`, electrical constraints,
+`centre_depth`, `pin_density_per_mm2`, `candidate_count`, `top_blockers`,
+`modes_attempted`, `attempted_layers`, `attempted_via_classes`,
+`best_partial`, per-connection `category`
+(`SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS` |
+`UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET`) plus hotspots from
+the report. `router explain-failure report.json --json` renders schema
+`copperline/failure-explanation/1` with a per-reason suggestion — no GUI.
+
+## Golden suite (Prompt 5)
+
+| Fixture | Result | Verifier |
+| ------- | ------ | -------- |
+| open_2layer | COMPLETE 4/4 | ok |
+| obstacle_detour | COMPLETE 4/4 | ok |
+| high_current (+rules_demo) | COMPLETE | ok |
+| voltage_clearance | COMPLETE 4/4 | ok |
+| narrow_channel | COMPLETE 4/4 | ok |
+| bga_4x4 | COMPLETE 32/32 | ok |
+| multi_terminal_tree | COMPLETE 6/6 | ok |
+| forced_ripup | COMPLETE | ok |
+| dense_mcu_4layer (+sidecar nets) | COMPLETE 16/16 | ok |
+| golden_demo.dsn → routed.ses | COMPLETE 4/4 | ok |
+| blocked_impossible | INCOMPLETE (must NOT succeed) | n/a |
+
+`tests/test_golden.cpp` enforces this end-to-end (engine + independent
+verifier gate), plus determinism (threads 1 vs 4 identical `board_hash`),
+optimizer monotonicity and the DSN→SES round-trip.
+
+## Determinism & benchmarks (Prompt 5)
+
+Identical `(board, rules, workers, seed, version)` → identical
+committed-geometry hashes; batch membership is thread-independent so worker
+timing never affects output. Evidence: `dense_mcu_4layer` routes to hash
+`e6f6e653757cf635` at both `--threads 1` and `--threads 4`.
+
+Measured (Release, Ryzen 7 7735HS, 16 logical CPUs, seed 42):
+
+| Board | 1 thread | 4 threads | 8 threads | Geometry |
+| ----- | -------- | --------- | --------- | -------- |
+| dense_mcu_4layer (8 tasks) | 89 ms wall | 44 ms (2.0x) | 40 ms (2.2x) | identical |
+| obstacle_detour (2 tasks) | 7 ms | 9 ms (0.8x) | — | identical |
+
+Small boards are overhead-dominated (honestly <1x); the 8-task board shows
+a real ~2x at 4 threads with bit-identical copper. `router benchmark`
+reports wall/engine time, expansions, accepted/rejected, epochs, rip-up
+generations, connected %, vias, length, optimizer counts and speedup.
+
+## Known limitations (v0.1.0)
+
+- Impossible boards report `INCOMPLETE`/`BUDGET_EXHAUSTED` with blocker
+  hints and per-connection categories — never false success.
 - Escape is complete on 4x4/QFN/irregular fixtures; ultra-dense 8x8
   (0.8 mm pitch, zero same-layer channels) escapes 48/64 with explicit
-  infeasibility records for the rest — recovery is Prompt 4 work.
-- Escape planner on ultra-dense 8x8 (0.8 mm pitch, zero same-layer channels)
-  escapes 48/64 with explicit infeasibility records for the rest —
-  recovery is Prompt 4 work. Sparse-graph corridor clipping cut the escape
-  suite from ~3 min to ~18 s as a side effect.
-- No DSN/SES export yet; routed output is native JSON (Prompt 5).
-- `router explain-failure` is a stub by design (Prompt 5).
+  infeasibility records for the rest.
+- Copper pours: native JSON `planes[]`, DSN `(plane ...)` /
+  `(copper_pour ...)` and KiCad copper zones all route plane-aware via the
+  issue-#16 machinery (own-net targets, foreign-pour obstacles at exact
+  polygon clearance); unresolvable copper warns explicitly, never silently.
+- MSVC port still assumes `__int128` (GCC/Clang exact integer clearance
+  math).
+- Threads: `--threads 0` (default) = all CPUs; total stays within the
+  2048 MB router budget via bounded batch widths/candidates
+  (`memory_budget_mb`, `optimizer_max_candidates` in report params).

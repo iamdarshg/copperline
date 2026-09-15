@@ -1,0 +1,23 @@
+# Copperline DSN pour fixture: PWR routes into a Bottom copper_pour,
+# SIG routes pad-to-pad; a GND pour on an unknown layer warns explicitly.
+(pcb "pour_demo"
+  (unit mm)
+  (structure
+    (layer Top (type signal))
+    (layer Bottom (type signal))
+    (boundary (rect 0 0 20 20))
+    (via STD 0.6 0.3)
+    (rule (width 0.2) (clearance 0.15))
+    (copper_pour PWR (polygon 1 8 19 8 19 12 1 12) (layer Bottom))
+    (copper_pour GND (polygon 1 15 5 15 5 19 1 19) (layer NoSuchLayer)))
+  (placement
+    (component U1 (place SO8 2 10 front 0))
+    (component U2 (place SO8 18 10 front 0))
+    (component U3 (place SO8 2 4 front 0))
+    (component U4 (place SO8 18 4 front 0)))
+  (library
+    (image SO8 (pin 1 0 0) (pin 2 0 0)))
+  (network
+    (class SIGNAL (rule (width 0.2) (clearance 0.15)))
+    (net PWR (pins U1-1 U2-1) (class SIGNAL))
+    (net SIG (pins U3-2 U4-2) (class SIGNAL))))
