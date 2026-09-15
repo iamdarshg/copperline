@@ -174,6 +174,72 @@ CT_TEST(optimizer_transactional) {
     CT_CHECK(!rep2.optimizer.ran);
 }
 
+// Issue #37: Pass 1/2 restarted the deterministic scan unconditionally after
+// attempt(...), even when the mutation was reverted. The rejected first
+// candidate retried until the guard expired, burning the max_candidates
+// budget while later legal candidates starved. Only accepted mutations
+// (rep.applied advance, as the via pass already does) may restart the scan.
+CT_TEST(optimizer_rejected_candidate_does_not_starve_later_ones) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    b.nets.push_back(test::make_net(1, "N1"));
+    test::add_terminal(b, 0, 1.0, 5.0);
+    test::add_terminal(b, 0, 3.0, 7.0);
+    test::add_terminal(b, 1, 10.0, 5.0);
+    test::add_terminal(b, 1, 12.0, 7.0);
+    const Coord w = mm_to_nm(0.2);
+    // Net 0 corner first in scan order; its diagonal shortcut crosses the
+    // keepout below, so the verifier must reject it.
+    b.traces.push_back({0, 0, {mm_to_nm(1.0), mm_to_nm(5.0)}, {mm_to_nm(3.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(3.0), mm_to_nm(5.0)}, {mm_to_nm(3.0), mm_to_nm(7.0)}, w});
+    // Net 1 corner second; its shortcut is in clear copper and must apply.
+    b.traces.push_back({1, 0, {mm_to_nm(10.0), mm_to_nm(5.0)}, {mm_to_nm(12.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({1, 0, {mm_to_nm(12.0), mm_to_nm(5.0)}, {mm_to_nm(12.0), mm_to_nm(7.0)}, w});
+    Keepout ko;
+    ko.rect = {mm_to_nm(1.8), mm_to_nm(5.8), mm_to_nm(2.2), mm_to_nm(6.2)};
+    ko.layer = 0;
+    ko.reason = "issue-37-blocker";
+    b.keepouts.push_back(ko);
+
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);  // gate precondition: legal input
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = true;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.ran);
+    // The legal second corner applied exactly once...
+    CT_CHECK(rep.applied == 1);
+    // ...without retrying the rejected first corner until guard expiry
+    // (buggy code burned 8 candidates / 8 reverts and applied nothing).
+    CT_CHECK(rep.candidates <= 4);
+    CT_CHECK(rep.reverted <= 2);
+    CT_CHECK(rep.bends_after == rep.bends_before - 1);
+    CT_CHECK(rep.length_after_mm < rep.length_before_mm);
+    // Geometry: net 1 is now a direct shortcut, net 0's L is untouched.
+    int n0_segs = 0, n1_segs = 0;
+    bool n1_shortcut = false;
+    for (const auto& s : b.traces) {
+        if (s.net == 0) ++n0_segs;
+        if (s.net == 1) {
+            ++n1_segs;
+            if (s.a == Point{mm_to_nm(10.0), mm_to_nm(5.0)} &&
+                s.b == Point{mm_to_nm(12.0), mm_to_nm(7.0)})
+                n1_shortcut = true;
+        }
+    }
+    CT_CHECK(n0_segs == 2);
+    CT_CHECK(n1_segs == 1);
+    CT_CHECK(n1_shortcut);
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
 // DSN import preserves net names/pads/layers/classes/widths; SES export
 // round-trips copper back through verify.
 CT_TEST(adapter_dsn_ses_roundtrip) {

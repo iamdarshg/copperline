@@ -157,6 +157,7 @@ OptimizerReport CleanupOptimizer::run() {
                 __int128 cross = (__int128)d1x * d2y - (__int128)d1y * d2x;
                 __int128 dot = (__int128)d1x * d2x + (__int128)d1y * d2y;
                 if (cross != 0 || dot <= 0) continue;
+                int applied_before = rep.applied;
                 attempt(
                     [&]() {
                         board_->traces[i].b = B.b;
@@ -165,8 +166,10 @@ OptimizerReport CleanupOptimizer::run() {
                     },
                     /*must_shorten=*/false, A.net,
                     rect_union(A.segment().bounds(), B.segment().bounds()));
-                changed = true;
-                break;  // re-sort after mutation (indices shift)
+                if (rep.applied > applied_before) {
+                    changed = true;
+                    break;  // re-sort after mutation (indices shift)
+                }
             }
         }
     }
@@ -193,6 +196,7 @@ OptimizerReport CleanupOptimizer::run() {
                     shortcut.b = B.b;
                     double new_len = trace_seg_length_mm(shortcut);
                     if (new_len >= old_len - 1e-9) continue;
+                    int applied_before = rep.applied;
                     attempt(
                         [&]() {
                             board_->traces[i].b = B.b;
@@ -201,7 +205,9 @@ OptimizerReport CleanupOptimizer::run() {
                         },
                         /*must_shorten=*/true, A.net,
                         rect_union(A.segment().bounds(), B.segment().bounds()));
-                    changed = true;
+                    if (rep.applied > applied_before) {
+                        changed = true;
+                    }
                 }
             }
         }
