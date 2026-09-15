@@ -259,6 +259,26 @@ EffectiveSearchBudget effective_budget_for_phase(
                                     256ULL * 1024 * 1024);
     if (b.recovery_depth < 1) b.recovery_depth = 1;
 
+    // Issue #4: sparse-graph budgets per phase. OPEN/MID keep the legacy
+    // 384/16 defaults for speed; dense boards spend more exploring
+    // alternatives; CLOSURE goes uncapped on bases (0) with a wide K=64 so
+    // completeness, not the proximity-to-direct-segment cull, decides.
+    static const std::size_t kGraphBases[4] = {384, 512, 1024, 0};
+    static const int kGraphK[4] = {16, 24, 32, 64};
+    std::size_t want_bases = kGraphBases[lvl];
+    int want_gk = kGraphK[lvl];
+    if (caps.max_graph_bases > 0) {
+        if (want_bases == 0 || want_bases > caps.max_graph_bases)
+            want_bases = caps.max_graph_bases;
+    }
+    if (caps.max_graph_k_nearest > 0) {
+        if (want_gk <= 0 || want_gk > caps.max_graph_k_nearest)
+            want_gk = caps.max_graph_k_nearest;
+    }
+    if (want_gk < 0) want_gk = 0;
+    b.graph_max_bases = want_bases;
+    b.graph_k_nearest = want_gk;
+
     // Timeout share per remaining task: equal split of the remaining overall
     // deadline (<=0 = no timeout configured = unlimited).
     if (timeout_remaining_s >= 0 && remaining_count > 0)
@@ -309,6 +329,8 @@ JsonValue EffectiveSearchBudget::to_json() const {
     o["recovery_beam"] = static_cast<double>(recovery_beam);
     o["timeout_share_per_task_s"] = timeout_share_per_task_s;
     o["threads_effective"] = static_cast<double>(threads_effective);
+    o["graph_max_bases"] = static_cast<double>(graph_max_bases);
+    o["graph_k_nearest"] = static_cast<double>(graph_k_nearest);
     return o;
 }
 
@@ -479,6 +501,12 @@ bool apply_maturity_json(MaturityOptions& out, const JsonValue& node,
         if (!capi("max_hierarchy_grid_cells", v, 0, 1000000000)) return false;
         if (c->has("max_hierarchy_grid_cells"))
             cp.max_hierarchy_grid_cells = static_cast<std::size_t>(v);
+        if (!capi("max_graph_bases", v, 0, 100000000)) return false;
+        if (c->has("max_graph_bases"))
+            cp.max_graph_bases = static_cast<std::size_t>(v);
+        if (!capi("max_graph_k_nearest", v, 0, 1000000)) return false;
+        if (c->has("max_graph_k_nearest"))
+            cp.max_graph_k_nearest = static_cast<int>(v);
         double w = 0;
         if (!get_num(*c, "max_weight_factor", w)) {
             err_out = "maturity.caps.max_weight_factor: expected a number";

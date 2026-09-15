@@ -242,6 +242,14 @@ struct CandidateRoute {
                               // "via_bundle_infeasible" | "no_via_class" | ...
     std::int64_t expansions = 0;
     Coord cost_nm = 0;
+    // Issue #8: search vs materialized cost split. search_cost_nm is the raw
+    // A* integer cost (pre-simplification, Manhattan + bend/via penalties);
+    // kept for debugging/attribution. materialized_cost_nm is recomputed
+    // from final copper (Euclidean trace length x layer mult + via + bend
+    // costs); cost_nm mirrors it for backward compatibility and is the
+    // ordering key everywhere (portfolio, impact).
+    Coord search_cost_nm = 0;
+    Coord materialized_cost_nm = 0;
     std::vector<TraceSeg> traces;
     std::vector<Via> vias;
     Point gate_a{};  // candidate endpoints (== task terminals on success)
@@ -270,12 +278,28 @@ struct CandidateRoute {
     JsonValue impact_detail;  // per-feature contributions + final score
 };
 
+// Issue #8: recomputed cost of final copper. Sum over traces of
+// llround(euclid_len x layer_mult[layer]) + vias.size()*cfg.via_cost_nm +
+// num_bends*cfg.bend_cost_nm, where num_bends counts direction changes
+// between consecutively chained same-layer segments (8-way directions).
+// Deterministic pure function; layer_mult out-of-range layers use 1.0.
+Coord materialized_route_cost(const std::vector<TraceSeg>& traces,
+                              const std::vector<Via>& vias,
+                              const std::vector<double>& layer_mult,
+                              const AStarConfig& cfg);
+
 // Route one task against an immutable snapshot. Reads snapshot/resolver only;
 // all scratch state is local, so any number of threads may call this
 // concurrently on the same snapshot. Issue #10: hierarchical guidance runs
 // per task through the shared (self-invalidating, thread-safe) cache; a null
 // cache disables guidance for the call. Defaults keep direct unit-test and
 // recovery call sites compiling.
+// Issue #4: graph_budget overrides the sparse-graph caps (max bases /
+// K nearest) for this task, e.g. from the maturity EffectiveSearchBudget
+// (higher maturity -> larger budgets). Null = legacy defaults (384/16) for
+// speed. On an unreachable miss the task always gets one genuinely
+// expanded last-resort rebuild (uncapped bases, K=64) before it is
+// declared unreachable, no matter the incoming budget.
 CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& resolver,
                                     const ConnectionTask& task, std::size_t task_index,
                                     double difficulty, const ElectricalContext& ctx,
@@ -283,7 +307,8 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                                     const AStarConfig& astar_cfg, const CongestionMap& congestion,
                                     const ReservationSet& reservations,
                                     const HierarchyConfig& hier_cfg = HierarchyConfig{},
-                                    const HierarchyCache* hier_cache = nullptr);
+                                    const HierarchyCache* hier_cache = nullptr,
+                                    const SparseGraphBudget* graph_budget = nullptr);
 
 // ---- Conflict graph + deterministic central arbiter ----
 

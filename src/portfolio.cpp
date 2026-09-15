@@ -205,6 +205,9 @@ JsonValue PortfolioResult::to_json() const {
         e["bottlenecks"] = c.sig.bottlenecks;
         e["cost_nm"] = static_cast<double>(c.route.cost_nm);
         json_add_mm(e, "cost_mm", nm_to_mm(c.route.cost_nm));
+        // Issue #8: expose both costs (cost_nm == materialized for ordering).
+        e["search_cost_nm"] = static_cast<double>(c.route.search_cost_nm);
+        e["materialized_cost_nm"] = static_cast<double>(c.route.materialized_cost_nm);
         e["expansions"] = static_cast<double>(c.route.expansions);
         e["vias"] = static_cast<double>(c.route.vias.size());
         e["traces"] = static_cast<double>(c.route.traces.size());
@@ -309,6 +312,182 @@ RouteSignature compute_route_signature(const SparseRoutingGraph& graph,
     return sig;
 }
 
+// Issue #9: copper-based signature. All fields derive from the final
+// materialized traces + via positions (post-simplification), never from
+// the A* node path (whose direction_of(a,b) collapses L elbows to one
+// cardinal and whose bbox/vias predate bundles + simplification).
+namespace {
+
+// 8-way direction of a copper segment (8 = degenerate point).
+int copper_dir8(Point a, Point b) {
+    Coord dx = b.x - a.x;
+    Coord dy = b.y - a.y;
+    if (dx == 0 && dy == 0) return 8;
+    int sx = (dx > 0) ? 1 : ((dx < 0) ? -1 : 0);
+    int sy = (dy > 0) ? 1 : ((dy < 0) ? -1 : 0);
+    if (sx > 0 && sy == 0) return 0;  // E
+    if (sx > 0 && sy > 0) return 1;   // NE
+    if (sx == 0 && sy > 0) return 2;  // N
+    if (sx < 0 && sy > 0) return 3;   // NW
+    if (sx < 0 && sy == 0) return 4;  // W
+    if (sx < 0 && sy < 0) return 5;   // SW
+    if (sx == 0 && sy < 0) return 6;  // S
+    return 7;                         // SE
+}
+
+}  // namespace
+
+RouteSignature compute_route_signature(const std::vector<TraceSeg>& traces,
+                                       const std::vector<Via>& vias) {
+    RouteSignature sig;
+    if (traces.empty() && vias.empty()) {
+        sig.corridor_class = "none";
+        sig.dir_seq = "none";
+        sig.first_via = "none";
+        sig.bottlenecks = "none";
+        return sig;
+    }
+    // Copper bbox from actual extents (trace width + via barrels).
+    bool first = true;
+    Coord x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+    std::set<LayerId> layers;
+    auto grow = [&](Coord ax1, Coord ay1, Coord ax2, Coord ay2) {
+        if (first) {
+            x1 = ax1;
+            y1 = ay1;
+            x2 = ax2;
+            y2 = ay2;
+            first = false;
+        } else {
+            x1 = std::min(x1, ax1);
+            y1 = std::min(y1, ay1);
+            x2 = std::max(x2, ax2);
+            y2 = std::max(y2, ay2);
+        }
+    };
+    for (const auto& t : traces) {
+        layers.insert(t.layer);
+        Coord hw = t.width_nm / 2;
+        grow(std::min(t.a.x, t.b.x) - hw, std::min(t.a.y, t.b.y) - hw,
+             std::max(t.a.x, t.b.x) + hw, std::max(t.a.y, t.b.y) + hw);
+    }
+    for (const auto& v : vias) {
+        for (LayerId l = std::min(v.top_layer, v.bottom_layer);
+             l <= std::max(v.top_layer, v.bottom_layer); ++l)
+            layers.insert(l);
+        Coord h = v.outer_d_nm / 2;
+        grow(v.pos.x - h, v.pos.y - h, v.pos.x + h, v.pos.y + h);
+    }
+    std::vector<LayerId> lv(layers.begin(), layers.end());
+    auto q = [](Coord v) { return (v / kSigCellNm); };
+    sig.corridor_class = std::to_string(q(x2 - x1)) + "x" + std::to_string(q(y2 - y1)) +
+                         ":" + layers_key(lv);
+    // Principal direction runs from actual segment directions (8-way,
+    // Euclidean lengths, >=1mm runs only).
+    static const char* kDir8[9] = {"E", "NE", "N", "NW", "W", "SW", "S", "SE", "?"};
+    std::vector<std::pair<int, Coord>> runs;
+    for (const auto& t : traces) {
+        int d = copper_dir8(t.a, t.b);
+        Coord len = euclid_len_nm(t.a, t.b);
+        if (d == 8 || len <= 0) continue;
+        if (!runs.empty() && runs.back().first == d) {
+            runs.back().second += len;
+        } else {
+            runs.push_back({d, len});
+        }
+    }
+    std::string ds;
+    for (auto& r : runs) {
+        if (r.second < kDirRunMinNm) continue;
+        if (!ds.empty()) ds += "-";
+        ds += kDir8[r.first >= 0 && r.first < 8 ? r.first : 8];
+    }
+    sig.dir_seq = ds.empty() ? "via-only" : ds;
+    // First via from actual via positions: copper-length fraction of the
+    // nearest route segment midpoint (vias[] is already path-ordered; the
+    // front is the first transition).
+    std::string fv = "none";
+    if (!vias.empty()) {
+        const Via& v0 = vias.front();
+        Coord total = 0;
+        std::vector<Coord> seg_len;
+        seg_len.reserve(traces.size());
+        for (const auto& t : traces) {
+            Coord l = euclid_len_nm(t.a, t.b);
+            seg_len.push_back(l);
+            total += l;
+        }
+        double frac = 0.0;
+        if (!traces.empty() && total > 0) {
+            // Nearest segment to the via position (exact integer dist2).
+            std::size_t best_i = 0;
+            Coord best_d2 = std::numeric_limits<Coord>::max();
+            for (std::size_t i = 0; i < traces.size(); ++i) {
+                Coord d2 = point_seg_dist2(v0.pos, Segment{traces[i].a, traces[i].b});
+                if (d2 < best_d2) {
+                    best_d2 = d2;
+                    best_i = i;
+                }
+            }
+            Coord before = 0;
+            for (std::size_t i = 0; i < best_i; ++i) before += seg_len[i];
+            // Midpoint of the owning segment as the along-route proxy.
+            frac = static_cast<double>(before + seg_len[best_i] / 2) /
+                   static_cast<double>(total);
+        }
+        const char* third = frac < 1.0 / 3.0 ? "early" : (frac < 2.0 / 3.0 ? "mid" : "late");
+        fv = "L" + std::to_string(std::min(v0.top_layer, v0.bottom_layer)) + "->L" +
+             std::to_string(std::max(v0.top_layer, v0.bottom_layer)) + "@" + third;
+    }
+    sig.first_via = fv;
+    // Bottlenecks from actual copper: via cells + copper midpoint cell.
+    std::set<std::string> cells;
+    auto cell_of = [](Point p, LayerId l) {
+        return "c(" + std::to_string(p.x / kSigCellNm) + "," +
+               std::to_string(p.y / kSigCellNm) + ",L" + std::to_string(l) + ")";
+    };
+    for (const auto& v : vias)
+        cells.insert(cell_of(v.pos, std::min(v.top_layer, v.bottom_layer)));
+    if (!traces.empty()) {
+        // Midpoint of the route by copper length.
+        Coord total = 0;
+        for (const auto& t : traces) total += euclid_len_nm(t.a, t.b);
+        Coord half = total / 2;
+        Coord acc = 0;
+        Point mid = traces.front().a;
+        LayerId mid_l = traces.front().layer;
+        for (const auto& t : traces) {
+            Coord l = euclid_len_nm(t.a, t.b);
+            if (acc + l >= half) {
+                double f = (l > 0) ? static_cast<double>(half - acc) / static_cast<double>(l)
+                                   : 0.0;
+                mid = {t.a.x + static_cast<Coord>((t.b.x - t.a.x) * f),
+                       t.a.y + static_cast<Coord>((t.b.y - t.a.y) * f)};
+                mid_l = t.layer;
+                break;
+            }
+            acc += l;
+            mid = t.b;
+            mid_l = t.layer;
+        }
+        cells.insert(cell_of(mid, mid_l));
+    } else if (!vias.empty()) {
+        const Via& v0 = vias.front();
+        cells.insert(cell_of(v0.pos, std::min(v0.top_layer, v0.bottom_layer)));
+    }
+    std::string bn2;
+    for (const auto& c : cells) {
+        if (!bn2.empty()) bn2 += ",";
+        bn2 += c;
+    }
+    sig.bottlenecks = bn2.empty() ? "none" : bn2;
+    return sig;
+}
+
+RouteSignature compute_route_signature(const CandidateRoute& cand) {
+    return compute_route_signature(cand.traces, cand.vias);
+}
+
 PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resolver,
                                 const ConnectionTask& task, std::size_t task_index,
                                 double difficulty, const ElectricalContext& ctx,
@@ -337,9 +516,12 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
     }
     if (task.is_pair_corridor) {
         // Atomic pair path stays single: wrap the authoritative candidate.
+        // Issue #4: forward the maturity graph budget when present.
+        const SparseGraphBudget* pair_budget =
+            opts.has_graph_budget ? &opts.graph_budget : nullptr;
         CandidateRoute single = route_candidate_task(
             snapshot, resolver, task, task_index, difficulty, ctx, layer_mult, astar_cfg,
-            congestion, reservations, hier_cfg, hier_cache);
+            congestion, reservations, hier_cfg, hier_cache, pair_budget);
         out.total_expansions = single.expansions;
         out.coarse_expansions = single.hierarchy.coarse_expansions;
         out.graph_builds = 1;
@@ -450,25 +632,35 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
     }
 
     // Build the ONE shared graph (reuse across K).
-    SparseRoutingGraph base_graph = SparseRoutingGraph::build_multi(
-        snapshot, resolver, task.net, src_pt, ta->layer, dsts, width, ctx);
-    base_graph.add_penalties([&](const SparseNode& n, const SparseEdge& e) -> Coord {
-        Coord p = 0;
-        if (e.is_via) {
-            p += congestion.penalty_for_segment(Segment{n.p, n.p});
-            p += reservations.penalty_for_segment(task_index, Segment{n.p, n.p});
-        } else if (e.dir2 >= 0) {
-            Segment s1{n.p, e.elbow}, s2{e.elbow, base_graph.nodes()[e.to].p};
-            p += congestion.penalty_for_segment(s1) + congestion.penalty_for_segment(s2);
-            p += reservations.penalty_for_segment(task_index, s1) +
-                 reservations.penalty_for_segment(task_index, s2);
-        } else {
-            Segment s{n.p, base_graph.nodes()[e.to].p};
-            p += congestion.penalty_for_segment(s);
-            p += reservations.penalty_for_segment(task_index, s);
-        }
-        return p;
-    });
+    // Issue #4: maturity graph budget flows in via opts; legacy 384/16
+    // otherwise. The base miss below gets one last-resort rebuild
+    // (uncapped bases, K=64) before the portfolio reports unreachable.
+    const SparseGraphBudget pf_budget =
+        opts.has_graph_budget ? opts.graph_budget : SparseGraphBudget::defaults();
+    auto build_pf_graph = [&](const SparseGraphBudget& b) {
+        SparseRoutingGraph g = SparseRoutingGraph::build_multi(
+            snapshot, resolver, task.net, src_pt, ta->layer, dsts, width, ctx,
+            nullptr, 0, b);
+        g.add_penalties([&](const SparseNode& n, const SparseEdge& e) -> Coord {
+            Coord p = 0;
+            if (e.is_via) {
+                p += congestion.penalty_for_segment(Segment{n.p, n.p});
+                p += reservations.penalty_for_segment(task_index, Segment{n.p, n.p});
+            } else if (e.dir2 >= 0) {
+                Segment s1{n.p, e.elbow}, s2{e.elbow, g.nodes()[e.to].p};
+                p += congestion.penalty_for_segment(s1) + congestion.penalty_for_segment(s2);
+                p += reservations.penalty_for_segment(task_index, s1) +
+                     reservations.penalty_for_segment(task_index, s2);
+            } else {
+                Segment s{n.p, g.nodes()[e.to].p};
+                p += congestion.penalty_for_segment(s);
+                p += reservations.penalty_for_segment(task_index, s);
+            }
+            return p;
+        });
+        return g;
+    };
+    SparseRoutingGraph base_graph = build_pf_graph(pf_budget);
     out.graph_builds = 1;
 
     auto pull_bias = [&](const SparseRoutingGraph& g) {
@@ -491,6 +683,38 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
     AStarResult base_res =
         astar_route_masked(base_graph, eff_mult, astar_cfg, {}, base_bias);
     out.total_expansions += base_res.expansions;
+    if (!base_res.found && base_res.fail_reason != "budget_exhausted" &&
+        !pf_budget.is_last_resort()) {
+        // Issue #4 last resort: uncapped bases + K=64 before unreachable.
+        SparseRoutingGraph lr_graph = build_pf_graph(SparseGraphBudget::last_resort());
+        std::vector<Coord> lr_bias;
+        lr_bias.reserve(lr_graph.nodes().size());
+        {
+            // Recompute the pull-to-path bias against the new node set.
+            std::vector<Coord> b2(lr_graph.nodes().size(), 0);
+            if (!guide_path.empty()) {
+                for (std::size_t i = 0; i < lr_graph.nodes().size(); ++i) {
+                    Coord best = std::numeric_limits<Coord>::max();
+                    for (const auto& p : guide_path) {
+                        Coord d = manhattan(lr_graph.nodes()[i].p, p);
+                        if (d < best) best = d;
+                    }
+                    if (best == std::numeric_limits<Coord>::max()) best = 0;
+                    b2[i] = std::min(hier_cfg.max_bias_nm, best / 4);
+                }
+            }
+            lr_bias = std::move(b2);
+        }
+        AStarResult lr_res =
+            astar_route_masked(lr_graph, eff_mult, astar_cfg, {}, lr_bias);
+        out.total_expansions += lr_res.expansions;
+        out.graph_builds += 1;
+        if (lr_res.found || lr_res.fail_reason != "budget_exhausted") {
+            base_graph = std::move(lr_graph);
+            base_res = std::move(lr_res);
+            base_bias = std::move(lr_bias);
+        }
+    }
     if (!base_res.found) {
         out.fail_reason =
             base_res.fail_reason == "budget_exhausted" ? "budget_exhausted" : "unreachable";
@@ -730,6 +954,9 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
         cand.gate_a = src_pt;
         cand.gate_b = dsts.front().p;
         cand.expansions = a.res.expansions;
+        // Issue #8: search cost is debug-only; the ordering key below is the
+        // recomputed materialized cost from final copper.
+        cand.search_cost_nm = a.res.cost_nm;
         cand.cost_nm = a.res.cost_nm;
         cand.hierarchy.attempted = guidance_on;
         cand.hierarchy.coarse_expansions = 0;  // counted once at result level
@@ -755,10 +982,17 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
         }
         std::string why;
         if (!candidate_legal_vs_board(cand, snapshot, resolver, ctx, why)) continue;
-        RouteSignature sig = compute_route_signature(a.graph, a.res);
+        // Issue #8: recompute from final copper (simplification shortens it);
+        // cost_nm mirrors it for compatibility. Issue #9: signature from the
+        // same final copper, not the A* node path.
+        cand.materialized_cost_nm =
+            materialized_route_cost(cand.traces, cand.vias, eff_mult, astar_cfg);
+        cand.cost_nm = cand.materialized_cost_nm;
+        RouteSignature sig = compute_route_signature(cand);
         std::string key = sig.to_string();
         auto it = by_sig.find(key);
-        if (it == by_sig.end() || cand.cost_nm < it->second.route.cost_nm) {
+        if (it == by_sig.end() ||
+            cand.materialized_cost_nm < it->second.route.materialized_cost_nm) {
             PortfolioCandidate pc;
             pc.route = std::move(cand);
             pc.sig = sig;
@@ -781,6 +1015,8 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
     for (auto& kv : by_sig) out.candidates.push_back(std::move(kv.second));
     std::sort(out.candidates.begin(), out.candidates.end(),
               [](const PortfolioCandidate& a, const PortfolioCandidate& b) {
+                  if (a.route.materialized_cost_nm != b.route.materialized_cost_nm)
+                      return a.route.materialized_cost_nm < b.route.materialized_cost_nm;
                   if (a.route.cost_nm != b.route.cost_nm)
                       return a.route.cost_nm < b.route.cost_nm;
                   return a.sig_str < b.sig_str;

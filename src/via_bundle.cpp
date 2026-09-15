@@ -34,7 +34,7 @@ bool span_hits(LayerId layer, LayerSpan span) {
 // S4: clearances come from the plan-level memo, not per-probe resolver scans.
 bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
                    const ViaStyle& style, const ClearanceCache& cc,
-                   const std::vector<Rect>& sibling_rects) {
+                   const std::vector<Rect>& sibling_rects, NetId exempt_net = -1) {
     Rect vr = Rect::from_center_size(pos, style.outer_nm, style.outer_nm);
     if (!board.bounds().contains(vr)) return false;
     for (const auto& s : sibling_rects) {
@@ -47,20 +47,20 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
         if (!gap_ok_rect(vr, ko.rect, max_clear)) return false;
     }
     for (const auto& t : board.terminals) {
-        if (t.net == net) continue;
+        if (t.net == net || t.net == exempt_net) continue;
         if (!span_hits(t.layer, span)) continue;
         Coord c = cc.get(t.net, t.layer);
         if (!gap_ok_rect(vr, t.pad_rect(), c)) return false;
     }
     for (const auto& t : board.traces) {
-        if (t.net == net) continue;
+        if (t.net == net || t.net == exempt_net) continue;
         if (!span_hits(t.layer, span)) continue;
         Coord c = cc.get(t.net, t.layer);
         Coord need = c + t.width_nm / 2;
         if (!seg_ok_rect(t.segment(), vr, need)) return false;
     }
     for (const auto& v : board.vias) {
-        if (v.net == net) continue;
+        if (v.net == net || v.net == exempt_net) continue;
         bool overlap = !(v.bottom_layer < std::min(span.top, span.bottom) ||
                          v.top_layer > std::max(span.top, span.bottom));
         if (!overlap) continue;
@@ -71,7 +71,7 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
     // Issue #16: bundle barrels keep clearance from foreign pours on spanned
     // layers; own-net pours are connectable and never block.
     for (const auto& z : board.planes) {
-        if (z.net == net) continue;
+        if (z.net == net || z.net == exempt_net) continue;
         if (z.layer < std::min(span.top, span.bottom) ||
             z.layer > std::max(span.top, span.bottom))
             continue;
@@ -89,10 +89,10 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
 // the folded rhs matches the old need-based predicate exactly for even-nm
 // widths; odd-nm razor cases follow the verifier exactly.
 bool stub_seg_legal(const Board& board, NetId net, const Segment& s, LayerId layer,
-                    Coord half_w, const ClearanceCache& cc) {
+                    Coord half_w, const ClearanceCache& cc, NetId exempt_net = -1) {
     SegLegalityCtx leg;
     leg.cc = cc;  // shares the plan-level memo table
-    leg.exempt_net = -1;
+    leg.exempt_net = exempt_net;
     leg.layer = layer;
     leg.width_nm = 2 * half_w;
     return leg.segment_legal(s);
@@ -180,11 +180,12 @@ ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolv
                                              NetId net, Point center, LayerSpan span,
                                              const ViaStyle& style, int count,
                                              Coord route_width_nm,
-                                             const ElectricalContext& ctx) {
+                                             const ElectricalContext& ctx,
+                                             NetId exempt_net) {
     // D4/S4: one plan-level clearance memo for every barrel + stub probe.
     ClearanceCache cc(board, resolver, ctx, net);
     return plan_with_style(board, resolver, net, center, span, style, count, route_width_nm,
-                           ctx, cc);
+                           ctx, cc, exempt_net);
 }
 
 ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolver& resolver,
@@ -192,7 +193,7 @@ ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolv
                                              const ViaStyle& style, int count,
                                              Coord route_width_nm,
                                              const ElectricalContext& ctx,
-                                             const ClearanceCache& cc) {
+                                             const ClearanceCache& cc, NetId exempt_net) {
     ViaBundle out;
     out.style = style;
     out.count = std::max(1, count);
@@ -220,7 +221,7 @@ ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolv
         std::vector<Rect> placed;
         placed.reserve(positions.size());
         for (auto p : positions) {
-            if (!via_pos_legal(board, net, p, span, style, cc, placed)) {
+            if (!via_pos_legal(board, net, p, span, style, cc, placed, exempt_net)) {
                 ok = false;
                 break;
             }
@@ -235,7 +236,7 @@ ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolv
             for (LayerId layer : {top, bottom}) {
                 if (top == bottom && layer != top) continue;
                 Segment s{center, p};
-                if (!stub_seg_legal(board, net, s, layer, half_w, cc)) {
+                if (!stub_seg_legal(board, net, s, layer, half_w, cc, exempt_net)) {
                     ok = false;
                     break;
                 }
@@ -258,7 +259,7 @@ ViaBundle ViaBundlePlanner::plan_with_style(const Board& board, const RuleResolv
 
 ViaBundle ViaBundlePlanner::plan(const Board& board, const RuleResolver& resolver, NetId net,
                                  Point center, LayerSpan span, Coord route_width_nm,
-                                 const ElectricalContext& ctx) {
+                                 const ElectricalContext& ctx, NetId exempt_net) {
     ViaBundle fail;
     fail.reason = "no_via_class";
     const NetInfo* n = board.find_net(net);
@@ -270,7 +271,7 @@ ViaBundle ViaBundlePlanner::plan(const Board& board, const RuleResolver& resolve
         int need = resolver.current().vias_required(style, *n, board.defaults, c2);
         ViaBundle b =
             plan_with_style(board, resolver, net, center, span, style, need,
-                            route_width_nm, ctx);
+                            route_width_nm, ctx, exempt_net);
         if (b.feasible) return b;
         fail = b;  // keep the last deterministic reason (bundle_blocked)
     }

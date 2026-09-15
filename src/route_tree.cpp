@@ -337,8 +337,73 @@ std::vector<CopperTarget> copper_contacts_for(const Board& board, NetId net, Ter
     return cands;
 }
 
+// Issue #5: far (portal-side) endpoint of committed escape copper attached
+// to one terminal. Returns false when the terminal has no committed
+// trace/via beyond its pad (no escape stub yet). Deterministic: the farthest
+// same-net copper point from the pad (manhattan, then x, y, layer); ties are
+// stable. Via centers count (multilayer escapes end in a via).
+static bool pair_stub_endpoint(const Board& board, TermId tid, Point& pt_out,
+                               LayerId& layer_out) {
+    const Terminal* t = board.find_terminal(tid);
+    if (!t) return false;
+    NetCopper copper = collect_net_copper(board, t->net);
+    int pad_elem = -1;
+    for (std::size_t i = 0; i < copper.elems.size(); ++i) {
+        if (copper.elems[i].kind == Elem::Kind::kPad && copper.elems[i].term == tid) {
+            pad_elem = static_cast<int>(i);
+            break;
+        }
+    }
+    if (pad_elem < 0) return false;
+    int root = copper.dsu.find(pad_elem);
+    bool have = false;
+    Point best{};
+    LayerId best_layer = t->layer;
+    Coord best_d = -1;
+    auto consider = [&](Point p, LayerId layer) {
+        if (p == t->pos && layer == t->layer) return;
+        Coord d = manhattan(t->pos, p);
+        if (!have || d > best_d || (d == best_d && (p.x < best.x ||
+                     (p.x == best.x && (p.y < best.y ||
+                      (p.y == best.y && layer < best_layer)))))) {
+            have = true;
+            best = p;
+            best_layer = layer;
+            best_d = d;
+        }
+    };
+    for (std::size_t i = 0; i < copper.elems.size(); ++i) {
+        if (copper.dsu.find(static_cast<int>(i)) != root) continue;
+        const Elem& e = copper.elems[i];
+        if (e.kind == Elem::Kind::kTrace) {
+            consider(e.seg.a, e.layer);
+            consider(e.seg.b, e.layer);
+        } else if (e.kind == Elem::Kind::kVia) {
+            Point c = e.rect.center();
+            consider(c, e.lo);
+            consider(c, e.hi);
+        }
+    }
+    if (!have) return false;
+    pt_out = best;
+    layer_out = best_layer;
+    return true;
+}
+
 Point task_src_point(const Board& board, const ConnectionTask& task) {
     if (task.is_pair_corridor) {
+        // Issue #5: when escape geometry is committed for both members of a
+        // side, the corridor starts at the paired stub endpoints (midpoint of
+        // the two portal ends), not at the raw pad midpoint. Falls back to
+        // the pad midpoint when either side lacks escape copper.
+        Point ep;
+        LayerId el = 0;
+        Point ep2;
+        LayerId el2 = 0;
+        if (pair_stub_endpoint(board, task.a, ep, el) &&
+            pair_stub_endpoint(board, task.pair_a_other, ep2, el2)) {
+            return {(ep.x + ep2.x) / 2, (ep.y + ep2.y) / 2};
+        }
         // Issue #12: corridor sources at the P/N pad midpoint so the
         // reserved envelope covers both members symmetrically.
         const Terminal* tp = board.find_terminal(task.a);
@@ -356,6 +421,15 @@ Point task_dst_point(const Board& board, const ConnectionTask& task) {
     if (task.is_pair_corridor) {
         if (task.has_plane_target) return task.plane_point;
         if (task.has_copper_target) return task.copper_point;
+        // Issue #5: paired escape-stub endpoints when both members escaped.
+        Point ep;
+        LayerId el = 0;
+        Point ep2;
+        LayerId el2 = 0;
+        if (pair_stub_endpoint(board, task.b, ep, el) &&
+            pair_stub_endpoint(board, task.pair_b_other, ep2, el2)) {
+            return {(ep.x + ep2.x) / 2, (ep.y + ep2.y) / 2};
+        }
         const Terminal* tp = board.find_terminal(task.b);
         const Terminal* tn = board.find_terminal(task.pair_b_other);
         if (tp && tn) return {(tp->pos.x + tn->pos.x) / 2, (tp->pos.y + tn->pos.y) / 2};
@@ -370,6 +444,17 @@ Point task_dst_point(const Board& board, const ConnectionTask& task) {
 }
 
 LayerId task_src_layer(const Board& board, const ConnectionTask& task) {
+    if (task.is_pair_corridor) {
+        // Issue #5: corridor starts on the escape layer when both member
+        // stubs agree; otherwise the terminal layer.
+        Point ep;
+        LayerId el = 0;
+        Point ep2;
+        LayerId el2 = 0;
+        if (pair_stub_endpoint(board, task.a, ep, el) &&
+            pair_stub_endpoint(board, task.pair_a_other, ep2, el2) && el == el2)
+            return el;
+    }
     const Terminal* t = board.find_terminal(task.a);
     return t ? t->layer : 0;
 }
@@ -378,6 +463,13 @@ LayerId task_dst_layer(const Board& board, const ConnectionTask& task) {
     if (task.is_pair_corridor) {
         if (task.has_plane_target) return task.plane_layer;
         if (task.has_copper_target) return task.copper_layer;
+        Point ep;
+        LayerId el = 0;
+        Point ep2;
+        LayerId el2 = 0;
+        if (pair_stub_endpoint(board, task.b, ep, el) &&
+            pair_stub_endpoint(board, task.pair_b_other, ep2, el2) && el == el2)
+            return el;
         const Terminal* t = board.find_terminal(task.b);
         return t ? t->layer : 0;
     }

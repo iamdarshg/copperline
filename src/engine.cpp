@@ -1064,6 +1064,13 @@ RouteReport RouterEngine::run() {
                     c.has_impact_score = true;
                     c.impact_detail = s.to_json();
                 };
+                // Issue #4: maturity graph budget for this epoch (higher
+                // maturity -> larger max_bases / k_nearest; OPEN keeps
+                // the legacy 384/16 defaults). Lives outside the worker
+                // lambda body so every thread shares the identical object.
+                SparseGraphBudget epoch_graph_budget;
+                epoch_graph_budget.max_bases = active_budget.graph_max_bases;
+                epoch_graph_budget.k_nearest = active_budget.graph_k_nearest;
                 if (active_budget.route_k > 1 && !tasks[ti].is_pair_corridor) {
                     PortfolioOptions po;
                     po.requested_k = active_budget.route_k;
@@ -1076,6 +1083,8 @@ RouteReport RouterEngine::run() {
                     po.threads_requested = effective_threads;
                     po.astar = epoch_astar;
                     po.hier = epoch_hier;
+                    po.has_graph_budget = true;
+                    po.graph_budget = epoch_graph_budget;
                     PortfolioResult pf = build_portfolio(
                         snapshot, resolver_, tasks[ti], rem_pos[ti],
                         tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
@@ -1123,14 +1132,16 @@ RouteReport RouterEngine::run() {
                         candidates[k] = route_candidate_task(
                             snapshot, resolver_, tasks[ti], rem_pos[ti],
                             tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
-                            congestion, reservations, epoch_hier, &hier_cache);
+                            congestion, reservations, epoch_hier, &hier_cache,
+                            &epoch_graph_budget);
                         score_single_for_recovery(candidates[k]);
                     }
                 } else {
                     candidates[k] = route_candidate_task(
                         snapshot, resolver_, tasks[ti], rem_pos[ti],
                         tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
-                        congestion, reservations, epoch_hier, &hier_cache);
+                        congestion, reservations, epoch_hier, &hier_cache,
+                        &epoch_graph_budget);
                     score_single_for_recovery(candidates[k]);
                 }
             }

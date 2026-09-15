@@ -61,7 +61,7 @@ class ViaBundlePlanner {
     // the star stubs (caller's electrical trace width).
     static ViaBundle plan(const Board& board, const RuleResolver& resolver, NetId net,
                           Point center, LayerSpan span, Coord route_width_nm,
-                          const ElectricalContext& ctx);
+                          const ElectricalContext& ctx, NetId exempt_net = -1);
 
     // Fixed-style layout: lay out exactly count vias of style around center.
     // Used by the graph gate/materialization once the style is chosen, and by
@@ -69,7 +69,8 @@ class ViaBundlePlanner {
     static ViaBundle plan_with_style(const Board& board, const RuleResolver& resolver,
                                      NetId net, Point center, LayerSpan span,
                                      const ViaStyle& style, int count,
-                                     Coord route_width_nm, const ElectricalContext& ctx);
+                                     Coord route_width_nm, const ElectricalContext& ctx,
+                                     NetId exempt_net = -1);
     // Same layout, but reusing the caller's per-net clearance memo instead of
     // refilling it per call. Exact: the memo is pure in (board, net pair),
     // so shared values are identical to freshly resolved ones. Used by the
@@ -78,7 +79,7 @@ class ViaBundlePlanner {
                                      NetId net, Point center, LayerSpan span,
                                      const ViaStyle& style, int count,
                                      Coord route_width_nm, const ElectricalContext& ctx,
-                                     const ClearanceCache& cc);
+                                     const ClearanceCache& cc, NetId exempt_net = -1);
 
     // Ordered candidate styles for a net (preference first, then fewest vias,
     // smallest barrel, name). Exposed so the sparse graph, the candidate

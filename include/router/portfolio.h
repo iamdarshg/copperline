@@ -10,12 +10,17 @@
 // happens exactly once per portfolio; per-alternative work is copy + A* +
 // materialize, streamed with at most K stored candidates.
 //
-// Route signature (dedup + sort key):
-//   corridor class  = quantized bbox (2mm grid) + layer set
-//   principal dirs  = compressed direction runs (>=1mm runs only)
-//   first via       = none | L{a}->{b}@early|mid|late
-//   bottleneck IDs  = quantized 2mm cells of via + middle nodes
+// Route signature (dedup + sort key), computed from FINAL copper
+// (issue #9): quantized bbox of actual trace/via extents (2mm grid) +
+// layer set, 8-way principal direction runs (>=1mm), first via from actual
+// via positions (L{a}->{b}@early|mid|late by copper-length fraction),
+// bottleneck cells from actual via positions + copper midpoint (2mm).
 // Tiny geometric perturbations (<2mm jogs) share a signature and collapse.
+//
+// Costs (issue #8): CandidateRoute carries search_cost_nm (raw A*,
+// debug-only) and materialized_cost_nm (recomputed from final Euclidean
+// copper + via/bend/layer costs). Portfolio dedup + ordering use the
+// materialized cost; cost_nm mirrors it for compatibility.
 //
 // Every candidate is exactly legalized via candidate_legal_vs_board before
 // entering the portfolio. Costs are integer-nm A* costs; ordering is
@@ -78,6 +83,10 @@ struct PortfolioOptions {
     int threads_requested = 0;  // 0 = auto (resolve_worker_threads)
     AStarConfig astar;
     HierarchyConfig hier;
+    // Issue #4: sparse-graph budget for the shared build (from the maturity
+    // EffectiveSearchBudget). has_graph_budget=false = legacy 384/16.
+    bool has_graph_budget = false;
+    SparseGraphBudget graph_budget;
 };
 
 struct PortfolioResult {
@@ -107,8 +116,18 @@ int effective_portfolio_k(int requested_k, int max_k, int budget_route_k,
                           std::size_t per_task_bytes, std::size_t per_alt_bytes);
 
 // Signature of one A* path on its graph. Pure + deterministic.
+// Legacy path kept for unit tests; the portfolio itself uses the
+// copper-based overload below (issue #9).
 RouteSignature compute_route_signature(const SparseRoutingGraph& graph,
                                        const AStarResult& res);
+
+// Issue #9: signature from final materialized copper (authoritative for
+// dedup). Quantized bbox from actual trace/via extents, 8-way direction
+// runs from actual segments, first via from actual via positions,
+// bottlenecks from actual copper. Pure + deterministic.
+RouteSignature compute_route_signature(const std::vector<TraceSeg>& traces,
+                                       const std::vector<Via>& vias);
+RouteSignature compute_route_signature(const CandidateRoute& cand);
 
 // Full portfolio for one ordinary task. Pair-corridor tasks fall back to a
 // single route_candidate_task result wrapped as K=1 (pair materialization

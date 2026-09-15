@@ -69,6 +69,77 @@ double term_density_at(const Board& board, TermId tid, const std::vector<double>
 
 }  // namespace
 
+// ---- Issue #8: materialized cost from final copper ----
+
+// 8-way segment direction (8 = degenerate point).
+static int seg_dir8(const TraceSeg& s) {
+    Coord dx = s.b.x - s.a.x;
+    Coord dy = s.b.y - s.a.y;
+    if (dx == 0 && dy == 0) return 8;
+    int sx = (dx > 0) ? 1 : ((dx < 0) ? -1 : 0);
+    int sy = (dy > 0) ? 1 : ((dy < 0) ? -1 : 0);
+    if (sx > 0 && sy == 0) return 0;   // E
+    if (sx > 0 && sy > 0) return 1;    // NE
+    if (sx == 0 && sy > 0) return 2;   // N
+    if (sx < 0 && sy > 0) return 3;    // NW
+    if (sx < 0 && sy == 0) return 4;   // W
+    if (sx < 0 && sy < 0) return 5;    // SW
+    if (sx == 0 && sy < 0) return 6;   // S
+    return 7;                          // SE
+}
+
+Coord materialized_route_cost(const std::vector<TraceSeg>& traces,
+                              const std::vector<Via>& vias,
+                              const std::vector<double>& layer_mult,
+                              const AStarConfig& cfg) {
+    Coord total = 0;
+    auto mult_for = [&](LayerId l) -> double {
+        if (l >= 0 && l < static_cast<int>(layer_mult.size()) && layer_mult[l] > 0)
+            return layer_mult[l];
+        return 1.0;
+    };
+    for (const auto& t : traces) {
+        Coord len = euclid_len_nm(t.a, t.b);
+        total += static_cast<Coord>(std::llround(static_cast<double>(len) * mult_for(t.layer)));
+    }
+    if (!vias.empty()) {
+        if (cfg.via_cost_nm > 0) {
+            // Saturating add for via term.
+            __int128 add = (__int128)vias.size() * cfg.via_cost_nm;
+            __int128 sum = (__int128)total + add;
+            total = sum > std::numeric_limits<Coord>::max()
+                        ? std::numeric_limits<Coord>::max()
+                        : static_cast<Coord>(sum);
+        }
+    }
+    // Bends: direction change between consecutively chained same-layer runs.
+    // Count a bend when trace[i] continues trace[i-1] on the same layer
+    // (a == prev.b) with a different 8-way direction.
+    int bends = 0;
+    int prev_dir = 8;
+    bool have_prev = false;
+    const TraceSeg* prev = nullptr;
+    for (const auto& t : traces) {
+        int d = seg_dir8(t);
+        if (d == 8) continue;
+        if (have_prev && prev != nullptr && t.layer == prev->layer && t.a == prev->b &&
+            d != prev_dir) {
+            ++bends;
+        }
+        prev = &t;
+        prev_dir = d;
+        have_prev = true;
+    }
+    if (bends > 0 && cfg.bend_cost_nm > 0) {
+        __int128 add = (__int128)bends * cfg.bend_cost_nm;
+        __int128 sum = (__int128)total + add;
+        total = sum > std::numeric_limits<Coord>::max()
+                    ? std::numeric_limits<Coord>::max()
+                    : static_cast<Coord>(sum);
+    }
+    return total;
+}
+
 // ---- Difficulty ----
 
 DifficultyVector compute_difficulty(const Board& board, const RuleResolver& resolver,
@@ -558,7 +629,8 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                                     const AStarConfig& astar_cfg, const CongestionMap& congestion,
                                     const ReservationSet& reservations,
                                     const HierarchyConfig& hier_cfg,
-                                    const HierarchyCache* hier_cache) {
+                                    const HierarchyCache* hier_cache,
+                                    const SparseGraphBudget* graph_budget) {
     CandidateRoute cand;
     cand.task = task;
     cand.task_index = task_index;
@@ -654,13 +726,15 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     // copper points are hints; recomputing from current same-net components
     // keeps rip-up/reroute branches correct when copper moved. Deterministic:
     // nearest-first (manhattan, x, y, layer), capped.
-    // Issue #12: pair corridors always run midpoint-to-midpoint (no copper
-    // or plane targets in v1; escape stubs on pair pads are out of scope).
+    // Issue #5: pair corridors run portal-midpoint to portal-midpoint when
+    // both members carry escape stubs (fallback to pad midpoints).
     std::vector<SparseTarget> dsts;
     LayerId primary_dst_layer = task_dst_layer(snapshot, task);
     Point src_pt = ta->pos;
+    LayerId src_layer = ta->layer;
     if (pair) {
         src_pt = task_src_point(snapshot, task);
+        src_layer = task_src_layer(snapshot, task);
         dsts.push_back({task_dst_point(snapshot, task), primary_dst_layer});
     } else if (task.has_copper_target) {
         std::vector<TermId> target_comp;
@@ -714,12 +788,27 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
 
     Board filt = snapshot;  // guidance + graph view (sibling-exempt for pairs)
     const Board* graph_board = &snapshot;
+    NetId pair_exempt = -1;
     if (pair) {
-        // Issue #12: sibling pads live inside the reserved envelope; they
-        // are same-resource copper for corridor planning (gap-governed at
-        // materialization, not voltage-governed here).
+        // Issue #12/#6: sibling copper lives inside the reserved envelope;
+        // it is same-resource copper for corridor planning (gap-governed at
+        // materialization, not voltage-governed here). Terminals are
+        // relabeled so own-net connectivity holds; traces/vias/planes stay
+        // under their sibling net but are skipped as obstacles via exempt_net
+        // (sparse graph + via planner). Relabeling traces/vias as well keeps
+        // the #17 simplifier (which has no exempt param) consistent.
+        pair_exempt = pair->net_n;
         for (auto& t : filt.terminals) {
             if (t.net == pair->net_n) t.net = pair->net_p;
+        }
+        for (auto& t : filt.traces) {
+            if (t.net == pair->net_n) t.net = pair->net_p;
+        }
+        for (auto& v : filt.vias) {
+            if (v.net == pair->net_n) v.net = pair->net_p;
+        }
+        for (auto& z : filt.planes) {
+            if (z.net == pair->net_n) z.net = pair->net_p;
         }
         graph_board = &filt;
     }
@@ -734,7 +823,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     HierarchyRequest req;
     req.net = task.net;
     req.src = src_pt;
-    req.src_layer = ta->layer;
+    req.src_layer = src_layer;
     req.dsts = dsts;
     req.width_nm = width;
     req.clearance_nm = max_clear_for(*graph_board, resolver, task.net, ctx);
@@ -754,6 +843,11 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         cand.hierarchy.coarse_expansions = guide.coarse_expansions;
     }
 
+    // Issue #4: effective sparse-graph budget for this task. Null input =
+    // legacy defaults (384 bases / K=16) for speed; the engine passes the
+    // maturity EffectiveSearchBudget here so dense phases build wider graphs.
+    const SparseGraphBudget eff_budget =
+        graph_budget ? *graph_budget : SparseGraphBudget::defaults();
     auto apply_soft = [&](SparseRoutingGraph& g) {
         // Soft costs only: congestion + reservations bias the search,
         // legality is structural (illegal edges were never built).
@@ -775,16 +869,20 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
             return p;
         });
     };
-    auto build_graph = [&](const std::vector<Point>* clip, Coord half) {
+    auto build_graph_with = [&](const std::vector<Point>* clip, Coord half,
+                                const SparseGraphBudget& b) {
         SparseRoutingGraph g =
             pair ? SparseRoutingGraph::build_multi(filt, resolver, task.net, src_pt,
-                                                   ta->layer, dsts, width, ctx, clip,
-                                                   half)
+                                                   src_layer, dsts, width, ctx, clip,
+                                                   half, b, pair_exempt)
                  : SparseRoutingGraph::build_multi(snapshot, resolver, task.net, src_pt,
                                                    ta->layer, dsts, width, ctx, clip,
-                                                   half);
+                                                   half, b);
         apply_soft(g);
         return g;
+    };
+    auto build_graph = [&](const std::vector<Point>* clip, Coord half) {
+        return build_graph_with(clip, half, eff_budget);
     };
     auto pull_bias = [&](const SparseRoutingGraph& g,
                          const std::vector<Point>& path) {
@@ -844,6 +942,34 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
             cand.hierarchy.fallback_reason = "disabled";
         if (guidance_on && !guide.found) cand.hierarchy.fallback = true;
     }
+    // Issue #4: genuinely expanded last-resort mode. When the exact search
+    // misses for reachability (not A* budget exhaustion), rebuild the graph
+    // with uncapped bases + K=64 and re-run the unrestricted exact search
+    // before declaring the task unreachable. The culled graph is a strict
+    // subset of this one, so a miss here is real evidence of blockage.
+    // Skipped when the task already ran at last-resort scale.
+    if (!res.found && res.fail_reason != "budget_exhausted" &&
+        !eff_budget.is_last_resort()) {
+        const SparseGraphBudget lr = SparseGraphBudget::last_resort();
+        SparseRoutingGraph lr_graph = build_graph_with(nullptr, 0, lr);
+        AStarResult lr_res = astar_route(lr_graph, eff_mult, astar_cfg);
+        if (lr_res.found) {
+            graph = std::move(lr_graph);
+            res = std::move(lr_res);
+            cand.hierarchy.guided = false;
+            cand.hierarchy.fallback = true;
+            cand.hierarchy.fallback_reason = "last_resort";
+            cand.hierarchy.exact_expansions = res.expansions;
+        } else if (lr_res.fail_reason != "budget_exhausted") {
+            // Fullest-search evidence wins for attribution.
+            graph = std::move(lr_graph);
+            res = std::move(lr_res);
+            cand.hierarchy.guided = false;
+            cand.hierarchy.fallback = true;
+            cand.hierarchy.fallback_reason = "last_resort_miss";
+            cand.hierarchy.exact_expansions = res.expansions;
+        }
+    }
     cand.expansions = res.expansions;
     cand.closest_node = res.closest_node;
     cand.closest_goal_dist_nm = res.closest_goal_dist_nm;
@@ -888,15 +1014,17 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         // a graph with zero via edges can never transition. Distinguish a
         // blocked parallel bundle from a plain maze failure so agents get a
         // stable reason category.
-        if (ta->layer != primary_dst_layer) {
+        if (src_layer != primary_dst_layer) {
             int via_edges = 0;
             for (std::size_t ni = 0; ni < graph.nodes().size(); ++ni)
                 for (const auto& e : graph.edges(static_cast<int>(ni)))
                     if (e.is_via) ++via_edges;
             if (via_edges == 0) {
-                LayerSpan span{ta->layer, primary_dst_layer};
+                LayerSpan span{src_layer, primary_dst_layer};
+                NetId probe_exempt = pair ? pair->net_n : -1;
                 ViaBundle probe = ViaBundlePlanner::plan(snapshot, resolver, task.net,
-                                                         ta->pos, span, width, ctx);
+                                                         src_pt, span, width, ctx,
+                                                         probe_exempt);
                 cand.via_style = probe.via_class;
                 cand.vias_required = std::max(1, probe.count);
                 cand.required_current_a = probe.required_current_a;
@@ -911,6 +1039,9 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         return cand;
     }
     cand.found = true;
+    // Issue #8: search cost is debug-only from here on; ordering uses the
+    // recomputed materialized cost below (after simplification).
+    cand.search_cost_nm = res.cost_nm;
     cand.cost_nm = res.cost_nm;
     // Issue #12: pair corridors carry a single center via per transition
     // (no bundle stubs). The DiffPairMaterializer rebuilds symmetric paired
@@ -932,6 +1063,34 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                     cand.via_reason = "no_via_class";
                     cand.fail_reason = "no_via";
                     return cand;
+                }
+                // Issue #7: pair-specific via-transition footprint. The
+                // materializer rebuilds symmetric P+N barrels + stubs around
+                // the center, so gate each corridor transition on the
+                // occupied envelope (width == wp+wn+gap+2*ext), not a single
+                // via: both members must plan an occupied-width bundle at the
+                // center (sibling-exempt, gap-governed). Otherwise the
+                // corridor would commit a transition the materializer cannot
+                // realize as paired vias.
+                {
+                    ViaBundle bP = ViaBundlePlanner::plan(
+                        snapshot, resolver, task.net, nu.p, span, width, ctx,
+                        pair_exempt);
+                    ViaBundle bN = ViaBundlePlanner::plan(
+                        snapshot, resolver, pair->net_n, nu.p, span, width, ctx,
+                        task.net);
+                    if (!bP.feasible || !bN.feasible) {
+                        cand.found = false;
+                        cand.traces.clear();
+                        cand.vias.clear();
+                        cand.via_style = bP.feasible ? bN.via_class : bP.via_class;
+                        cand.vias_required =
+                            std::max(bP.feasible ? 1 : bP.count, bN.feasible ? 1 : bN.count);
+                        cand.required_current_a = bP.required_current_a;
+                        cand.via_reason = "bundle_blocked";
+                        cand.fail_reason = "via_bundle_infeasible";
+                        return cand;
+                    }
                 }
                 Via v;
                 v.net = task.net;
@@ -960,6 +1119,10 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         std::vector<char> no_stub(cand.traces.size(), 0);
         simplify_candidate_traces(filt, resolver, ctx, task.net, cand.traces,
                                   no_stub, simplify_exempt_task(task));
+        // Issue #8: recompute from final copper (simplification shortens it).
+        cand.materialized_cost_nm =
+            materialized_route_cost(cand.traces, cand.vias, eff_mult, astar_cfg);
+        cand.cost_nm = cand.materialized_cost_nm;
         return cand;
     }
     // Materialize every A* layer transition as one atomic bundle (issue #5):
@@ -1043,6 +1206,10 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         simplify_candidate_traces(snapshot, resolver, ctx, task.net, cand.traces,
                                   stub_mask, simplify_exempt_task(task));
     }
+    // Issue #8: recompute from final copper (simplification + stubs change it).
+    cand.materialized_cost_nm =
+        materialized_route_cost(cand.traces, cand.vias, eff_mult, astar_cfg);
+    cand.cost_nm = cand.materialized_cost_nm;
     return cand;
 }
 

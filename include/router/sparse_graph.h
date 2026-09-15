@@ -3,12 +3,14 @@
 // The principal routing representation is vector geometry, NOT a uniform
 // raster. Per connection task we build a small visibility-style graph whose
 // nodes are the task endpoints plus clearance-expanded obstacle corners on
-// each layer, connected by Manhattan (straight or single-elbow) edges whose
+// each layer, connected by direct line-of-sight edges at arbitrary angles
+// (Euclidean length) with Manhattan straight / single-elbow fallbacks whose
 // centerlines keep full electrical clearance. Layer changes are via edges
 // gated on via legality. Hard electrical legality is structural: illegal
 // edges are never built, so A* cannot choose them no matter the costs.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <vector>
@@ -17,6 +19,39 @@
 #include "router/rules.h"
 
 namespace copperline {
+
+// Issue #4: configurable sparse-graph search budgets. The hard caps that
+// used to live in build_multi (384 bases culled by proximity to the direct
+// src->dst segments, 16 nearest neighbours per node) are now explicit
+// parameters so maturity level / route tasks can spend more on dense boards
+// while the defaults keep easy boards fast (bit-identical behaviour).
+//   max_bases  - cap on candidate base points after dedup (0 = uncapped:
+//                keep every base; src + all dsts always survive).
+//   k_nearest  - K nearest neighbours tried per node per layer (<=0 =
+//                uncapped: try every same-layer node; aligned pairs are
+//                always tried regardless).
+struct SparseGraphBudget {
+    std::size_t max_bases = 384;
+    int k_nearest = 16;
+    static SparseGraphBudget defaults() { return SparseGraphBudget{}; }
+    // Genuinely expanded last-resort scale: no base culling, wide K.
+    // Consumed by the unreachable fallback in route_candidate_task /
+    // build_portfolio before a task is declared unreachable.
+    static SparseGraphBudget last_resort() {
+        SparseGraphBudget b;
+        b.max_bases = 0;  // uncapped: max(bases.size(), uncapped)
+        b.k_nearest = 64;
+        return b;
+    }
+    bool is_last_resort() const { return max_bases == 0 && k_nearest >= 64; }
+};
+
+inline constexpr std::size_t kDefaultMaxBases = 384;
+inline constexpr int kDefaultKNearest = 16;
+// Last-resort floor: at least this many bases survive even when a caller
+// passes a small explicit cap (the uncapped mode keeps everything).
+inline constexpr std::size_t kLastResortMinBases = 2048;
+inline constexpr int kLastResortKNearest = 64;
 
 struct SparseNode {
     Point p{};
@@ -107,10 +142,14 @@ class SparseRoutingGraph {
 
     // Builds the graph for one point-to-point task against the CURRENT
     // committed board state (pre-routed + already-routed copper).
+    // exempt_net: coupled pair sibling treated as own-net (gap-governed at
+    // materialization, not voltage-governed here). -1 disables the exemption.
     static SparseRoutingGraph build(const Board& committed, const RuleResolver& resolver,
                                     NetId net, Point src, Point dst, LayerId src_layer,
                                     LayerId dst_layer, Coord route_width_nm,
-                                    const ElectricalContext& ctx);
+                                    const ElectricalContext& ctx,
+                                    const SparseGraphBudget& budget = SparseGraphBudget{},
+                                    NetId exempt_net = -1);
     // Issue #4: multi-target build. src is the unconnected terminal; dsts
     // are legal contact points on committed same-net copper (+/- the
     // representative pad). A* succeeds when ANY dst node is reached, which
@@ -125,7 +164,9 @@ class SparseRoutingGraph {
                                           const std::vector<SparseTarget>& dsts,
                                           Coord route_width_nm, const ElectricalContext& ctx,
                                           const std::vector<Point>* clip_path = nullptr,
-                                          Coord clip_half_width_nm = 0);
+                                          Coord clip_half_width_nm = 0,
+                                          const SparseGraphBudget& budget = SparseGraphBudget{},
+                                          NetId exempt_net = -1);
 
     int src_node() const { return src_node_; }
     int dst_node() const { return dst_node_; }

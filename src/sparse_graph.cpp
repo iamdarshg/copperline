@@ -158,17 +158,19 @@ void SparseRoutingGraph::add_penalties(
 SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleResolver& resolver,
                                               NetId net, Point src, Point dst, LayerId src_layer,
                                               LayerId dst_layer, Coord route_width_nm,
-                                              const ElectricalContext& ctx) {
+                                              const ElectricalContext& ctx,
+                                              const SparseGraphBudget& budget,
+                                              NetId exempt_net) {
     SparseTarget single{dst, dst_layer};
     return build_multi(committed, resolver, net, src, src_layer, {single}, route_width_nm,
-                       ctx);
+                       ctx, nullptr, 0, budget, exempt_net);
 }
 
 SparseRoutingGraph SparseRoutingGraph::build_multi(
     const Board& committed, const RuleResolver& resolver, NetId net, Point src,
     LayerId src_layer, const std::vector<SparseTarget>& dsts, Coord route_width_nm,
     const ElectricalContext& ctx, const std::vector<Point>* clip_path,
-    Coord clip_half_width_nm) {
+    Coord clip_half_width_nm, const SparseGraphBudget& budget, NetId exempt_net) {
     SparseRoutingGraph g;
     const Coord half_w = route_width_nm / 2;
     (void)dsts.empty();
@@ -185,6 +187,10 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         clear_cache[other] = c;
         return c;
     };
+    // Keepout standoff stays worst-case over ALL foreign nets (including a
+    // paired sibling): keepouts are net-agnostic and the arbiter's exact
+    // gate (ClearanceCache::max_clear) holds corridor copper to the same
+    // margin. Only sibling-net *copper* is exempt (gap-governed).
     Coord max_clear = 0;
     for (const auto& other : committed.nets) {
         if (other.id == net) continue;
@@ -205,7 +211,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                       "keepout:" + ko.reason);
     }
     for (const auto& t : committed.terminals) {
-        if (t.net == net) continue;  // own copper is connectable, not an obstacle
+        if (t.net == net || t.net == exempt_net) continue;  // own + sibling exempt
         const NetInfo* on = committed.find_net(t.net);
         std::string nm = on ? on->name : "?";
         std::string desc = "pad:net=" + nm +
@@ -214,7 +220,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                       "pad", std::move(desc));
     }
     for (const auto& t : committed.traces) {
-        if (t.net == net) continue;
+        if (t.net == net || t.net == exempt_net) continue;
         const NetInfo* on = committed.find_net(t.net);
         std::string nm = on ? on->name : "?";
         Segment bseg = t.segment();
@@ -237,7 +243,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         obstacles.push_back(std::move(o));
     }
     for (const auto& v : committed.vias) {
-        if (v.net == net) continue;
+        if (v.net == net || v.net == exempt_net) continue;
         const NetInfo* on = committed.find_net(v.net);
         std::string nm = on ? on->name : "?";
         Coord c = clearance_to(v.net, v.top_layer);
@@ -252,7 +258,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // Issue #16: foreign pours are obstacles with exact polygon legality;
     // own-net pours are connectable copper, never obstacles.
     for (const auto& z : committed.planes) {
-        if (z.net == net) continue;
+        if (z.net == net || z.net == exempt_net) continue;
         const NetInfo* on = committed.find_net(z.net);
         std::string nm = on ? on->name : "?";
         push_obstacle(z.bounds(), z.layer, clearance_to(z.net, z.layer) + half_w, z.net,
@@ -348,8 +354,10 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 bases.end());
     // Deterministic safety cap: keep src/all-dsts plus the bases closest
     // to any task segment src->dst_i (distance, then x, then y tie-breaks).
-    constexpr std::size_t kMaxBases = 384;
-    if (bases.size() > kMaxBases) {
+    // Issue #4: the cap is budget.max_bases (default 384); 0 = uncapped
+    // (last-resort completeness: keep every base).
+    const std::size_t max_bases = budget.max_bases;
+    if (max_bases > 0 && bases.size() > max_bases) {
         std::vector<Segment> task_segs;
         for (const auto& d : dsts) task_segs.push_back({src, d.p});
         if (task_segs.empty()) task_segs.push_back({src, src});
@@ -378,7 +386,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         bases.clear();
         bases.push_back(src);
         for (const auto& d : dsts) bases.push_back(d.p);
-        for (std::size_t i = 0; i < ranked.size() && bases.size() < kMaxBases; ++i)
+        for (std::size_t i = 0; i < ranked.size() && bases.size() < max_bases; ++i)
             bases.push_back(ranked[i].second);
         std::sort(bases.begin(), bases.end());
     }
@@ -488,7 +496,9 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         layer_nodes[g.nodes_[i].layer].push_back(i);
 
     // ---- 4. Manhattan edges: aligned pairs + K nearest per node ----
-    constexpr int kNearest = 16;
+    // Issue #4: K is budget.k_nearest (default 16); <=0 = uncapped (try
+    // every same-layer node). Aligned pairs are always tried regardless.
+    const int kNearest = budget.k_nearest;
     // Probe-cut memo + colinear-chain inference (perf follow-up, exact):
     // edge legality is a pure function of the segment geometry (board,
     // resolver, net and width are fixed within one build), so a decided
@@ -504,10 +514,19 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // (bounded, thread-local) and the memo is only ever queried by key, never
     // iterated, so thread count cannot affect the result.
     struct DecidedEdge {
-        bool has_edge = false;
-        SparseEdge edge{};
+        // Issue #3: parallel elbow edges. A diagonal pair can yield up to 3
+        // legal edges (direct diagonal LOS + both L elbows); an aligned pair
+        // yields exactly 1 (direct == straight). A* picks among them by cost
+        // (length + penalty), so decide_edge must not stop at the first legal
+        // elbow. Adjacency is vector<SparseEdge> per node, i.e. multi-edges
+        // are native: apply_edge pushes every entry.
+        std::vector<SparseEdge> edges;
+        bool has_edge() const { return !edges.empty(); }
         int n_probes = 0;
-        SparseRejectedProbe probes[2]{};  // <=1 for straight pairs, <=2 with elbows
+        // Issue #2: <=1 for straight pairs, <=2 with elbows, +1 for the
+        // direct diagonal LOS attempt (max 3 total when diagonal fails and
+        // both elbow orders fail).
+        SparseRejectedProbe probes[3]{};
     };
     auto decide_edge = [&](int from, int to, DecidedEdge& out) {
         out = DecidedEdge{};
@@ -515,6 +534,42 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         const Point b = g.nodes_[to].p;
         if (g.nodes_[from].layer != g.nodes_[to].layer) return;
         LayerId layer = g.nodes_[from].layer;
+        const bool is_aligned = (a.x == b.x || a.y == b.y);
+        // Issue #2: direct arbitrary-angle line-of-sight first. Probes the
+        // exact Segment(a,b) with the same seg_in_bounds + first_blocker
+        // (seg_legal_vs) predicates the Manhattan legs use. On success the
+        // edge carries Euclidean length (euclid_len_nm, == manhattan for
+        // axis-aligned pairs) with the straight-edge encoding (dir2 = -1,
+        // elbow unused); materialization already emits dir2 < 0 as one
+        // direct Segment(nu.p, nv.p), and the simplifier/verifier accept
+        // arbitrary angles, so no other stage changes.
+        // Issue #3: the direct edge no longer suppresses the elbows. For an
+        // aligned pair direct == straight so we return with the single edge
+        // (emitting the straight candidate again would duplicate it); for a
+        // diagonal pair we keep the direct edge AND probe both elbows below.
+        {
+            Segment direct{a, b};
+            Point rep{(a.x + b.x) / 2, (a.y + b.y) / 2};
+            bool direct_ok = false;
+            if (!seg_in_bounds(direct, committed.bounds(), half_w)) {
+                out.probes[out.n_probes++] = {-1, "bounds", "off_board", layer, rep};
+            } else if (const Obstacle* od = first_blocker(direct, layer)) {
+                out.probes[out.n_probes++] = {od->net, od->kind, od->desc, layer, rep};
+            } else {
+                direct_ok = true;
+            }
+            if (direct_ok) {
+                SparseEdge e;
+                e.to = to;
+                e.len_nm = euclid_len_nm(a, b);
+                e.dir1 = direction_of(a, b);
+                e.dir2 = -1;
+                e.elbow = Point{};
+                e.is_via = false;
+                out.edges.push_back(e);
+                if (is_aligned) return;
+            }
+        }
         // Candidate paths: straight (if aligned) else both elbow orders.
         struct Cand {
             Point elbow;
@@ -522,7 +577,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         };
         Cand cands[2];
         int n_cands = 0;
-        if (a.x == b.x || a.y == b.y) {
+        if (is_aligned) {
             cands[n_cands++] = {{}, false};
         } else {
             cands[n_cands++] = {{b.x, a.y}, true};
@@ -564,14 +619,14 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             e.dir2 = c.has_elbow ? direction_of(c.elbow, b) : -1;
             e.elbow = c.elbow;
             e.is_via = false;
-            out.edge = e;
-            out.has_edge = true;
-            break;  // first legal elbow order wins (deterministic)
+            out.edges.push_back(e);
+            // Issue #3: no break -- collect BOTH legal elbows so later
+            // congestion/reservation penalties in A* can choose between them.
         }
     };
     auto apply_edge = [&](int from, const DecidedEdge& d) {
         for (int k = 0; k < d.n_probes; ++k) rej_per_node[from].push_back(d.probes[k]);
-        if (d.has_edge) g.adj_[from].push_back(d.edge);
+        for (const auto& e : d.edges) g.adj_[from].push_back(e);
     };
     auto try_edge = [&](int from, int to) {
         if (from == to) return;
@@ -714,7 +769,9 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 decide_edge(v, u, dvu);
                 // Success is symmetric (same segments); AND keeps the
                 // inference conservative under any future asymmetry.
-                ch.link_ok[t] = (duv.has_edge && dvu.has_edge) ? 1 : 0;
+                // Issue #3: aligned chain links carry exactly one edge (direct
+                // == straight), so non-empty is the success test.
+                ch.link_ok[t] = (!duv.edges.empty() && !dvu.edges.empty()) ? 1 : 0;
                 aligned_outcome.insert(directed_key(u, v), duv);
                 aligned_outcome.insert(directed_key(v, u), dvu);
             }
@@ -747,13 +804,14 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 // probed legal with straight links, so this straight pair is
                 // legal with zero probes and an identical edge.
                 DecidedEdge d;
-                d.has_edge = true;
-                d.edge.to = to;
-                d.edge.len_nm = manhattan(a, b);
-                d.edge.dir1 = direction_of(a, b);
-                d.edge.dir2 = -1;
-                d.edge.elbow = Point{};
-                d.edge.is_via = false;
+                SparseEdge ie;
+                ie.to = to;
+                ie.len_nm = manhattan(a, b);
+                ie.dir1 = direction_of(a, b);
+                ie.dir2 = -1;
+                ie.elbow = Point{};
+                ie.is_via = false;
+                d.edges.push_back(ie);
                 apply_edge(from, d);
                 aligned_outcome.insert(key, d);
                 return;
@@ -779,7 +837,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 if (j == i) continue;
                 near.push_back({manhattan(g.nodes_[i].p, g.nodes_[j].p), j});
             }
-            if (static_cast<int>(near.size()) > kNearest) {
+            if (kNearest > 0 && static_cast<int>(near.size()) > kNearest) {
                 std::partial_sort(near.begin(), near.begin() + kNearest,
                                   near.end());
                 near.resize(kNearest);
@@ -850,7 +908,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             tried = true;
             ViaBundle b = ViaBundlePlanner::plan_with_style(committed, resolver, net, p, span,
                                                             style, need, route_width_nm, ctx,
-                                                            shared_cc);
+                                                            shared_cc, exempt_net);
             if (b.feasible) return b;
             fail = b;  // keep the last deterministic reason (bundle_blocked)
         }
@@ -892,12 +950,18 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         }
     }
 
-    // Deterministic edge order.
+    // Deterministic edge order. Issue #3: parallel elbow edges share
+    // (is_via, to, len) (both elbows have identical Manhattan length), so
+    // tie-break on elbow/dir to keep the order total and stable.
     for (auto& vec : g.adj_) {
         std::sort(vec.begin(), vec.end(), [](const SparseEdge& a, const SparseEdge& b) {
             if (a.is_via != b.is_via) return a.is_via < b.is_via;
             if (a.to != b.to) return a.to < b.to;
-            return a.len_nm < b.len_nm;
+            if (a.len_nm != b.len_nm) return a.len_nm < b.len_nm;
+            if (a.dir1 != b.dir1) return a.dir1 < b.dir1;
+            if (a.dir2 != b.dir2) return a.dir2 < b.dir2;
+            if (a.elbow.x != b.elbow.x) return a.elbow.x < b.elbow.x;
+            return a.elbow.y < b.elbow.y;
         });
     }
     int edges = 0;

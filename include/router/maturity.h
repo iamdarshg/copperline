@@ -156,6 +156,12 @@ struct MaturityCaps {
     std::size_t max_hierarchy_grid_cells = 0;
     // Weighted-A* factor ceiling (floor is always 1.0 = admissible).
     double max_weight_factor = 2.0;
+    // Issue #4: sparse-graph budget ceilings. 0 = auto (phase map wins,
+    // so CLOSURE may go uncapped for max_bases / 64 for k_nearest).
+    // Otherwise an absolute ceiling: the phase want is clamped down to it
+    // (an uncapped want of 0 resolves to the cap value).
+    std::size_t max_graph_bases = 0;
+    int max_graph_k_nearest = 0;
 };
 
 // ---- Effective search budget: the single consumed object ----
@@ -177,6 +183,11 @@ struct EffectiveSearchBudget {
     int recovery_beam = 1;   // issue #22 hook (provisioned)
     double timeout_share_per_task_s = 0.0;  // <=0 = no timeout configured
     int threads_effective = 1;
+    // Issue #4: sparse-graph budgets for this phase. max_bases 0 = uncapped
+    // (last-resort completeness); k_nearest <= 0 = try every same-layer
+    // node. OPEN/MID keep the legacy 384/16 defaults for speed.
+    std::size_t graph_max_bases = 384;
+    int graph_k_nearest = 16;
     JsonValue to_json() const;
 };
 
