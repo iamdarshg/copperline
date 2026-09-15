@@ -17,6 +17,7 @@
 //   commit in eligibility order, recording infeasibility where needed.
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <map>
@@ -177,6 +178,13 @@ struct EscapeOptions {
     // cannot consume the entire run before the global worker pool starts.
     std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::time_point::max();
+    // Worker threads for escape planning (S1 escape-parallelism): explicit
+    // --threads wins via resolve_worker_threads, 0 = auto (hardware
+    // concurrency). Footprints plan on this pool and each pad's fallback
+    // portal attempts fan out on it; the merge is deterministic
+    // (component-ordered footprints, serial-equivalent candidate selection),
+    // so --threads never changes the committed geometry.
+    int threads = 0;
 };
 
 struct EscapeResult {
@@ -208,6 +216,19 @@ class EscapePlanner {
 
   private:
     EscapeOptions options_;
+
+    // Plan one footprint against the given scratch board (centre-out,
+    // eligibility-ordered, committing viable stubs into work). Pure function
+    // of (board, resolver, ctx, fp, work-in, options): the serial path passes
+    // the shared accumulated board, the parallel path a per-footprint copy.
+    // pad_threads bounds intra-pad fallback fan-out (1 = fully serial).
+    // Sets aborted on deadline expiry (pad in flight is discarded, matching
+    // the legacy break-without-push semantics).
+    FootprintEscapeResult plan_one_footprint(const Board& board, const RuleResolver& resolver,
+                                             const ElectricalContext& ctx,
+                                             const FinePitchFootprint& fp, Board& work,
+                                             std::atomic<bool>& aborted,
+                                             int pad_threads) const;
 };
 
 int principal_direction(Point from, Point to);

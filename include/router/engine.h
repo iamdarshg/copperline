@@ -226,6 +226,10 @@ struct EngineOptions {
     // Prompt 5: transactional cleanup optimizer (on by default; runs only
     // after COMPLETE + independent verifier pass). --no-optimizer disables.
     OptimizerOptions optimizer;
+    // Measurement: emit per-stage wall ms as one stderr JSON line
+    // ({"event":"stage_timings",...}) at the end of run(). Default off:
+    // zero behavior change (one clock read per stage boundary only).
+    bool time_stages = false;
 };
 
 class RouterEngine {

@@ -84,6 +84,12 @@ ctest --test-dir build --parallel 4 --output-on-failure
 `--quiet` suppresses everything but errors. Schemas are versioned, e.g.
 `"schema": "copperline/route-report/1"`.
 
+Agent loops: `route --no-board-echo` omits the full `board` object from
+stdout (report fields only — same JSON is written to `--report`, so stdout
+and file stay consistent). Default stdout is unchanged. Saves ~29KB per
+call on `bga_8x8` (~0.7KB on `open_2layer`); the routed board is already on
+disk when `--output` is used.
+
 ## Exit codes
 
 | Code | Meaning |

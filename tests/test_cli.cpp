@@ -28,7 +28,13 @@ std::string win_path(std::string p) {
     return p;
 }
 
-std::string run_cli(const std::string& args, int& rc) {
+struct CliResult {
+    int rc = 0;
+    std::string out;  // stdout (pure JSON under --json)
+    std::string err;  // stderr (warnings, --progress, --time-stages)
+};
+
+CliResult run_cli_full(const std::string& args) {
     namespace fs = std::filesystem;
     fs::path tmp = fs::temp_directory_path() / "copperline_cli_out.txt";
     fs::path err = fs::temp_directory_path() / "copperline_cli_err.txt";
@@ -42,11 +48,27 @@ std::string run_cli(const std::string& args, int& rc) {
         // the outer quotes), so use the documented cmd /c ""exe" args" form.
         cmd = "cmd /c \"\"" + prog + "\" " + args + redir + "\"";
     }
-    rc = std::system(cmd.c_str());
-    std::ifstream f(tmp, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
+    CliResult r;
+    r.rc = std::system(cmd.c_str());
+    {
+        std::ifstream f(tmp, std::ios::binary);
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        r.out = ss.str();
+    }
+    {
+        std::ifstream f(err, std::ios::binary);
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        r.err = ss.str();
+    }
+    return r;
+}
+
+std::string run_cli(const std::string& args, int& rc) {
+    CliResult r = run_cli_full(args);
+    rc = r.rc;
+    return r.out;
 }
 
 std::string fixture(const std::string& name) {
@@ -60,6 +82,25 @@ JsonValue must_parse(const std::string& text) {
         throw std::runtime_error(std::string("stdout is not pure JSON: ") + e.what() +
                                  " :: " + text.substr(0, 200));
     }
+}
+
+// S3 perf gate: first stderr line whose JSON carries {"event": <name>}.
+// Plain-text diagnostics (import warnings) are skipped line by line.
+JsonValue find_event(const std::string& err, const std::string& name) {
+    std::istringstream in(err);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) continue;
+        try {
+            JsonValue v = parse_json(line);
+            if (v.get_string("event") == name) return v;
+        } catch (...) {
+            continue;
+        }
+    }
+    throw std::runtime_error("stderr event not found: " + name +
+                             " in: " + err.substr(0, 300));
 }
 
 std::string temp_path(const std::string& name) {
@@ -439,6 +480,108 @@ CT_TEST(analyze_gerber_and_ipc2581) {
     CT_CHECK(rc2 == 0);
     JsonValue iv = must_parse(iout);
     CT_CHECK(iv.find("board")->get_number("terminals", 0) == 4);
+}
+
+CT_TEST(route_no_board_echo_report_only) {
+    // S3 (I3): --no-board-echo drops the full board object from route
+    // stdout (agent-loop I/O hygiene); everything else is identical.
+    int rc1 = 0, rc2 = 0;
+    std::string o1 = run_cli("route " + fixture("open_2layer.json") + " --json --seed 42 --threads 1", rc1);
+    std::string o2 = run_cli("route " + fixture("open_2layer.json") +
+                                 " --json --seed 42 --threads 1 --no-board-echo",
+                             rc2);
+    CT_CHECK(rc1 == 0 && rc2 == 0);
+    JsonValue v1 = must_parse(o1), v2 = must_parse(o2);
+    CT_CHECK(v1.get_string("status") == "COMPLETE");
+    CT_CHECK(v2.get_string("status") == "COMPLETE");
+    CT_CHECK(v1.has("board"));
+    CT_CHECK(!v2.has("board"));
+    CT_CHECK(v1.get_string("board_hash") == v2.get_string("board_hash"));
+    // Wall-clock times vary run to run by design; mask them like the
+    // determinism test, then every non-board key must match exactly.
+    v1["stats"]["time_ms"] = 0.0;
+    v2["stats"]["time_ms"] = 0.0;
+    for (JsonValue* v : {&v1, &v2}) {
+        if (const JsonValue* log = v->find("epoch_log")) {
+            for (auto& e : const_cast<JsonArray&>(log->as_array())) e["time_ms"] = 0.0;
+        }
+    }
+    for (const auto& kv : v1.as_object()) {
+        if (kv.first == "board") continue;
+        CT_CHECK(v2.has(kv.first));
+        CT_CHECK(serialize_json(kv.second) == serialize_json(*v2.find(kv.first)));
+    }
+    CT_CHECK(o2.size() < o1.size());
+    std::printf("  [io] route stdout %llu -> %llu bytes (board echo saved %llu)\n",
+                (unsigned long long)o1.size(), (unsigned long long)o2.size(),
+                (unsigned long long)(o1.size() - o2.size()));
+}
+
+CT_TEST(route_time_stages_schema_and_budgets) {
+    // S3 perf gate (--time-stages surface): stage_timings + cli_timings
+    // events keep their schema (S1/S2 depend on it) and every stage stays
+    // inside generous regression ceilings on a 2-task board.
+    CliResult r = run_cli_full("route " + fixture("open_2layer.json") +
+                               " --json --seed 42 --threads 1 --time-stages");
+    CT_CHECK(r.rc == 0);
+    JsonValue v = must_parse(r.out);
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    JsonValue st = find_event(r.err, "stage_timings");
+    JsonValue cl = find_event(r.err, "cli_timings");
+    const char* stage_ms[] = {"escape_ms",  "taskgen_ms", "batch_ms",   "workers_ms",
+                              "arbiter_ms", "recovery_ms", "materialize_ms", "tuning_ms",
+                              "attribution_ms", "verify_ms", "optimizer_ms", "hash_ms"};
+    for (const char* k : stage_ms) {
+        CT_CHECK(st.has(k));
+        double ms = st.get_number(k, -1.0);
+        CT_CHECK(ms >= 0.0 && ms < 60000.0);
+    }
+    const char* cli_ms[] = {"import_ms", "cli_verify_ms", "report_json_ms",
+                            "serialize_write_ms"};
+    for (const char* k : cli_ms) {
+        CT_CHECK(cl.has(k));
+        double ms = cl.get_number(k, -1.0);
+        CT_CHECK(ms >= 0.0 && ms < 60000.0);
+    }
+    CT_CHECK(st.get_number("threads", 0) == 1);
+    CT_CHECK(st.get_number("epochs", 0) >= 1);
+    CT_CHECK(st.get_number("tasks_total", 0) == 2);
+    CT_CHECK(cl.get_number("threads", 0) == 1);
+    CT_CHECK(cl.get_number("board_bytes", 0) > 0);
+    CT_CHECK(cl.get_number("output_bytes", -1) == 0);  // no --output/--report
+    std::printf("  [stages] workers %.3fms arbiter %.3fms report_json %.3fms cli_verify %.3fms\n",
+                st.get_number("workers_ms", -1), st.get_number("arbiter_ms", -1),
+                cl.get_number("report_json_ms", -1), cl.get_number("cli_verify_ms", -1));
+    // Default runs stay silent: no timing events without the flag.
+    CliResult quiet = run_cli_full("route " + fixture("open_2layer.json") + " --json --seed 42");
+    CT_CHECK(quiet.rc == 0);
+    CT_CHECK(quiet.err.find("stage_timings") == std::string::npos);
+    CT_CHECK(quiet.err.find("cli_timings") == std::string::npos);
+}
+
+CT_TEST(route_time_stages_geometry_parity_1_vs_16) {
+    // S3 perf gate (determinism across worker counts): --threads 1 and 16
+    // produce identical copper; both runs still emit well-formed timings
+    // with matching epoch/task accounting.
+    CliResult r1 = run_cli_full("route " + fixture("open_2layer.json") +
+                                " --json --seed 42 --threads 1 --time-stages");
+    CliResult rN = run_cli_full("route " + fixture("open_2layer.json") +
+                                " --json --seed 42 --threads 16 --time-stages");
+    CT_CHECK(r1.rc == 0 && rN.rc == 0);
+    JsonValue v1 = must_parse(r1.out), vN = must_parse(rN.out);
+    CT_CHECK(v1.get_string("status") == "COMPLETE");
+    CT_CHECK(vN.get_string("status") == "COMPLETE");
+    CT_CHECK(v1.get_string("board_hash") == vN.get_string("board_hash"));
+    CT_CHECK(serialize_json(*v1.find("board")) == serialize_json(*vN.find("board")));
+    JsonValue s1 = find_event(r1.err, "stage_timings");
+    JsonValue sN = find_event(rN.err, "stage_timings");
+    CT_CHECK(s1.get_number("threads", 0) == 1);
+    CT_CHECK(sN.get_number("threads", 0) == 16);
+    CT_CHECK(s1.get_number("epochs", -1) == sN.get_number("epochs", -1));
+    CT_CHECK(s1.get_number("tasks_total", -1) == sN.get_number("tasks_total", -1));
+    std::printf("  [parity] hash %s identical at 1T/16T (%d epochs)\n",
+                v1.get_string("board_hash").c_str(),
+                (int)s1.get_number("epochs", -1));
 }
 
 int main() { return copperline::test::run_all_tests(); }

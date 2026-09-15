@@ -1,15 +1,18 @@
 #include "router/escape.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <set>
 #include <sstream>
+#include <thread>
 
 #include "router/astar.h"
 #include "router/density.h"
+#include "router/parallel.h"
 #include "router/simplify.h"
 #include "router/sparse_graph.h"
 
@@ -481,18 +484,14 @@ bool direct_seg_legal(const Board& work, const RuleResolver& resolver,
 // Direct Manhattan escape attempt: straight when aligned, else the first
 // legal elbow order. No graph, no A* (microseconds). False when the pad
 // cannot reach this portal without crossing foreign copper.
+// max_clear_nm is the worst-case pair clearance for the pad's net, hoisted
+// by the caller: it is identical for every portal/phase of the pad.
 bool try_direct_candidate(const Board& work, const RuleResolver& resolver,
                           const ElectricalContext& ctx, const FinePitchFootprint& fp,
                           const Terminal& t, const EscapePortal& portal, Coord width,
-                          bool is_neck, EscapeCandidate& out) {
+                          bool is_neck, Coord max_clear_nm, EscapeCandidate& out) {
     Coord half_w = width / 2;
-    Coord max_clear = fp.clearance_nm;
-    for (const auto& other : work.nets) {
-        if (other.id == t.net) continue;
-        std::string cs;
-        max_clear = std::max(max_clear, resolver.requiredClearance(t.net, other.id, t.layer,
-                                                                   ctx, &cs));
-    }
+    const Coord max_clear = std::max(fp.clearance_nm, max_clear_nm);
     const Point a = t.pos, b = portal.pos;
     Point elbow{};
     bool has_elbow = false;
@@ -750,71 +749,294 @@ bool path_to_candidate(const SparseRoutingGraph& graph, const AStarResult& res, 
 
 }  // namespace
 
+namespace {
+
+// ---- S1 escape parallelism: deterministic fan-out ----
+//
+// Same std::thread stride idiom as the parallel global epochs (engine.cpp
+// worker_fn): indexed slots, join, then a serial deterministic merge, so
+// worker completion order never affects the result. Two levels:
+//
+//   L1: footprints plan on independent scratch boards, merged in component
+//       order (the detector sorts by component; slots preserve it).
+//   L2: one pad's fallback portal attempts (same-layer / multilayer A* per
+//       portal, per pass) run concurrently; a serial selection pass replays
+//       the legacy early-exit logic over the precomputed results.
+//
+// L2 exactness: the legacy loop accumulates candidates with note() (a map
+// merge keeping the cheaper cost per signature), which is commutative, so
+// the map after portals 0..i is independent of computation order. Attempted
+// sets are deterministic prefixes of the portal order (first index reaching
+// k_best, first non-empty, tried caps), all computable from the attempt
+// results. Selection therefore yields the identical by_sig map. Only the
+// deadline path is timing-dependent (wall clock, as in serial), keeping the
+// same coarse semantics (timed_out flag, partial results, in-flight pad
+// discarded).
+
+// One A* attempt (portal x layer strategy) of a pad's fallback phase.
+// Mirrors one half of the legacy collect_on lambda (same-layer OR
+// multilayer), including the corridor/wide window selection, graph build,
+// A* run, candidate conversion and full-board simplify. Deterministic given
+// its inputs; reads work/resolver/ctx only.
+struct FallbackAttempt {
+    EscapePortal portal;
+    bool wide_window = false;  // true: safety-net window; false: pad->portal corridor
+    Rect wide_rect{};          // valid when wide_window
+    Coord corridor_width_nm = 0;  // corridor expansion width (route width of the pass)
+    Coord route_width_nm = 0;
+    bool is_neck = false;
+    bool to_alt_layer = false;  // false: same-layer; true: terminal -> alt layer
+    // Output (written by exactly one worker; read after join).
+    bool found = false;
+    EscapeCandidate candidate;
+};
+
+void run_fallback_attempt(const Board& work, const RuleResolver& resolver,
+                          const ElectricalContext& ctx, const FinePitchFootprint& fp,
+                          const Terminal& t, const ViaStyle& style, bool have_via,
+                          const std::vector<double>& pad_layer_mult, const AStarConfig& cfg,
+                          LayerId alt_layer, Coord pitch_nm, const FallbackAttempt& spec,
+                          const std::chrono::steady_clock::time_point& deadline,
+                          std::atomic<bool>& aborted, FallbackAttempt& out) {
+    out = spec;
+    out.found = false;
+    // Shared route-command deadline (7bd2191), observed at the same logical
+    // points the serial collect_on used (entry + after the bounded search).
+    auto expired_here = [&]() {
+        if (aborted.load()) return true;
+        if (std::chrono::steady_clock::now() >= deadline) {
+            aborted.store(true);
+            return true;
+        }
+        return false;
+    };
+    if (expired_here()) return;
+    Board local;
+    if (spec.wide_window) {
+        local = local_escape_board(work, spec.wide_rect);
+    } else {
+        Rect corridor = Rect::from_points(t.pos, spec.portal.pos)
+                            .expanded(2 * pitch_nm + spec.corridor_width_nm + fp.clearance_nm);
+        local = local_escape_board(work, corridor);
+    }
+    LayerId target = spec.to_alt_layer ? alt_layer : t.layer;
+    SparseRoutingGraph g = SparseRoutingGraph::build(local, resolver, t.net, t.pos,
+                                                     spec.portal.pos, t.layer, target,
+                                                     spec.route_width_nm, ctx);
+    AStarResult res = astar_route(g, pad_layer_mult, cfg);
+    if (expired_here()) return;
+    if (!res.found) return;
+    EscapeCandidate c;
+    if (!path_to_candidate(g, res, t.net, t.layer, spec.route_width_nm, style, have_via, "",
+                           t.id, spec.portal, fp.channel_count, c))
+        return;
+    c.use_neckdown = spec.is_neck;
+    if (simplify_escape_traces(work, resolver, ctx, t.net, c.traces)) {
+        c.length_nm = 0;
+        for (const auto& s : c.traces) c.length_nm += euclid_len_nm(s.a, s.b);
+    }
+    out.found = true;
+    out.candidate = c;
+}
+
+// Stride fan-out over indexed tasks (parallel-epoch idiom): workers==1 runs
+// inline; otherwise a short-lived std::thread pool with join. fn(k) must
+// touch only slot k (plus shared read-only state).
+template <typename Fn>
+void fan_out_tasks(std::size_t n, int workers, Fn&& fn) {
+    if (n == 0) return;
+    int w = std::max(1, std::min<int>(workers, static_cast<int>(n)));
+    if (w == 1) {
+        for (std::size_t k = 0; k < n; ++k) fn(k);
+        return;
+    }
+    std::vector<std::thread> pool;
+    pool.reserve(static_cast<std::size_t>(w));
+    for (int t = 0; t < w; ++t) {
+        pool.emplace_back([&, t] {
+            for (std::size_t k = static_cast<std::size_t>(t); k < n;
+                 k += static_cast<std::size_t>(w))
+                fn(k);
+        });
+    }
+    for (auto& th : pool) th.join();
+}
+
+}  // namespace
+
 EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolver,
                                  const ElectricalContext& ctx) const {
     EscapeResult result;
     const auto expired = [&]() {
         return std::chrono::steady_clock::now() >= options_.deadline;
     };
-    bool aborted = false;
     FinePitchDetector detector;
     std::vector<FinePitchFootprint> fps = detector.detect(board, resolver, ctx);
-    CentreDepthAnalyzer depth_analyzer;
-    DensityEstimator density_est;
-
-    // Scratch board accumulates committed escape stubs so later (shallower)
-    // pads route around earlier (deeper) copper: the centre-out mechanism.
-    Board work = board;
-
-    for (const auto& fp : fps) {
+    // Worker count via the existing pool infrastructure (explicit --threads
+    // wins, 0 = auto). Footprint results merge in component order, so the
+    // worker count never changes the committed geometry.
+    const int workers = resolve_worker_threads(options_.threads);
+    // S1 escape parallelism, level 1: several footprints plan on independent
+    // scratch boards and merge deterministically (detector sorts by
+    // component; slots preserve it). Single-footprint boards keep the legacy
+    // shared scratch below (bit-identical accumulation).
+    if (fps.size() > 1 && workers > 1) {
         if (expired()) {
-            aborted = true;
+            result.timed_out = true;
+            return result;
+        }
+        // Bound footprint slots by the router memory budget (same
+        // memory_bounded_batch_width infrastructure as the global epochs):
+        // one scratch board plus fallback search state per slot.
+        const int slots = std::max(
+            1, std::min({workers, static_cast<int>(fps.size()),
+                         memory_bounded_batch_width(static_cast<int>(fps.size()),
+                                                    kRouterMemoryBudgetBytes,
+                                                    kPerCandidateBytes)}));
+        // Split the remaining worker budget across intra-pad fallback
+        // fan-out so total concurrency stays bounded by workers.
+        const int pad_threads = std::max(1, workers / slots);
+        std::vector<FootprintEscapeResult> out(fps.size());
+        std::atomic<bool> aborted{false};
+        fan_out_tasks(fps.size(), slots, [&](std::size_t i) {
+            Board work = board;  // per-footprint scratch (own commits only)
+            out[i] = plan_one_footprint(board, resolver, ctx, fps[i], work, aborted,
+                                        pad_threads);
+        });
+        for (auto& fr : out) result.footprints.push_back(std::move(fr));
+        result.timed_out = aborted.load();
+        for (const auto& fp : result.footprints) {
+            for (const auto& p : fp.pads) {
+                ++result.pads_total;
+                if (p.has_viable)
+                    ++result.pads_with_candidates;
+                else
+                    ++result.pads_infeasible;
+            }
+        }
+        return result;
+    }
+    std::atomic<bool> aborted{false};
+    // Single footprint: the scratch board accumulates committed escape stubs
+    // so later (shallower) pads route around earlier (deeper) copper: the
+    // centre-out mechanism. Multi-footprint serial runs keep per-footprint
+    // scratches so the 1-worker result matches the parallel merge exactly.
+    const bool share_work = (fps.size() <= 1);
+    Board shared_work = board;
+    const int pad_threads = workers;
+    for (std::size_t fi = 0; fi < fps.size(); ++fi) {
+        if (expired()) {
+            aborted.store(true);
             break;
         }
         FootprintEscapeResult fr;
+        if (share_work) {
+            fr = plan_one_footprint(board, resolver, ctx, fps[fi], shared_work, aborted,
+                                    pad_threads);
+        } else {
+            Board work = board;
+            fr = plan_one_footprint(board, resolver, ctx, fps[fi], work, aborted,
+                                    /*pad_threads=*/1);
+        }
+        result.footprints.push_back(std::move(fr));
+        if (aborted.load()) break;
+    }
+
+    result.timed_out = aborted.load();
+    for (const auto& fp : result.footprints) {
+        for (const auto& p : fp.pads) {
+            ++result.pads_total;
+            if (p.has_viable)
+                ++result.pads_with_candidates;
+            else
+                ++result.pads_infeasible;
+        }
+    }
+    return result;
+}
+
+FootprintEscapeResult EscapePlanner::plan_one_footprint(
+    const Board& board, const RuleResolver& resolver, const ElectricalContext& ctx,
+    const FinePitchFootprint& fp, Board& work, std::atomic<bool>& aborted,
+    int pad_threads) const {
+    const auto expired = [&]() {
+        if (aborted.load()) return true;
+        if (std::chrono::steady_clock::now() >= options_.deadline) {
+            aborted.store(true);
+            return true;
+        }
+        return false;
+    };
+    CentreDepthAnalyzer depth_analyzer;
+    DensityEstimator density_est;
+    FootprintEscapeResult fr;
         fr.footprint = fp;
         fr.boundary = build_escape_boundary(board, fp, 0);
         fr.density_map = build_escape_density_map(board, fp);
 
         std::map<TermId, int> depth = depth_analyzer.analyze(board, fp);
+        // Per-pad analysis is read-only w.r.t. the base board (exit
+        // sectors, via sites, density, downstream difficulty), so it fans
+        // out over pads into indexed slots; maps are filled serially below
+        // in member order (std::map order is key-sorted anyway), keeping
+        // eligibility input bit-identical.
+        struct PadAnalysis {
+            TermId tid = -1;
+            bool has_terminal = false;
+            std::vector<int> exits;
+            int vias = 0;
+            double dens = 0.0;
+            double downstream = 0.0;
+        };
+        std::vector<PadAnalysis> analysis(fp.members.size());
+        for (std::size_t i = 0; i < fp.members.size(); ++i) analysis[i].tid = fp.members[i];
+        // An already-expired deadline skips the work entirely (legacy
+        // loop-top break semantics: partial footprint, no pads).
+        if (!expired()) {
+            fan_out_tasks(analysis.size(), pad_threads, [&](std::size_t k) {
+                if (aborted.load()) return;
+                PadAnalysis& s = analysis[k];
+                const Terminal* t = board.find_terminal(s.tid);
+                if (!t) return;
+                s.has_terminal = true;
+                std::string ws;
+                Coord w = resolver.requiredTraceWidth(t->net, t->layer, ctx, &ws);
+                s.exits = legal_exit_sectors(board, resolver, ctx, fp, s.tid, w);
+                s.vias = via_site_count(board, resolver, fp, s.tid);
+                // Terminal-order density index lookup.
+                for (std::size_t i = 0; i < board.terminals.size(); ++i) {
+                    if (board.terminals[i].id == s.tid) {
+                        s.dens = density_est.local_density(board, board.terminals[i].pos);
+                        break;
+                    }
+                }
+                // Downstream difficulty proxy: escape span + electrical burden.
+                Coord max_clear = 0;
+                for (const auto& other : board.nets) {
+                    if (other.id == t->net) continue;
+                    std::string cs;
+                    max_clear = std::max(max_clear, resolver.requiredClearance(
+                                                       t->net, other.id, t->layer, ctx, &cs));
+                }
+                double span_mm = nm_to_mm(manhattan(t->pos, fp.centroid) +
+                                           manhattan(fp.centroid, fr.boundary.rect.center()));
+                s.downstream = span_mm + 40.0 * nm_to_mm(w) + 30.0 * nm_to_mm(max_clear) +
+                               0.5 * s.dens;
+            });
+        }
         std::map<TermId, std::vector<int>> exits;
         std::map<TermId, int> vias;
         std::map<TermId, double> dens, downstream;
-        for (TermId tid : fp.members) {
-            if (expired()) {
-                aborted = true;
-                break;
-            }
-            const Terminal* t = board.find_terminal(tid);
-            if (!t) continue;
-            std::string ws;
-            Coord w = resolver.requiredTraceWidth(t->net, t->layer, ctx, &ws);
-            exits[tid] = legal_exit_sectors(board, resolver, ctx, fp, tid, w);
-            vias[tid] = via_site_count(board, resolver, fp, tid);
-            // Terminal-order density index lookup.
-            for (std::size_t i = 0; i < board.terminals.size(); ++i) {
-                if (board.terminals[i].id == tid) {
-                    dens[tid] = density_est.local_density(board, board.terminals[i].pos);
-                    break;
-                }
-            }
-            // Downstream difficulty proxy: escape span + electrical burden.
-            Coord max_clear = 0;
-            for (const auto& other : board.nets) {
-                if (other.id == t->net) continue;
-                std::string cs;
-                max_clear = std::max(max_clear, resolver.requiredClearance(t->net, other.id,
-                                                                           t->layer, ctx, &cs));
-            }
-            double span_mm = nm_to_mm(manhattan(t->pos, fp.centroid) +
-                                      manhattan(fp.centroid, fr.boundary.rect.center()));
-            downstream[tid] =
-                span_mm + 40.0 * nm_to_mm(w) + 30.0 * nm_to_mm(max_clear) + 0.5 * dens[tid];
+        for (const auto& s : analysis) {
+            if (!s.has_terminal) continue;
+            exits[s.tid] = s.exits;
+            vias[s.tid] = s.vias;
+            dens[s.tid] = s.dens;
+            downstream[s.tid] = s.downstream;
         }
-        if (aborted) {
-            result.footprints.push_back(std::move(fr));
-            break;
-        }
+        // Timeout during analysis: the caller merges the partial footprint
+        // and stops (legacy push-then-break semantics).
+        if (aborted.load()) return fr;
 
         std::vector<TermId> order =
             eligibility_order(board, resolver, ctx, fp, depth, exits, vias, dens, downstream);
@@ -834,10 +1056,7 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
         // Portals nearest-first per pad are tried; deterministic.
         int elig_idx = 0;
         for (TermId tid : order) {
-            if (expired()) {
-                aborted = true;
-                break;
-            }
+            if (expired()) break;
             PadEscapeResult pr;
             pr.terminal = tid;
             pr.centre_depth = depth.count(tid) ? depth.at(tid) : 0;
@@ -925,6 +1144,17 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                 return true;
             };
 
+            // Worst-case pair clearance for the direct-legality checks,
+            // hoisted out of the per-portal attempts (portal/phase
+            // independent, hence bit-identical).
+            Coord direct_max_clear = 0;
+            for (const auto& other : work.nets) {
+                if (other.id == t->net) continue;
+                std::string cs;
+                direct_max_clear = std::max(
+                    direct_max_clear,
+                    resolver.requiredClearance(t->net, other.id, t->layer, ctx, &cs));
+            }
             // Phase 1: direct escapes (microseconds each, no graph
             // search). Perimeter pads resolve here. Full width is preferred:
             // note() keeps the cheaper candidate on signature ties and the
@@ -937,7 +1167,7 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
                     if (static_cast<int>(by_sig.size()) >= kNeed) break;
                     EscapeCandidate c;
                     if (try_direct_candidate(work, resolver, ctx, fp, *t, portal, w, is_neck,
-                                             c))
+                                             direct_max_clear, c))
                         note(c);
                 }
                 if (static_cast<int>(by_sig.size()) >= kNeed) break;
@@ -957,118 +1187,195 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
             // search (no doomed same-layer attempts). Single-layer boards
             // still try same-layer A* as the only option.
             bool interior = pr.exit_sectors.empty();
-            auto collect_on = [&](const Board& gb, const EscapePortal& portal, Coord w,
-                                  bool is_neck, bool via_only) {
-                if (expired()) {
-                    aborted = true;
-                    return;
+
+            // S1 escape parallelism, level 2: fallback portal attempts run
+            // concurrently and a serial selection replays the legacy loop
+            // exactly (same portals, same order, same early exits over the
+            // precomputed results), so the candidate set is bit-identical.
+            // One slot per portal; each slot holds the same-layer and/or
+            // multilayer attempt plus its output.
+            struct PortalSlot {
+                FallbackAttempt same;
+                bool do_same = false;
+                FallbackAttempt multi;
+                bool do_multi = false;
+            };
+            const auto make_spec = [&](const EscapePortal& portal, Coord width, bool is_neck,
+                                       bool to_alt, bool wide, const Rect& wide_rect) {
+                FallbackAttempt a;
+                a.portal = portal;
+                a.wide_window = wide;
+                a.wide_rect = wide_rect;
+                a.corridor_width_nm = width;
+                a.route_width_nm = width;
+                a.is_neck = is_neck;
+                a.to_alt_layer = to_alt;
+                return a;
+            };
+            // Chunked pass: precompute a wave of portal attempts, select in
+            // legacy order, and stop early once the pass's stop condition
+            // holds (serial would never attempt later portals). One chunk is
+            // ~pad_threads attempts (~one wave); a single worker degrades to
+            // portal-by-portal, i.e. the legacy work profile.
+            const std::size_t pass_chunk =
+                static_cast<std::size_t>(std::max(1, pad_threads / 2));
+            const auto run_job_range = [&](std::vector<PortalSlot>& slots,
+                                           std::size_t base, std::size_t end) {
+                std::vector<FallbackAttempt*> jobs;
+                for (std::size_t i = base; i < end; ++i) {
+                    if (slots[i].do_same) jobs.push_back(&slots[i].same);
+                    if (slots[i].do_multi) jobs.push_back(&slots[i].multi);
                 }
-                // Same-layer attempt (skipped for via-first interior pads).
-                if (!via_only) {
-                    SparseRoutingGraph g = SparseRoutingGraph::build(
-                        gb, resolver, t->net, t->pos, portal.pos, t->layer, t->layer, w,
-                        ctx);
-                    AStarResult res = astar_route(g, pad_layer_mult, cfg);
-                    if (expired()) {
-                        aborted = true;
-                        return;
-                    }
-                    if (res.found) {
-                        EscapeCandidate c;
-                        if (path_to_candidate(g, res, t->net, t->layer, w, style, have_via,
-                                              "", tid, portal, fp.channel_count, c)) {
-                            c.use_neckdown = is_neck;
-                            // Issue #17: minimum-bend arbitrary-angle stubs.
-                            // Legality is decided against the FULL board
-                            // (work), not the corridor-filtered graph board.
-                            if (simplify_escape_traces(work, resolver, ctx, t->net,
-                                                       c.traces)) {
-                                c.length_nm = 0;
-                                for (const auto& s : c.traces)
-                                    c.length_nm += euclid_len_nm(s.a, s.b);
-                            }
-                            note(c);
-                        }
-                    }
+                fan_out_tasks(jobs.size(), pad_threads, [&](std::size_t k) {
+                    run_fallback_attempt(work, resolver, ctx, fp, *t, style, have_via,
+                                         pad_layer_mult, cfg, alt_layer, pitch2, *jobs[k],
+                                         options_.deadline, aborted, *jobs[k]);
+                });
+            };
+            const auto select_range = [&](std::vector<PortalSlot>& slots, std::size_t base,
+                                          std::size_t end, int& tried, int tried_cap,
+                                          bool break_on_any, bool via_only) {
+                for (std::size_t i = base; i < end; ++i) {
+                    if (expired()) break;
+                    if (tried >= tried_cap) break;
+                    if (break_on_any ? !by_sig.empty()
+                                     : static_cast<int>(by_sig.size()) >= kNeed)
+                        break;
+                    ++tried;
+                    auto& s = slots[i];
+                    if (!via_only && s.do_same && s.same.found) note(s.same.candidate);
+                    if (multilayer_possible && static_cast<int>(by_sig.size()) < kNeed &&
+                        s.do_multi && s.multi.found)
+                        note(s.multi.candidate);
+                    if (aborted.load()) break;
                 }
-                // Multilayer attempt, only while more diversity is needed.
-                if (multilayer_possible && static_cast<int>(by_sig.size()) < kNeed) {
-                    SparseRoutingGraph g = SparseRoutingGraph::build(
-                        gb, resolver, t->net, t->pos, portal.pos, t->layer, alt_layer, w,
-                        ctx);
-                    AStarResult res = astar_route(g, pad_layer_mult, cfg);
-                    if (expired()) {
-                        aborted = true;
-                        return;
-                    }
-                    if (res.found) {
-                        EscapeCandidate c;
-                        if (path_to_candidate(g, res, t->net, t->layer, w, style, have_via,
-                                              "", tid, portal, fp.channel_count, c)) {
-                            c.use_neckdown = is_neck;
-                            if (simplify_escape_traces(work, resolver, ctx, t->net,
-                                                       c.traces)) {
-                                c.length_nm = 0;
-                                for (const auto& s : c.traces)
-                                    c.length_nm += euclid_len_nm(s.a, s.b);
-                            }
-                            note(c);
-                        }
-                    }
+            };
+            const auto run_pass = [&](std::vector<PortalSlot>& slots, int tried_cap,
+                                      bool break_on_any, bool via_only) {
+                int tried = 0;
+                for (std::size_t base = 0; base < slots.size();) {
+                    if (tried >= tried_cap) break;
+                    if (break_on_any ? !by_sig.empty()
+                                     : static_cast<int>(by_sig.size()) >= kNeed)
+                        break;
+                    const std::size_t end = std::min(slots.size(), base + pass_chunk);
+                    run_job_range(slots, base, end);
+                    select_range(slots, base, end, tried, tried_cap, break_on_any,
+                                 via_only);
+                    if (aborted.load()) break;
+                    base = end;
                 }
             };
 
             if (static_cast<int>(by_sig.size()) < kNeed) {
                 bool via_first = interior && multilayer_possible;
-                int tried = 0;
-                for (const auto& portal : portals) {
-                    if (expired()) {
-                        aborted = true;
-                        break;
+                // Wave 1: full-width attempts over the first
+                // max_fallback_portals portals.
+                std::vector<PortalSlot> wave1;
+                for (std::size_t pi = 0;
+                     pi < portals.size() &&
+                     static_cast<int>(pi) < options_.max_fallback_portals;
+                     ++pi) {
+                    PortalSlot s;
+                    if (!via_first) {
+                        s.do_same = true;
+                        s.same = make_spec(portals[pi], full_w, false, false, false, Rect{});
                     }
-                    if (tried >= options_.max_fallback_portals ||
-                        static_cast<int>(by_sig.size()) >= kNeed)
-                        break;
-                    ++tried;
-                    Rect corridor = Rect::from_points(t->pos, portal.pos)
-                                        .expanded(2 * pitch2 + full_w + fp.clearance_nm);
-                    Board local = local_escape_board(work, corridor);
-                    collect_on(local, portal, full_w, false, via_first);
-                    if (aborted) break;
+                    if (multilayer_possible) {
+                        s.do_multi = true;
+                        s.multi = make_spec(portals[pi], full_w, false, true, false, Rect{});
+                    }
+                    wave1.push_back(s);
                 }
-                if (by_sig.empty() && neck_ok()) {
-                    for (const auto& portal : portals) {
-                        if (expired()) {
-                            aborted = true;
-                            break;
+                run_pass(wave1, options_.max_fallback_portals, false, via_first);
+                if (by_sig.empty()) {
+                    const bool want_neck = neck_ok();
+                    // Recall safety net window (shared by all safety attempts).
+                    Rect wide_rect = fr.boundary.rect.expanded(2 * pitch2 + full_w);
+                    std::vector<PortalSlot> wave_neck;
+                    if (want_neck) {
+                        for (const auto& portal : portals) {
+                            PortalSlot s;
+                            if (!via_first) {
+                                s.do_same = true;
+                                s.same = make_spec(portal, neck_w, true, false, false,
+                                                   Rect{});
+                            }
+                            if (multilayer_possible) {
+                                s.do_multi = true;
+                                s.multi = make_spec(portal, neck_w, true, true, false,
+                                                    Rect{});
+                            }
+                            wave_neck.push_back(s);
                         }
-                        if (!by_sig.empty()) break;
-                        Rect corridor = Rect::from_points(t->pos, portal.pos)
-                                            .expanded(2 * pitch2 + neck_w + fp.clearance_nm);
-                        Board local = local_escape_board(work, corridor);
-                        collect_on(local, portal, neck_w, true, via_first);
-                        if (aborted) break;
+                    }
+                    std::vector<PortalSlot> wave_safe;
+                    for (std::size_t pi = 0;
+                         pi < portals.size() && pi < static_cast<std::size_t>(3); ++pi) {
+                        PortalSlot s;
+                        s.do_same = true;
+                        s.same =
+                            make_spec(portals[pi], full_w, false, false, true, wide_rect);
+                        if (multilayer_possible) {
+                            s.do_multi = true;
+                            s.multi = make_spec(portals[pi], full_w, false, true, true,
+                                                wide_rect);
+                        }
+                        wave_safe.push_back(s);
+                    }
+                    // Neck chunks; the safety jobs ride along in the LAST
+                    // neck fan-out (or run alone when neck is skipped) and
+                    // are selected only when the legacy gate still holds, so
+                    // fully-blocked pads skip a whole wave.
+                    if (want_neck) {
+                        int tried_neck = 0;
+                        for (std::size_t nbase = 0; nbase < wave_neck.size();) {
+                            if (!by_sig.empty()) break;
+                            const std::size_t nend =
+                                std::min(wave_neck.size(), nbase + pass_chunk);
+                            if (nend == wave_neck.size()) {
+                                // Last neck chunk: piggyback the safety jobs
+                                // in the same fan-out (selected below only
+                                // when still empty).
+                                std::vector<FallbackAttempt*> jobs;
+                                for (std::size_t i = nbase; i < nend; ++i) {
+                                    if (wave_neck[i].do_same)
+                                        jobs.push_back(&wave_neck[i].same);
+                                    if (wave_neck[i].do_multi)
+                                        jobs.push_back(&wave_neck[i].multi);
+                                }
+                                for (auto& s : wave_safe) {
+                                    if (s.do_same) jobs.push_back(&s.same);
+                                    if (s.do_multi) jobs.push_back(&s.multi);
+                                }
+                                fan_out_tasks(
+                                    jobs.size(), pad_threads, [&](std::size_t k) {
+                                        run_fallback_attempt(
+                                            work, resolver, ctx, fp, *t, style, have_via,
+                                            pad_layer_mult, cfg, alt_layer, pitch2,
+                                            *jobs[k], options_.deadline, aborted,
+                                            *jobs[k]);
+                                    });
+                            } else {
+                                run_job_range(wave_neck, nbase, nend);
+                            }
+                            select_range(wave_neck, nbase, nend, tried_neck,
+                                         std::numeric_limits<int>::max(), true, via_first);
+                            if (aborted.load()) break;
+                            nbase = nend;
+                        }
+                        if (aborted.load()) break;
+                    } else if (!wave_safe.empty()) {
+                        run_job_range(wave_safe, 0, wave_safe.size());
+                    }
+                    if (by_sig.empty()) {
+                        int tried_safe = 0;
+                        select_range(wave_safe, 0, wave_safe.size(), tried_safe, 3,
+                                     true, false);
                     }
                 }
             }
-            if (aborted) break;
-            if (by_sig.empty()) {
-                // Recall safety net: corridor filtering may hide a wide detour.
-                Board wide = local_escape_board(
-                    work, fr.boundary.rect.expanded(2 * pitch2 + full_w));
-                int tried = 0;
-                for (const auto& portal : portals) {
-                    if (expired()) {
-                        aborted = true;
-                        break;
-                    }
-                    if (!by_sig.empty() || tried >= 3) break;
-                    ++tried;
-                    collect_on(wide, portal, full_w, false, false);
-                    if (aborted) break;
-                }
-            }
-            if (aborted) break;
+            if (aborted.load()) break;
 
             std::vector<EscapeCandidate> cands;
             for (auto& [sig, c] : by_sig) {
@@ -1136,22 +1443,8 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
             }
             fr.pads.push_back(pr);
         }
-        result.footprints.push_back(std::move(fr));
-        if (aborted) break;
+        return fr;
     }
-
-    result.timed_out = aborted;
-    for (const auto& fp : result.footprints) {
-        for (const auto& p : fp.pads) {
-            ++result.pads_total;
-            if (p.has_viable)
-                ++result.pads_with_candidates;
-            else
-                ++result.pads_infeasible;
-        }
-    }
-    return result;
-}
 
 JsonValue EscapeResult::to_json() const {
     JsonValue r = JsonValue::object();

@@ -940,117 +940,166 @@ MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
             }
             return out;
         }
-        // Stream parents: expand one parent at a time, merging children
-        // into a global top-beam. Stored boards stay bounded to
-        // beam (parents) + max_moves (current children) + beam (merged).
+        // Wave-parallel parents: expand one memory-bounded wave of
+        // (parent, child) pairs at a time, merging children into a global
+        // top-beam. Stored boards stay bounded to beam (parents) + one
+        // wave of pairs (<= kMaxStoredMultiplyNodes) + beam (merged).
+        // S2 wave-parallel parents: per-parent specs (blocker attribution
+        // + move-gen + to_route over the parent's immutable board) are
+        // built serially in parent order with the identical deadline and
+        // node-budget checks as the old streaming loop; all pairs of one
+        // memory-bounded wave (<= kMaxStoredMultiplyNodes pairs) are then
+        // rerouted in a single flat indexed pool, and TT prune/merge stays
+        // serial in (parent, move-index) order. Pruned flags, beam order,
+        // node/expansion accounting and fallback behavior are unchanged;
+        // worker utilization is no longer capped at children-per-parent.
+        // (A deadline trip mid-wave is timing-dependent by nature; with no
+        // timeout set the sequence is identical to streaming.)
+        struct ChildSpec {
+            RipupMove move;
+            std::vector<OwnedRoute> surviving;
+            std::vector<int> to_route;
+            int failed_ti = -1;
+        };
+        struct WavePair {
+            std::size_t pi = 0;  // parent index in cur (merge order)
+            ChildSpec spec;
+        };
+        const std::size_t kWavePairCap =
+            static_cast<std::size_t>(kMaxStoredMultiplyNodes);
         std::vector<BeamEntry> next_all;
         bool budget_hit = false;
-        for (std::size_t pi = 0; pi < cur.size(); ++pi) {
-            if (std::chrono::steady_clock::now() > deadline) {
-                budget_hit = true;
-                break;
-            }
-            if (out.nodes_evaluated >= max_nodes) {
-                budget_hit = true;
-                break;
-            }
-            const BeamEntry& parent = cur[pi];
-            const std::vector<int>& prem = parent.state.remaining_task_ids;
-            if (prem.empty()) continue;  // complete leaf: nothing to expand
-            // Rebuild blocker attribution on the parent's immutable board.
-            RuleResolver r = *mctx.resolver;
-            r.rebind(&parent.state.board);
-            DependencyGraph graph = build_dependency_graph(
-                parent.state.board, r, *mctx.ectx, *mctx.tasks, prem,
-                mctx.last_attempt);
-            if (graph.edges.empty()) continue;  // keepout-only: dead end
-            std::vector<ConnectionTask> failed_tasks = graph.failed;
-            int max_moves = mctx.max_moves > 0 ? mctx.max_moves : cfg.max_moves_per_node;
-            if (max_moves < 1) max_moves = 1;
-            std::vector<RipupMove> moves = generate_ripup_moves(
-                failed_tasks, graph, parent.state.owned, mctx.history,
-                mctx.pv_key, mctx.mode, max_moves, mctx.max_breadth);
-            if (moves.empty()) continue;
-            // Cap this parent's fan-out against the remaining node budget
-            // deterministically (leading moves only). Exhaustion of the
-            // deeper budget falls back to one-ply per spec.
-            std::int64_t room = max_nodes - out.nodes_evaluated;
-            // Reserve room for the remaining parents' minimal progress: we
-            // still expand this parent fully when room allows; otherwise
-            // fall back rather than committing a truncated lookahead.
-            if (room < static_cast<std::int64_t>(moves.size())) {
-                // Deterministic truncation would bias the beam; fall back.
-                budget_hit = true;
-                break;
-            }
-            struct ChildSpec {
-                RipupMove move;
-                std::vector<OwnedRoute> surviving;
-                std::vector<int> to_route;
-                int failed_ti = -1;
-            };
-            std::vector<ChildSpec> specs;
-            specs.reserve(moves.size());
-            std::set<int> prem_set(prem.begin(), prem.end());
-            for (const auto& m : moves) {
-                ChildSpec s;
-                s.move = m;
-                std::set<int> rip(m.owned_idx.begin(), m.owned_idx.end());
-                for (std::size_t i = 0; i < parent.state.owned.size(); ++i)
-                    if (!rip.count(static_cast<int>(i)))
-                        s.surviving.push_back(parent.state.owned[i]);
-                if (m.failed_pos < 0 ||
-                    m.failed_pos >= static_cast<int>(prem.size()))
+        std::size_t pi = 0;
+        while (pi < cur.size() && !budget_hit) {
+            // Accumulate one wave (serial spec build, ordered checks).
+            std::vector<WavePair> wave;
+            while (pi < cur.size()) {
+                if (std::chrono::steady_clock::now() > deadline) {
+                    budget_hit = true;
+                    break;
+                }
+                if (out.nodes_evaluated >= max_nodes) {
+                    budget_hit = true;
+                    break;
+                }
+                const BeamEntry& parent = cur[pi];
+                const std::vector<int>& prem = parent.state.remaining_task_ids;
+                if (prem.empty()) {
+                    ++pi;
+                    continue;  // complete leaf: nothing to expand
+                }
+                // Rebuild blocker attribution on the parent's immutable board.
+                RuleResolver r = *mctx.resolver;
+                r.rebind(&parent.state.board);
+                DependencyGraph graph = build_dependency_graph(
+                    parent.state.board, r, *mctx.ectx, *mctx.tasks, prem,
+                    mctx.last_attempt);
+                if (graph.edges.empty()) {
+                    ++pi;
+                    continue;  // keepout-only: dead end
+                }
+                std::vector<ConnectionTask> failed_tasks = graph.failed;
+                int max_moves =
+                    mctx.max_moves > 0 ? mctx.max_moves : cfg.max_moves_per_node;
+                if (max_moves < 1) max_moves = 1;
+                std::vector<RipupMove> moves = generate_ripup_moves(
+                    failed_tasks, graph, parent.state.owned, mctx.history,
+                    mctx.pv_key, mctx.mode, max_moves, mctx.max_breadth);
+                if (moves.empty()) {
+                    ++pi;
                     continue;
-                int failed_ti = prem[m.failed_pos];
-                s.failed_ti = failed_ti;
-                std::vector<int> to_route;
-                to_route.push_back(failed_ti);
-                for (int oi : m.owned_idx) {
-                    if (oi < 0 ||
-                        oi >= static_cast<int>(parent.state.owned.size()))
+                }
+                // Cap this parent's fan-out against the remaining node budget
+                // deterministically (leading moves only). Exhaustion of the
+                // deeper budget falls back to one-ply per spec.
+                std::int64_t room = max_nodes - out.nodes_evaluated;
+                // Reserve room for the remaining parents' minimal progress: we
+                // still expand this parent fully when room allows; otherwise
+                // fall back rather than committing a truncated lookahead.
+                if (room < static_cast<std::int64_t>(moves.size())) {
+                    // Deterministic truncation would bias the beam; fall back.
+                    budget_hit = true;
+                    break;
+                }
+                std::vector<ChildSpec> specs;
+                specs.reserve(moves.size());
+                std::set<int> prem_set(prem.begin(), prem.end());
+                for (const auto& m : moves) {
+                    ChildSpec s;
+                    s.move = m;
+                    std::set<int> rip(m.owned_idx.begin(), m.owned_idx.end());
+                    for (std::size_t i = 0; i < parent.state.owned.size(); ++i)
+                        if (!rip.count(static_cast<int>(i)))
+                            s.surviving.push_back(parent.state.owned[i]);
+                    if (m.failed_pos < 0 ||
+                        m.failed_pos >= static_cast<int>(prem.size()))
                         continue;
-                    int tp = parent.state.owned[oi].task_pos;
-                    if (tp >= 0) {
-                        to_route.push_back(tp);
-                    } else {
-                        TermId stub_term = parent.state.owned[oi].task.a;
-                        NetId stub_net = parent.state.owned[oi].task.net;
-                        for (int ti : prem) {
-                            if (ti < 0 ||
-                                ti >= static_cast<int>(mctx.tasks->size()))
-                                continue;
-                            const ConnectionTask& t = (*mctx.tasks)[ti];
-                            if (t.net != stub_net) continue;
-                            if (t.a == stub_term || t.b == stub_term)
-                                to_route.push_back(ti);
+                    int failed_ti = prem[m.failed_pos];
+                    s.failed_ti = failed_ti;
+                    std::vector<int> to_route;
+                    to_route.push_back(failed_ti);
+                    for (int oi : m.owned_idx) {
+                        if (oi < 0 ||
+                            oi >= static_cast<int>(parent.state.owned.size()))
+                            continue;
+                        int tp = parent.state.owned[oi].task_pos;
+                        if (tp >= 0) {
+                            to_route.push_back(tp);
+                        } else {
+                            TermId stub_term = parent.state.owned[oi].task.a;
+                            NetId stub_net = parent.state.owned[oi].task.net;
+                            for (int ti : prem) {
+                                if (ti < 0 ||
+                                    ti >= static_cast<int>(mctx.tasks->size()))
+                                    continue;
+                                const ConnectionTask& t = (*mctx.tasks)[ti];
+                                if (t.net != stub_net) continue;
+                                if (t.a == stub_term || t.b == stub_term)
+                                    to_route.push_back(ti);
+                            }
                         }
                     }
+                    std::sort(to_route.begin(), to_route.end());
+                    to_route.erase(
+                        std::unique(to_route.begin(), to_route.end()),
+                        to_route.end());
+                    s.to_route = std::move(to_route);
+                    specs.push_back(std::move(s));
                 }
-                std::sort(to_route.begin(), to_route.end());
-                to_route.erase(
-                    std::unique(to_route.begin(), to_route.end()),
-                    to_route.end());
-                s.to_route = std::move(to_route);
-                specs.push_back(std::move(s));
+                if (specs.empty()) {
+                    ++pi;
+                    continue;
+                }
+                if (!wave.empty() && wave.size() + specs.size() > kWavePairCap)
+                    break;  // flush this wave first; parent keeps its turn
+                for (auto& s : specs) {
+                    WavePair wp;
+                    wp.pi = pi;
+                    wp.spec = std::move(s);
+                    wave.push_back(std::move(wp));
+                }
+                ++pi;
             }
-            if (specs.empty()) continue;
-            // Parallel reroute of this parent's children (indexed slots).
-            int child_n = static_cast<int>(specs.size());
-            int wcap = std::max(1, std::min(workers, child_n));
-            std::vector<BranchResult> cres(child_n);
+            if (budget_hit || wave.empty()) continue;
+            // Flat parallel reroute of the wave's pairs (indexed slots).
+            int pair_n = static_cast<int>(wave.size());
+            int wcap = std::max(1, std::min(workers, pair_n));
+            std::vector<BranchResult> wres(static_cast<std::size_t>(pair_n));
             auto fn = [&](int w) {
-                for (int c = w; c < child_n; c += wcap) {
-                    const ChildSpec& s = specs[c];
+                for (int c = w; c < pair_n; c += wcap) {
+                    const WavePair& wp = wave[static_cast<std::size_t>(c)];
+                    const BeamEntry& parent = cur[wp.pi];
+                    const ChildSpec& s = wp.spec;
                     BranchResult r = reroute_branch(
                         parent.state.board, mctx.fixed_traces,
                         mctx.fixed_vias, s.surviving, s.to_route,
-                        s.failed_ti, *mctx.tasks, prem, *mctx.corridors,
+                        s.failed_ti, *mctx.tasks,
+                        parent.state.remaining_task_ids, *mctx.corridors,
                         *mctx.resolver, *mctx.ectx, *mctx.layer_mult,
                         mctx.astar_cfg, mctx.congestion_tpl, mctx.mode_name,
                         s.move, mctx.hier_cfg, mctx.hier_cache,
                         mctx.reservation_strength);
-                    cres[c] = std::move(r);
+                    wres[static_cast<std::size_t>(c)] = std::move(r);
                 }
             };
             if (wcap == 1) {
@@ -1062,8 +1111,8 @@ MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
                 for (auto& th : pool) th.join();
             }
             // Serial TT prune in deterministic (parent, move-index) order.
-            for (int c = 0; c < child_n; ++c) {
-                BranchResult& br = cres[c];
+            for (int c = 0; c < pair_n; ++c) {
+                BranchResult& br = wres[static_cast<std::size_t>(c)];
                 if (!br.evaluated) continue;
                 int undone = static_cast<int>(br.remaining_task_ids.size());
                 if (tt.should_prune(br.hash, undone)) {
@@ -1073,18 +1122,20 @@ MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
                     tt.record(br.hash, undone);
                 }
             }
-            for (int c = 0; c < child_n; ++c) {
-                BranchResult& br = cres[c];
+            for (int c = 0; c < pair_n; ++c) {
+                const WavePair& wp = wave[static_cast<std::size_t>(c)];
+                const BeamEntry& parent = cur[wp.pi];
+                BranchResult& br = wres[static_cast<std::size_t>(c)];
                 out.expansions_total += br.expansions;
                 if (!br.evaluated || br.pruned) continue;
                 BeamEntry e;
                 e.state = std::move(br);
                 e.pv = parent.pv;
-                e.pv.push_back(specs[c].move);
+                e.pv.push_back(wp.spec.move);
                 e.first_idx = parent.first_idx;
                 next_all.push_back(std::move(e));
             }
-            out.nodes_evaluated += child_n;
+            out.nodes_evaluated += pair_n;
         }
         if (budget_hit) {
             out.fallback_to_one_ply = true;

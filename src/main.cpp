@@ -50,6 +50,8 @@ struct Flags {
     bool quiet = false;
     bool pretty = false;
     bool progress = false;  // NDJSON epoch events on stderr
+    bool time_stages = false;  // stage + CLI wall timings as JSON on stderr
+    bool no_board_echo = false;  // S3 (I3): route stdout omits the board object
     std::string config;
     unsigned seed = 42;
     int threads = 0;  // Prompt 5: 0 = auto (hardware_concurrency, bounded)
@@ -142,6 +144,8 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
         else if (a == "--quiet") f.quiet = true;
         else if (a == "--pretty") f.pretty = true;
         else if (a == "--progress") f.progress = true;
+        else if (a == "--time-stages") f.time_stages = true;
+        else if (a == "--no-board-echo") f.no_board_echo = true;
         else if (a == "--config") {
             if (!need_value(i, "--config", v)) return false;
             f.config = v;
@@ -354,24 +358,41 @@ bool load_board(const Flags& f, LoadedBoard& out, int& code, std::string& err_co
     }
 }
 
-bool load_resolver(const Flags& f, const Board& board, RuleResolver& out, std::string& msg) {
+// S3 (I1): --config is read+parsed ONCE per command; every consumer shares
+// the parsed value. Previously `route` read+parsed the file 4x (sidecar,
+// resolver, maturity, CLI verify gate) — pure agent-loop waste.
+struct SharedConfig {
+    bool has = false;
+    JsonValue value = JsonValue::object();
+};
+
+bool load_shared_config(const Flags& f, SharedConfig& out, std::string& msg) {
+    if (f.config.empty()) {
+        out.has = false;
+        return true;
+    }
+    std::string text, err;
+    if (!read_file(f.config, text, err)) {
+        msg = err;
+        return false;
+    }
     try {
-        if (f.config.empty()) {
+        out.value = parse_json(text);
+    } catch (const std::exception& e) {
+        msg = std::string("bad config JSON: ") + e.what();
+        return false;
+    }
+    out.has = true;
+    return true;
+}
+
+bool load_resolver(const Board& board, const SharedConfig& cfg, RuleResolver& out,
+                   std::string& msg) {
+    try {
+        if (!cfg.has) {
             out = RuleResolver::defaults_for(board);
         } else {
-            std::string text, err;
-            if (!read_file(f.config, text, err)) {
-                msg = err;
-                return false;
-            }
-            JsonValue cfg;
-            try {
-                cfg = parse_json(text);
-            } catch (const std::exception& e) {
-                msg = std::string("bad config JSON: ") + e.what();
-                return false;
-            }
-            out = RuleResolver::from_config(board, cfg);
+            out = RuleResolver::from_config(board, cfg.value);
         }
         return true;
     } catch (const BoardError& e) {
@@ -383,16 +404,10 @@ bool load_resolver(const Flags& f, const Board& board, RuleResolver& out, std::s
 // Prompt 5: extend (never replace) the sidecar system. A "nets" object in
 // --config carries current/voltage intent for formats (DSN/KiCad) that lack
 // it. Applied to the imported board before the resolver is built.
-bool apply_sidecar(const Flags& f, Board& board, std::string& msg) {
-    if (f.config.empty()) return true;
-    std::string text, err;
-    if (!read_file(f.config, text, err)) {
-        msg = err;
-        return false;
-    }
+bool apply_sidecar(Board& board, const SharedConfig& cfg, std::string& msg) {
+    if (!cfg.has) return true;
     try {
-        JsonValue cfg = parse_json(text);
-        apply_sidecar_nets(board, cfg);
+        apply_sidecar_nets(board, cfg.value);
     } catch (const BoardError& e) {
         msg = e.what();
         return false;
@@ -403,19 +418,17 @@ bool apply_sidecar(const Flags& f, Board& board, std::string& msg) {
     return true;
 }
 // Issue #14: optional "maturity" object inside --config JSON overrides the
-// adaptive-budget thresholds/caps. The resolver load already validated the
-// file above, so this re-read only applies the maturity section.
-bool load_maturity_opt(const Flags& f, EngineOptions& opt, std::string& msg) {
-    if (f.config.empty()) return true;
-    std::string text, err;
-    if (!read_file(f.config, text, err)) return true;
+// adaptive-budget thresholds/caps. The shared parse above already validated
+// the file, so this only applies the maturity/recovery/tuning sections.
+bool load_maturity_opt(const SharedConfig& cfg, EngineOptions& opt, std::string& msg) {
+    if (!cfg.has) return true;
     try {
-        JsonValue cfg = parse_json(text);
-        if (const JsonValue* m = cfg.find("maturity")) {
+        const JsonValue& cfgv = cfg.value;
+        if (const JsonValue* m = cfgv.find("maturity")) {
             if (!apply_maturity_json(opt.maturity, *m, msg)) return false;
         }
         // Issue #22: optional "recovery" object {depth, beam, max_nodes}.
-        if (const JsonValue* r = cfg.find("recovery")) {
+        if (const JsonValue* r = cfgv.find("recovery")) {
             if (!r->is_object()) {
                 msg = "recovery: expected an object";
                 return false;
@@ -462,8 +475,8 @@ bool load_maturity_opt(const Flags& f, EngineOptions& opt, std::string& msg) {
         }
         // Issue #15: optional "tuning" object (amplitude/pitch/max-added,
         // candidate/region caps, style, symmetric_pairs, enabled).
-        if (const JsonValue* t = cfg.find("tuning")) {
-            if (!tuning_config_from_json(cfg, opt.tuning, msg)) return false;
+        if (const JsonValue* t = cfgv.find("tuning")) {
+            if (!tuning_config_from_json(cfgv, opt.tuning, msg)) return false;
             (void)t;
         }
     } catch (const std::exception& e) {
@@ -543,6 +556,7 @@ JsonValue capabilities_json() {
     feat["ipc2581_import"] = true;
     feat["copper_pours"] = true;
     feat["sidecar_nets"] = true;
+    feat["no_board_echo"] = true;  // S3 (I3): route --no-board-echo (report only)
     feat["golden_suite"] = true;
     JsonValue unsup = JsonValue::array();
     r["unsupported"] = unsup;
@@ -570,12 +584,16 @@ int cmd_analyze(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
-    if (!apply_sidecar(f, lb.board, msg))
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
         return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                     "malformed_rules", msg);
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
-    if (!f.config.empty()) {
-        if (!load_resolver(f, lb.board, resolver, msg))
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
@@ -599,7 +617,11 @@ int cmd_verify(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
-    if (!apply_sidecar(f, lb.board, msg))
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
         return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                     "malformed_rules", msg);
     // Prompt 5 DSN+SES workflow: `verify board.dsn --routes routed.ses`.
@@ -613,8 +635,8 @@ int cmd_verify(const Flags& f) {
         }
     }
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
-    if (!f.config.empty()) {
-        if (!load_resolver(f, lb.board, resolver, msg))
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
@@ -643,12 +665,16 @@ int cmd_escape(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
-    if (!apply_sidecar(f, lb.board, msg))
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
         return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                     "malformed_rules", msg);
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
-    if (!f.config.empty()) {
-        if (!load_resolver(f, lb.board, resolver, msg))
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
@@ -680,20 +706,33 @@ int cmd_escape(const Flags& f) {
 }
 
 int cmd_route(const Flags& f) {
+    auto cli_now = []() { return std::chrono::steady_clock::now(); };
+    const auto t_cli0 = cli_now();
+    double ms_import = 0, ms_cli_verify = 0, ms_report_json = 0, ms_write = 0;
+    std::size_t board_bytes = 0, output_bytes = 0;
     LoadedBoard lb;
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
-    if (!apply_sidecar(f, lb.board, msg))
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
         return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                     "malformed_rules", msg);
     RuleResolver resolver = RuleResolver::defaults_for(lb.board);
-    if (!f.config.empty()) {
-        if (!load_resolver(f, lb.board, resolver, msg))
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
     for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    ms_import = std::chrono::duration<double, std::milli>(cli_now() - t_cli0).count();
+    {  // board file bytes for the I/O ledger (best effort, read-only stat)
+        std::ifstream sz(f.board, std::ios::binary | std::ios::ate);
+        if (sz) board_bytes = static_cast<std::size_t>(sz.tellg());
+    }
 
     EngineOptions opt;
     opt.seed = f.seed;
@@ -723,7 +762,7 @@ int cmd_route(const Flags& f) {
     if (f.tuning_max_added_mm > 0) opt.tuning.max_added_nm = mm_to_nm(f.tuning_max_added_mm);
     {
         std::string merr;
-        if (!load_maturity_opt(f, opt, merr))
+        if (!load_maturity_opt(scfg, opt, merr))
             return fail(f, kBadRules, "malformed_rules", merr);
         // Issue #8: explicit --route-k wins over the maturity cap.
         if (f.route_k >= 1) opt.maturity.caps.max_route_k = f.route_k;
@@ -737,6 +776,7 @@ int cmd_route(const Flags& f) {
             std::cerr << serialize_json(ev) << "\n";
         };
     }
+    opt.time_stages = f.time_stages;
     RouterEngine engine(std::move(lb.board), std::move(resolver), opt);
     RouteReport report = engine.run();
 
@@ -744,26 +784,27 @@ int cmd_route(const Flags& f) {
     // unless BoardVerifier.ok on the final committed copper, even if the
     // engine's bookkeeping claimed COMPLETE.
     {
+        const auto t_verify0 = cli_now();
         RuleResolver verify_resolver = RuleResolver::defaults_for(engine.committed());
-        if (!f.config.empty()) {
-            std::string cfg_text, cfg_err;
-            if (read_file(f.config, cfg_text, cfg_err)) {
-                try {
-                    verify_resolver =
-                        RuleResolver::from_config(engine.committed(), parse_json(cfg_text));
-                } catch (...) {
-                    // Config already validated above; keep defaults on
-                    // unexpected re-parse failure (engine gate already ran).
-                }
+        if (scfg.has) {
+            try {
+                verify_resolver = RuleResolver::from_config(engine.committed(), scfg.value);
+            } catch (...) {
+                // Config already validated above; keep defaults on
+                // unexpected re-parse failure (engine gate already ran).
             }
         }
         ElectricalContext verify_ctx = verify_resolver.defaultContext();
         BoardVerifier verifier;
         VerifyResult independent = verifier.verify(engine.committed(), verify_resolver, verify_ctx);
         apply_verifier_gate(report, independent);
+        ms_cli_verify = std::chrono::duration<double, std::milli>(cli_now() - t_verify0).count();
     }
 
+    const auto t_json0 = cli_now();
     JsonValue rj = report.to_json();
+    ms_report_json = std::chrono::duration<double, std::milli>(cli_now() - t_json0).count();
+    const auto t_write0 = cli_now();
     JsonValue params = JsonValue::object();
     params["seed"] = static_cast<double>(f.seed);
     params["threads_requested"] = static_cast<double>(opt.threads);
@@ -800,23 +841,34 @@ int cmd_route(const Flags& f) {
         std::string err;
         bool ok = false;
         if (has_suffix(f.output, ".ses")) {
-            ok = write_file(f.output, board_to_ses(routed, f.board), err);
+            std::string payload = board_to_ses(routed, f.board);
+            output_bytes += payload.size();
+            ok = write_file(f.output, payload, err);
         } else if (has_suffix(f.output, ".kicad_pcb")) {
-            ok = write_file(f.output, board_to_kicad_pcb(routed), err);
+            std::string payload = board_to_kicad_pcb(routed);
+            output_bytes += payload.size();
+            ok = write_file(f.output, payload, err);
         } else {
-            ok = write_file(f.output, serialize_json(board_to_json(routed), true), err);
+            std::string payload = serialize_json(board_to_json(routed), true);
+            output_bytes += payload.size();
+            ok = write_file(f.output, payload, err);
         }
         if (!ok) return fail(f, kInvalidInput, "write_failed", err);
         rj["output"] = f.output;
         rj["output_format"] = has_suffix(f.output, ".ses")
                                   ? "ses"
                                   : (has_suffix(f.output, ".kicad_pcb") ? "kicad_pcb" : "json");
-    } else {
+    } else if (!f.no_board_echo) {
+        // S3 (I3): default keeps the full board echo for piping; agent
+        // loops pass --no-board-echo for the report alone (same rj is
+        // written to --report, so stdout and file stay consistent).
         rj["board"] = board_to_json(routed);
     }
     if (!f.report.empty()) {
         std::string err;
-        if (!write_file(f.report, serialize_json(rj, true), err))
+        std::string payload = serialize_json(rj, true);
+        output_bytes += payload.size();
+        if (!write_file(f.report, payload, err))
             return fail(f, kInvalidInput, "write_failed", err);
     }
     if (f.json) {
@@ -831,6 +883,17 @@ int cmd_route(const Flags& f) {
                    << "/" << opt.threads << " workers, hash " << report.board_hash << ")\n";
         for (const auto& fl : report.failures)
             std::cout << "  failed: net " << fl.net_name << " (" << fl.reason << ")\n";
+    }
+    ms_write = std::chrono::duration<double, std::milli>(cli_now() - t_write0).count();
+    if (f.time_stages) {
+        std::fprintf(stderr,
+                     "{\"event\":\"cli_timings\",\"import_ms\":%.3f,"
+                     "\"cli_verify_ms\":%.3f,\"report_json_ms\":%.3f,"
+                     "\"serialize_write_ms\":%.3f,\"board_bytes\":%llu,"
+                     "\"output_bytes\":%llu,\"threads\":%d}\n",
+                     ms_import, ms_cli_verify, ms_report_json, ms_write,
+                     static_cast<unsigned long long>(board_bytes),
+                     static_cast<unsigned long long>(output_bytes), opt.threads);
     }
 
     if (report.status == "COMPLETE") {
@@ -856,9 +919,13 @@ int cmd_benchmark(const Flags& f) {
     int code = 0;
     std::string err_code, msg;
     if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
+                    "malformed_rules", msg);
     RuleResolver base = RuleResolver::defaults_for(lb.board);
-    if (!f.config.empty()) {
-        if (!load_resolver(f, lb.board, base, msg))
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, base, msg))
             return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput : kBadRules,
                         "malformed_rules", msg);
     }
@@ -878,7 +945,7 @@ int cmd_benchmark(const Flags& f) {
     bench_base.max_multiply_nodes = f.max_multiply_nodes;  // issue #22
     {
         std::string merr;
-        if (!load_maturity_opt(f, bench_base, merr))
+        if (!load_maturity_opt(scfg, bench_base, merr))
             return fail(f, kBadRules, "malformed_rules", merr);
         if (f.recovery_depth_set) bench_base.recovery_depth = f.recovery_depth;
         if (f.recovery_beam_set) bench_base.recovery_beam = f.recovery_beam;
@@ -1076,11 +1143,14 @@ int run(const std::vector<std::string>& args) {
                       "                       [--max-multiply-nodes N] [--no-optimizer]\n"
                       "                       [--no-tuning] [--tuning-amplitude-mm A]\n"
                       "                       [--tuning-pitch-mm P] [--tuning-max-added-mm M]\n"
+                      "                       [--no-board-echo]\n"
                       "  router escape <board> [--json] [--config cfg.json] [--report report.json]\n"
                       "  router benchmark <board> [--json] [--config cfg.json] [--seed N]\n"
                       "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
                       "  router explain-failure <route-report.json> [--json]\n\n"
                       "route flags: --progress emits NDJSON epoch events on stderr\n"
+                      "             --time-stages emits stage_timings + cli_timings JSON on stderr\n"
+                      "             --no-board-echo omits board from route stdout (report only)\n"
                       "boards: .json (native), .kicad_pcb, .dsn (Specctra subset),\n"
                       "        .gbr/.gtl/.gbl (Gerber RS-274X subset), .xml (IPC-2581C subset)\n"
                       "route --output: .json (native), .ses (Specctra session),\n"

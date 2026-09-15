@@ -330,6 +330,18 @@ RouteReport RouterEngine::run() {
             : std::chrono::steady_clock::time_point::max();
     RouteReport report;
     report.total_terminals = static_cast<int>(board_.terminals.size());
+    // ---- Lightweight stage timer (EngineOptions::time_stages) ----
+    // One clock read per stage boundary only; accumulators stay zero-cost
+    // when the flag is off (the final stderr line is the only output).
+    auto stage_now = []() { return std::chrono::steady_clock::now(); };
+    auto stage_ms = [](const std::chrono::steady_clock::time_point& a,
+                       const std::chrono::steady_clock::time_point& b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    double ms_escape = 0, ms_taskgen = 0, ms_batch = 0, ms_workers = 0;
+    double ms_arbiter = 0, ms_recovery = 0, ms_materialize = 0, ms_tuning = 0;
+    double ms_attribution = 0, ms_verify = 0, ms_optimizer = 0, ms_hash = 0;
+    const auto t_escape_start = stage_now();
     // Resolve this before preprocessing so timeout reports still describe
     // the requested worker capacity truthfully. Escape planning is currently
     // deterministic and serial; the global epochs use this full capacity.
@@ -355,6 +367,10 @@ RouteReport RouterEngine::run() {
     {
         EscapeOptions escape_options;
         escape_options.deadline = deadline;
+        // S1 escape parallelism: footprints plan on the worker pool and each
+        // pad's fallback portal attempts fan out on it (deterministic merge,
+        // same commit path below). Explicit --threads wins, 0 = auto.
+        escape_options.threads = effective_threads;
         EscapePlanner planner(escape_options);
         EscapeResult esc = planner.plan(board_, resolver_, ctx);
         report.escape_stage.pads_total = esc.pads_total;
@@ -476,6 +492,8 @@ RouteReport RouterEngine::run() {
 
     // Rebuild density AFTER escape copper is committed so global routing sees
     // the actual occupied board.
+    ms_escape = stage_ms(t_escape_start, stage_now());
+    const auto t_taskgen_start = stage_now();
     DensityEstimator density_est;
     DensityResult density = density_est.analyze(board_);
 
@@ -600,6 +618,7 @@ RouteReport RouterEngine::run() {
     refresh_difficulties(all_idx);
     for (std::size_t i = 0; i < tasks.size(); ++i)
         corridors[i] = cached_corridor(tasks[i]);
+    ms_taskgen = stage_ms(t_taskgen_start, stage_now());
 
     report.stats.tasks_total = static_cast<int>(tasks.size());
     report.stats.nets_total = static_cast<int>(board_.nets.size());
@@ -883,6 +902,7 @@ RouteReport RouterEngine::run() {
             remaining.clear();
             break;
         }
+        const auto t_epoch_start = stage_now();
         refresh_difficulties(remaining);
         // Issue #4: drop tasks whose endpoints are already joined by
         // committed copper (redundant after tree growth). Deterministic.
@@ -1004,6 +1024,7 @@ RouteReport RouterEngine::run() {
         reservations.set_strength(active_budget.reservation_strength);
 
         auto epoch_t0 = std::chrono::steady_clock::now();
+        ms_batch += stage_ms(t_epoch_start, epoch_t0);
         std::vector<CandidateRoute> candidates(batch_n);
         const Board& snapshot = board_;
         const std::size_t traces_before = snapshot.traces.size();
@@ -1121,6 +1142,8 @@ RouteReport RouterEngine::run() {
             for (int w = 0; w < workers; ++w) pool.emplace_back(worker_fn, w);
             for (auto& th : pool) th.join();
         }
+        const auto t_workers_end = stage_now();
+        ms_workers += stage_ms(epoch_t0, t_workers_end);
         if (snapshot.traces.size() != traces_before || snapshot.vias.size() != vias_before) {
             RouteFailure f;
             f.reason = "internal_worker_mutation";
@@ -1217,6 +1240,7 @@ RouteReport RouterEngine::run() {
         }
 
         auto epoch_t1 = std::chrono::steady_clock::now();
+        ms_arbiter += stage_ms(t_workers_end, epoch_t1);
         EpochInfo info;
         info.epoch = epoch;
         info.batch_size = static_cast<int>(batch_n);
@@ -1269,6 +1293,7 @@ RouteReport RouterEngine::run() {
     std::map<std::pair<NetId, std::pair<TermId, TermId>>, int> ripup_attempts;
     // Seed transposition with the post-greedy state.
     transposition.record(state_hash128(board_, tasks, remaining), (int)remaining.size());
+    const auto t_recovery_start = stage_now();
     if (!remaining.empty() && options_.enable_ripup && !timed_out) {
         StallDetector stall;
         stall.stalled_epochs = stalled;
@@ -1343,8 +1368,88 @@ RouteReport RouterEngine::run() {
 
             // Refresh difficulties so previous failures + congestion count.
             refresh_difficulties(remaining);
-            DependencyGraph graph = build_dependency_graph(board_, resolver_, ctx, tasks,
-                                                           remaining, last_attempt);
+            DependencyGraph graph;
+            // S2: blocker attribution (the O(remaining x copper) corridor
+            // rescan inside attribute_blockers_detailed) runs in parallel
+            // indexed slots; graph assembly stays serial in failed-task
+            // order with the identical collapse + sort as
+            // build_dependency_graph (recovery.cpp), so the committed branch
+            // choice (and the reported dependency_graph) never varies with
+            // --threads. workers == 1 keeps the original serial call.
+            int attr_workers =
+                std::max(1, std::min<int>(workers_cap, static_cast<int>(remaining.size())));
+            if (attr_workers <= 1) {
+                graph = build_dependency_graph(board_, resolver_, ctx, tasks,
+                                               remaining, last_attempt);
+            } else {
+                threads_used_max = std::max(threads_used_max, attr_workers);
+                std::vector<std::vector<BlockerHit>> attr_hits(remaining.size());
+                auto attr_fn = [&](int w) {
+                    for (std::size_t fi = static_cast<std::size_t>(w);
+                         fi < remaining.size();
+                         fi += static_cast<std::size_t>(attr_workers)) {
+                        int ti = remaining[fi];
+                        const ConnectionTask& task = tasks[ti];
+                        const Terminal* ta = board_.find_terminal(task.a);
+                        TraceRule rule = resolver_.traceRule(
+                            task.net, ta ? ta->layer : 0, kAnyRegion);
+                        auto it = last_attempt.find(
+                            std::make_pair(task.net,
+                                           std::make_pair(std::min(task.a, task.b),
+                                                          std::max(task.a, task.b))));
+                        const CandidateRoute* last =
+                            it != last_attempt.end() ? &it->second : nullptr;
+                        attr_hits[fi] = attribute_blockers_detailed(
+                            board_, task, rule.pref_width_nm, last);
+                    }
+                };
+                std::vector<std::thread> attr_pool;
+                for (int w = 0; w < attr_workers; ++w)
+                    attr_pool.emplace_back(attr_fn, w);
+                for (auto& th : attr_pool) th.join();
+                // Serial assembly: verbatim mirror of build_dependency_graph
+                // over the precomputed per-task hits (collapse to one edge
+                // per blocker net, deterministic; same final sort).
+                for (int ti : remaining) graph.failed.push_back(tasks[ti]);
+                for (std::size_t fi = 0; fi < remaining.size(); ++fi) {
+                    const ConnectionTask& task = tasks[remaining[fi]];
+                    std::map<NetId, DependencyEdge> best;
+                    for (const auto& h : attr_hits[fi]) {
+                        if (h.kind != "trace" && h.kind != "pad" && h.kind != "via") {
+                            if (h.kind == "keepout" || h.kind == "frontier" ||
+                                h.kind == "bounds") {
+                                DependencyEdge e;
+                                e.failed_pos = static_cast<int>(fi);
+                                e.failed_net = task.net;
+                                e.blocker_net = -1;
+                                e.blocker_desc = h.desc;
+                                e.weight = 0.0;
+                                graph.edges.push_back(e);
+                            }
+                            continue;
+                        }
+                        auto b = best.find(h.net);
+                        double wgt = static_cast<double>(h.area);
+                        if (b == best.end() || wgt > b->second.weight) {
+                            DependencyEdge e;
+                            e.failed_pos = static_cast<int>(fi);
+                            e.failed_net = task.net;
+                            e.blocker_net = h.net;
+                            e.blocker_desc = h.desc;
+                            e.weight = wgt;
+                            best[h.net] = e;
+                        }
+                    }
+                    for (const auto& kv : best) graph.edges.push_back(kv.second);
+                }
+                std::sort(graph.edges.begin(), graph.edges.end(),
+                          [](const DependencyEdge& a, const DependencyEdge& b) {
+                              if (a.weight != b.weight) return a.weight > b.weight;
+                              if (a.failed_net != b.failed_net)
+                                  return a.failed_net < b.failed_net;
+                              return a.blocker_net < b.blocker_net;
+                          });
+            }
             rec.last_graph = graph;
             if (graph.edges.empty()) break;  // keepout-only: nothing to rip
 
@@ -1696,6 +1801,8 @@ RouteReport RouterEngine::run() {
     }
     rec.transposition_hits = transposition.hits();
     report.recovery = rec;
+    ms_recovery = stage_ms(t_recovery_start, stage_now());
+    const auto t_materialize_start = stage_now();
 
     // ---- Issue #12: post-route pair materialization ----
     // Corridors were reserved with the ordinary global search. Now each
@@ -1936,6 +2043,7 @@ RouteReport RouterEngine::run() {
                 break;
             }
         }
+        const auto t_tuning_start = stage_now();
         LengthTuner tuner(&board_, &resolver_, &ctx, options_.tuning);
         report.tuning = tuner.run(closed);
         report.tuning.effective_threads = options_.threads > 0 ? options_.threads : 1;
@@ -1958,6 +2066,8 @@ RouteReport RouterEngine::run() {
                 report.stats.length_nm += euclid_len_nm(t.a, t.b);
             report.stats.via_count = static_cast<int>(board_.vias.size());
         }
+        ms_materialize = stage_ms(t_materialize_start, t_tuning_start);
+        ms_tuning = stage_ms(t_tuning_start, stage_now());
     }
 
     report.stats.epochs_count = static_cast<int>(report.epochs.size());
@@ -2014,6 +2124,12 @@ RouteReport RouterEngine::run() {
     }
 
     // Failures for everything left unrouted.
+    const auto t_attribution_start = stage_now();
+    // B5: memoize the endpoint pin-density scan per task midpoint. The
+    // count depends only on (midpoint, terminals); terminals are fixed for
+    // the whole attribution loop, so repeated midpoints share one
+    // O(terminals) scan. Values are identical to the inline scan.
+    std::map<std::pair<Coord, Coord>, int> pin_density_cache;
     for (std::size_t i = 0; i < tasks.size(); ++i) {
         if (task_done[i]) continue;
         if (task_superseded[i]) continue;
@@ -2105,13 +2221,21 @@ RouteReport RouterEngine::run() {
             if (ta && tb) {
                 Coord mx = (ta->pos.x + tb->pos.x) / 2;
                 Coord my = (ta->pos.y + tb->pos.y) / 2;
-                Coord r = mm_to_nm(5.0);
-                __int128 r2 = (__int128)r * r;
-                int n = 0;
-                for (const auto& t : board_.terminals) {
-                    __int128 dx = (__int128)t.pos.x - mx;
-                    __int128 dy = (__int128)t.pos.y - my;
-                    if (dx * dx + dy * dy <= r2) n++;
+                auto mkey = std::make_pair(mx, my);
+                auto mhit = pin_density_cache.find(mkey);
+                int n;
+                if (mhit != pin_density_cache.end()) {
+                    n = mhit->second;
+                } else {
+                    Coord r = mm_to_nm(5.0);
+                    __int128 r2 = (__int128)r * r;
+                    n = 0;
+                    for (const auto& t : board_.terminals) {
+                        __int128 dx = (__int128)t.pos.x - mx;
+                        __int128 dy = (__int128)t.pos.y - my;
+                        if (dx * dx + dy * dy <= r2) n++;
+                    }
+                    pin_density_cache[mkey] = n;
                 }
                 f.pin_density = n / (3.14159265358979 * 25.0);
             }
@@ -2245,6 +2369,7 @@ RouteReport RouterEngine::run() {
         report.status = "INCOMPLETE";
     }
     report.result_category = result_category(report.status);
+    ms_attribution = stage_ms(t_attribution_start, stage_now());
     // Issue #2: independently verify committed copper before returning
     // COMPLETE. Bookkeeping alone must never declare success.
     // Issue #13: the route JSON pair entries carry verifier-measured values
@@ -2254,7 +2379,9 @@ RouteReport RouterEngine::run() {
     // already refused COMPLETE.
     {
         BoardVerifier verifier;
+        const auto t_verify_start = stage_now();
         VerifyResult vr = verifier.verify(board_, resolver_, ctx);
+        ms_verify = stage_ms(t_verify_start, stage_now());
         for (auto& prep : report.diffpairs) {
             for (const auto& vd : vr.pairs) {
                 if (vd.pair_id != prep.pair_id) continue;
@@ -2284,6 +2411,7 @@ RouteReport RouterEngine::run() {
     // Prompt 5: transactional cleanup optimizer. Runs ONLY after complete
     // legal connectivity (engine + independent verifier agree). Every
     // transform re-verifies and reverts on harm; stats/hashes refresh after.
+    const auto t_optimizer_start = stage_now();
     if (report.status == "COMPLETE" && report.verification.ok) {
         OptimizerOptions oo = options_.optimizer;
         // Bound optimizer scratch by the router memory budget.
@@ -2311,8 +2439,11 @@ RouteReport RouterEngine::run() {
     }
     // S7: the single final hash (covers both optimizer-ran and gated-off
     // paths; verifier gating semantics above are unchanged).
+    ms_optimizer = stage_ms(t_optimizer_start, stage_now());
+    const auto t_hash_start = stage_now();
     report.board_hash = geometry_hash(board_);
     report.state_hash = state_hash128(board_, tasks, remaining);
+    ms_hash = stage_ms(t_hash_start, stage_now());
     if (options_.progress) {
         JsonValue done = JsonValue::object();
         done["event"] = "done";
@@ -2326,6 +2457,21 @@ RouteReport RouterEngine::run() {
         options_.progress(done);
     }
     (void)options_.seed;
+    if (options_.time_stages) {
+        std::fprintf(stderr,
+                     "{\"event\":\"stage_timings\",\"escape_ms\":%.3f,"
+                     "\"taskgen_ms\":%.3f,\"batch_ms\":%.3f,\"workers_ms\":%.3f,"
+                     "\"arbiter_ms\":%.3f,\"recovery_ms\":%.3f,"
+                     "\"materialize_ms\":%.3f,\"tuning_ms\":%.3f,"
+                     "\"attribution_ms\":%.3f,\"verify_ms\":%.3f,"
+                     "\"optimizer_ms\":%.3f,\"hash_ms\":%.3f,"
+                     "\"threads\":%d,\"epochs\":%d,\"tasks_total\":%d}\n",
+                     ms_escape, ms_taskgen, ms_batch, ms_workers, ms_arbiter,
+                     ms_recovery, ms_materialize, ms_tuning, ms_attribution,
+                     ms_verify, ms_optimizer, ms_hash, effective_threads,
+                     static_cast<int>(report.epochs.size()),
+                     report.stats.tasks_total);
+    }
     return report;
 }
 
