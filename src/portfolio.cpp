@@ -204,7 +204,7 @@ JsonValue PortfolioResult::to_json() const {
         e["first_via"] = c.sig.first_via;
         e["bottlenecks"] = c.sig.bottlenecks;
         e["cost_nm"] = static_cast<double>(c.route.cost_nm);
-        e["cost_mm"] = nm_to_mm(c.route.cost_nm);
+        json_add_mm(e, "cost_mm", nm_to_mm(c.route.cost_nm));
         e["expansions"] = static_cast<double>(c.route.expansions);
         e["vias"] = static_cast<double>(c.route.vias.size());
         e["traces"] = static_cast<double>(c.route.traces.size());

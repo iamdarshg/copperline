@@ -61,6 +61,26 @@ struct JsonValue {
     JsonValue& operator[](const std::string& key);
 };
 
+// D5: common JSON helpers consolidating the ~20x to_json boilerplate.
+// All helpers produce byte-identical values to the manual sequences they
+// replace (ints stored as doubles, same insertion content; objects use
+// std::map so key order is always sorted at serialization).
+JsonValue json_string_array(const std::vector<std::string>& v);
+JsonValue json_double_array(const std::vector<double>& v);
+// Integer IDs stored as JSON numbers (double), matching the existing
+// static_cast<double>(id) convention in every to_json call site.
+JsonValue json_int_array(const std::vector<int>& v);
+JsonValue json_int_array(const std::vector<long long>& v);
+// Millimetre / coordinate field helpers (thin, documents intent; the
+// caller still performs nm_to_mm so arithmetic is unchanged).
+inline void json_add_mm(JsonValue& o, const std::string& key, double mm) { o[key] = mm; }
+inline void json_add_point_mm(JsonValue& o, const std::string& xk,
+                              const std::string& yk, double x_mm,
+                              double y_mm) {
+    o[xk] = x_mm;
+    o[yk] = y_mm;
+}
+
 // Throws std::runtime_error with offset info on malformed input.
 JsonValue parse_json(const std::string& text);
 

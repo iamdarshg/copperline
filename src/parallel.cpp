@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <map>
 #include <set>
 #include <thread>
 
@@ -17,28 +18,7 @@ namespace copperline {
 
 namespace {
 
-// Exact squared edge-to-edge gap between rects (0 when touching/overlapping).
-__int128 rect_gap2(const Rect& a, const Rect& b) {
-    Coord dx = 0, dy = 0;
-    if (a.x2 < b.x1) dx = b.x1 - a.x2;
-    else if (b.x2 < a.x1) dx = a.x1 - b.x2;
-    if (a.y2 < b.y1) dy = b.y1 - a.y2;
-    else if (b.y2 < a.y1) dy = a.y1 - b.y2;
-    return (__int128)dx * dx + (__int128)dy * dy;
-}
-
-// Fast conservative test: exact gap >= need? Rectangular pre-check first.
-bool gap_ok_rect(const Rect& a, const Rect& b, Coord need) {
-    if (!a.expanded(need).intersects(b)) return true;
-    return rect_gap2(a, b) >= (__int128)need * need;
-}
-
-bool seg_ok_rect(const Segment& s, const Rect& raw, Coord need) {
-    if (!s.bounds().expanded(need).intersects(raw)) return true;
-    __int128 d2 = seg_rect_dist2(s, raw);
-    return d2 >= (__int128)need * need;
-}
-
+// D2: rect_gap2/gap_ok_rect/seg_ok_rect live in geometry.h (single definition).
 const Terminal* find_term(const Board& b, TermId id) { return b.find_terminal(id); }
 
 // Issue #12: the coupled sibling net of a pair member (-1 when the net is
@@ -1075,78 +1055,56 @@ struct LegalView {
     const Board& board;
     const std::vector<TraceSeg>* extra_traces = nullptr;
     const std::vector<Via>* extra_vias = nullptr;
+    // S4: per-net clearance memos shared across every probe of an arbitration.
+    // Thread-local per arbitrate() call (the arbiter itself is single-threaded;
+    // workers never see LegalView).
+    mutable std::map<NetId, ClearanceCache> caches;
+    const ClearanceCache& cache_for(NetId net, const RuleResolver& resolver,
+                                    const ElectricalContext& ctx) const {
+        auto it = caches.find(net);
+        if (it != caches.end()) return it->second;
+        return caches.emplace(net, ClearanceCache(board, resolver, ctx, net))
+            .first->second;
+    }
 };
 
 bool trace_legal(const TraceSeg& s, const LegalView& v, const RuleResolver& resolver,
                  const ElectricalContext& ctx, std::string& why) {
-    Coord hw = s.width_nm / 2;
-    if (!v.board.bounds().contains(s.segment().bounds().expanded(hw))) {
-        why = "off_board";
-        return false;
-    }
-    std::string cs;
-    Coord max_clear = max_clear_for(v.board, resolver, s.net, ctx);
     // Issue #12: corridor copper exempts its coupled sibling (gap-governed
     // at materialization, not voltage-governed here).
     NetId sibling = pair_partner_of(v.board, s.net);
-    auto check_pad = [&](const Terminal& t) -> bool {
-        if (t.net == s.net || t.net == sibling || t.layer != s.layer) return true;
-        Coord c = resolver.requiredClearance(s.net, t.net, s.layer, ctx, &cs);
-        return seg_ok_rect(s.segment(), t.pad_rect(), c + hw);
-    };
+    // D3: the board probe is the shared verifier-exact predicate (exact
+    // 4*d2 >= rhs^2, bbox prechecks, {own, sibling} exemption). Verdicts and
+    // reason labels match the old inline clone for even-nm widths (all
+    // production widths); odd-nm razor cases follow the verifier exactly.
+    SegLegalityCtx leg;
+    leg.cc = v.cache_for(s.net, resolver, ctx);  // shares the memo table
+    leg.exempt_net = sibling;
+    leg.layer = s.layer;
+    leg.width_nm = s.width_nm;
+    if (!leg.segment_legal(s.segment(), &why)) return false;
+    // Already-accepted candidates use the same verifier-exact math pairwise.
+    Coord hw = s.width_nm / 2;
     auto check_trace = [&](const TraceSeg& t) -> bool {
         if (t.net == s.net || t.net == sibling || t.layer != s.layer) return true;
-        Coord c = resolver.requiredClearance(s.net, t.net, s.layer, ctx, &cs);
+        Coord c = leg.cc.get(t.net, s.layer);
         Segment a = s.segment(), b = t.segment();
-        if (!a.bounds().expanded(c + hw + t.width_nm / 2).intersects(b.bounds())) return true;
-        __int128 d2 = seg_seg_dist2(a, b);
-        Coord need = c + hw + t.width_nm / 2;
-        return d2 >= (__int128)need * need;
+        __int128 rhs = (__int128)2 * c + s.width_nm + t.width_nm;
+        if (!a.bounds().expanded(c + hw + t.width_nm / 2).intersects(b.bounds()))
+            return true;
+        return (__int128)4 * seg_seg_dist2(a, b) >= rhs * rhs;
     };
     auto check_via = [&](const Via& vv) -> bool {
         if (vv.net == s.net || vv.net == sibling) return true;
         if (s.layer < std::min(vv.top_layer, vv.bottom_layer) ||
             s.layer > std::max(vv.top_layer, vv.bottom_layer))
             return true;
-        Coord c = resolver.requiredClearance(s.net, vv.net, s.layer, ctx, &cs);
+        Coord c = leg.cc.get(vv.net, s.layer);
+        __int128 rhs = (__int128)2 * c + s.width_nm;
         Rect vr = Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm);
-        return seg_ok_rect(s.segment(), vr, c + hw);
+        if (!s.segment().bounds().expanded(c + hw).intersects(vr)) return true;
+        return (__int128)4 * seg_rect_dist2(s.segment(), vr) >= rhs * rhs;
     };
-    for (const auto& ko : v.board.keepouts) {
-        if (ko.layer != kAllLayers && ko.layer != s.layer) continue;
-        if (!seg_ok_rect(s.segment(), ko.rect, max_clear + hw)) {
-            why = "keepout:" + ko.reason;
-            return false;
-        }
-    }
-    // Issue #16: foreign pours keep exact polygon clearance; own-net pours
-    // are connectable and never block.
-    for (const auto& z : v.board.planes) {
-        if (z.net == s.net || z.layer != s.layer) continue;
-        Coord c = resolver.requiredClearance(s.net, z.net, s.layer, ctx, &cs);
-        Coord need = c + hw;
-        if (s.segment().bounds().expanded(need).intersects(z.bounds())) {
-            if (plane_seg_poly_dist2(s.segment(), z.poly) < (__int128)need * need) {
-                why = "clearance:plane";
-                return false;
-            }
-        }
-    }
-    for (const auto& t : v.board.terminals)
-        if (!check_pad(t)) {
-            why = "clearance:pad";
-            return false;
-        }
-    for (const auto& t : v.board.traces)
-        if (!check_trace(t)) {
-            why = "clearance:trace";
-            return false;
-        }
-    for (const auto& vv : v.board.vias)
-        if (!check_via(vv)) {
-            why = "clearance:via";
-            return false;
-        }
     if (v.extra_traces)
         for (const auto& t : *v.extra_traces)
             if (!check_trace(t)) {
@@ -1169,14 +1127,15 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
         why = "off_board";
         return false;
     }
-    std::string cs;
-    Coord max_clear = max_clear_for(v.board, resolver, vv.net, ctx);
+    // S4: shared per-net memo instead of a resolver scan per obstacle.
+    const ClearanceCache& cc = v.cache_for(vv.net, resolver, ctx);
+    Coord max_clear = cc.max_clear();
     // Issue #12: corridor vias exempt the coupled sibling (paired at
     // materialization under the gap rule).
     NetId vsibling = pair_partner_of(v.board, vv.net);
     auto check_vs_net = [&](NetId other, const Rect& raw) -> bool {
         if (other == vsibling) return true;
-        Coord c = resolver.requiredClearance(vv.net, other, vv.top_layer, ctx, &cs);
+        Coord c = cc.get(other, vv.top_layer);
         return gap_ok_rect(vr, raw, c);
     };
     for (const auto& ko : v.board.keepouts) {
@@ -1195,7 +1154,7 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
         if (z.layer < std::min(vv.top_layer, vv.bottom_layer) ||
             z.layer > std::max(vv.top_layer, vv.bottom_layer))
             continue;
-        Coord c = resolver.requiredClearance(vv.net, z.net, z.layer, ctx, &cs);
+        Coord c = cc.get(z.net, z.layer);
         if (vr.expanded(c).intersects(z.bounds())) {
             if (plane_rect_poly_dist2(vr, z.poly) < (__int128)c * c) {
                 why = "clearance:plane";
@@ -1219,7 +1178,7 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
         if (t.layer < std::min(vv.top_layer, vv.bottom_layer) ||
             t.layer > std::max(vv.top_layer, vv.bottom_layer))
             return true;
-        Coord c = resolver.requiredClearance(vv.net, t.net, t.layer, ctx, &cs);
+        Coord c = cc.get(t.net, t.layer);
         __int128 d2 = seg_rect_dist2(t.segment(), vr);
         Coord need = c + t.width_nm / 2;
         return d2 >= (__int128)need * need;

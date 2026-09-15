@@ -8,16 +8,14 @@
 #include "router/diffpair.h"
 #include "router/simplify.h"
 #include "router/verifier.h"
+#include "router/board_stats.h"
+#include "router/transaction_gate.h"
 
 namespace copperline {
 namespace {
 
-Coord net_length(const Board& board, NetId net) {
-    Coord total = 0;
-    for (const auto& t : board.traces)
-        if (t.net == net) total += euclid_len_nm(t.a, t.b);
-    return total;
-}
+// (D7) net-length rescans live in board_stats.h (board_net_length_nm /
+// trace_set_length_nm / trace_seg_length_nm; identical integer arithmetic).
 
 // Exact pair-gap floor for one candidate segment against partner copper:
 // edge distance >= gap - tol everywhere (mirrors the verifier's too_close
@@ -69,7 +67,7 @@ bool base_less(const BaseSeg& a, const BaseSeg& b, const Board& board) {
 
 }  // namespace
 
-Coord tuning_net_length(const Board& board, NetId net) { return net_length(board, net); }
+Coord tuning_net_length(const Board& board, NetId net) { return board_net_length_nm(board, net); }
 
 bool tuning_config_from_json(const JsonValue& cfg, TuningConfig& out, std::string& err) {
     const JsonValue* t = cfg.find("tuning");
@@ -311,7 +309,7 @@ TuningSummary LengthTuner::run(bool topology_closed) {
                 sum.records.push_back(r);
                 continue;
             }
-            Coord cur = net_length(board, n.id);
+            Coord cur = board_net_length_nm(board, n.id);
             Coord lo_w = n.target_length_nm - n.length_tol_nm;
             Coord hi_w = n.target_length_nm + n.length_tol_nm;
             if (cur >= lo_w && cur <= hi_w) {
@@ -357,7 +355,9 @@ TuningSummary LengthTuner::run(bool topology_closed) {
         return sum;
     }
 
-    BoardVerifier verifier;
+    // Shared transactional gate (D6): snapshot/mutate/verify-or-revert
+    // through the independent BoardVerifier. FINAL full gate always.
+    TransactionGate gate(&board, resolver_, ctx_);
     bool any_tuned = false, any_infeasible = false;
     scratch_new_.reserve(256);
     scratch_gap_probe_.reserve(4);
@@ -397,7 +397,7 @@ TuningSummary LengthTuner::run(bool topology_closed) {
             if (t.net != net) continue;
             BaseSeg b;
             b.trace_idx = (int)i;
-            b.len = euclid_len_nm(t.a, t.b);
+            b.len = trace_seg_length_nm(t);
             if (b.len > 0) bases.push_back(b);
         }
         std::sort(bases.begin(), bases.end(),
@@ -461,23 +461,33 @@ TuningSummary LengthTuner::run(bool topology_closed) {
                         }
                     }
                     if (!legal) continue;
-                    // Transactional commit: swap base for the accordion,
-                    // measure, verify, revert on any failure.
+                    // Transactional commit via the shared gate (D6): swap
+                    // base for the accordion, measure the added length
+                    // (D7 helpers, identical integer arithmetic), full-verify,
+                    // revert on any failure. FINAL full gate always.
                     std::size_t erase_at = (std::size_t)b.trace_idx;
                     TraceSeg saved = board.traces[erase_at];
-                    board.traces.erase(board.traces.begin() + (long long)erase_at);
-                    for (const auto& s : scratch_new_) board.traces.push_back(s);
-                    Coord new_total = net_length(board, net);
-                    Coord old_total = new_total;
-                    // old_total recompute: subtract candidate, add base back
-                    Coord cand_len = 0;
-                    for (const auto& s : scratch_new_) cand_len += euclid_len_nm(s.a, s.b);
-                    Coord base_len = euclid_len_nm(saved.a, saved.b);
-                    old_total = new_total - cand_len + base_len;
-                    Coord added = new_total - old_total;
-                    bool in_window = added >= need_lo && added <= need_hi;
-                    VerifyResult vr = verifier.verify(board, *resolver_, *ctx_);
-                    if (in_window && vr.ok) {
+                    Coord added = 0;
+                    // S3 delta pre-check bbox: base segment plus the accordion
+                    // chain (tight union; the gate expands it internally).
+                    Rect touched = base.segment().bounds();
+                    for (const auto& s : scratch_new_)
+                        touched = rect_union(touched, s.segment().bounds());
+                    bool kept = gate.try_apply_scoped(
+                        [&]() {
+                            board.traces.erase(board.traces.begin() +
+                                               (long long)erase_at);
+                            for (const auto& s : scratch_new_)
+                                board.traces.push_back(s);
+                        },
+                        [&]() {
+                            Coord cand_len = trace_set_length_nm(scratch_new_);
+                            Coord base_len = trace_seg_length_nm(saved);
+                            added = cand_len - base_len;
+                            return added >= need_lo && added <= need_hi;
+                        },
+                        net, touched);
+                    if (kept) {
                         rec.added_nm = added;
                         rec.teeth = k;
                         rec.layer = base.layer;
@@ -486,11 +496,6 @@ TuningSummary LengthTuner::run(bool topology_closed) {
                         sum.regions_considered += regions;
                         return added;
                     }
-                    // Revert: remove candidate segs, restore base verbatim.
-                    for (std::size_t i = 0; i < scratch_new_.size(); ++i)
-                        board.traces.pop_back();
-                    board.traces.insert(board.traces.begin() + (long long)erase_at,
-                                        saved);
                 }
             }
         }
@@ -719,7 +724,7 @@ TuningSummary LengthTuner::run(bool topology_closed) {
         rec.target_length_mm = ni ? nm_to_mm(ni->target_length_nm) : 0.0;
         rec.length_tol_mm = ni ? nm_to_mm(ni->length_tol_nm) : 0.0;
         Coord got = tune_member(sn.net, -1, sn.lo, sn.hi, rec);
-        rec.final_length_mm = nm_to_mm(net_length(board, sn.net));
+        rec.final_length_mm = nm_to_mm(board_net_length_nm(board, sn.net));
         if (got >= 0) {
             if (got == 0) {
                 rec.status = "ALREADY_WITHIN_WINDOW";

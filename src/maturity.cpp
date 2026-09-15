@@ -297,7 +297,7 @@ JsonValue EffectiveSearchBudget::to_json() const {
     o["weight_factor"] = weight_factor;
     o["hier_max_coarse_expansions"] = static_cast<double>(hier_max_coarse_expansions);
     o["hier_window_attempts"] = static_cast<double>(hier_window_attempts);
-    o["hier_tube_half_mm"] = nm_to_mm(hier_tube_half_nm);
+    json_add_mm(o, "hier_tube_half_mm", nm_to_mm(hier_tube_half_nm));
     o["hier_max_grid_cells"] = static_cast<double>(hier_max_grid_cells);
     o["route_k"] = static_cast<double>(route_k);
     o["reservation_strength"] = reservation_strength;

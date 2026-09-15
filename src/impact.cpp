@@ -192,7 +192,7 @@ JsonValue ImpactScore::to_json() const {
     o["legal"] = legal;
     if (!legal_reason.empty()) o["legal_reason"] = legal_reason;
     o["base_cost_nm"] = static_cast<double>(base_cost_nm);
-    o["base_cost_mm"] = nm_to_mm(base_cost_nm);
+    json_add_mm(o, "base_cost_mm", nm_to_mm(base_cost_nm));
     o["signature"] = signature;
     o["total"] = total;
     o["features"] = features.to_json();

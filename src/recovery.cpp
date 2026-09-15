@@ -76,7 +76,7 @@ JsonValue FrontierDiag::to_json() const {
     o["reason"] = fail_reason;
     o["expansions"] = static_cast<double>(expansions);
     o["closest_node"] = static_cast<double>(closest_node);
-    o["closest_goal_dist_mm"] = nm_to_mm(closest_goal_dist_nm);
+    json_add_mm(o, "closest_goal_dist_mm", nm_to_mm(closest_goal_dist_nm));
     // Issue #21: top frontier blockers/reasons for agents.
     JsonValue tb = JsonValue::array();
     for (const auto& b : top_blockers) {
@@ -85,8 +85,7 @@ JsonValue FrontierDiag::to_json() const {
         e["kind"] = b.kind;
         e["blocker"] = b.desc;
         e["layer"] = static_cast<double>(b.layer);
-        e["x_mm"] = nm_to_mm(b.pos.x);
-        e["y_mm"] = nm_to_mm(b.pos.y);
+        json_add_point_mm(e, "x_mm", "y_mm", nm_to_mm(b.pos.x), nm_to_mm(b.pos.y));
         e["count"] = static_cast<double>(b.count);
         tb.as_array().push_back(e);
     }
@@ -141,12 +140,18 @@ std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
     const Terminal* ta = board.find_terminal(task.a);
     const Terminal* tb = board.find_terminal(task.b);
     if (!ta || !tb) return out;
+    // S8: when frontier evidence already fills the 8-slot budget, the
+    // corridor-overlap rescan below contributes nothing (supplement adds
+    // zero). Skip the O(copper) keepout/trace/pad/via passes and go
+    // straight to the frontier-gap tail — byte-identical output.
+    const std::size_t supplement_budget = out.size() >= 8 ? 0 : 8 - out.size();
+    std::vector<BlockerHit> hits;
+    if (supplement_budget > 0) {
     // Issue #4: corridor covers the actual routing target (copper point).
     Rect corridor = Rect::from_points(ta->pos, task_dst_point(board, task)).expanded(width_nm);
     struct Hit {
         BlockerHit h;
     };
-    std::vector<BlockerHit> hits;
     for (const auto& ko : board.keepouts) {
         if (!ko.rect.intersects(corridor)) continue;
         Rect inter{std::max(ko.rect.x1, corridor.x1), std::max(ko.rect.y1, corridor.y1),
@@ -201,13 +206,20 @@ std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
         if (a.area != b.area) return a.area > b.area;
         return a.desc < b.desc;
     });
+    }  // end if (supplement_budget > 0): corridor rescan skipped when full
     // Supplement: corridor guesses for blocker nets not already covered by
     // real frontier evidence. Frontier hits keep their leading positions.
+    // S6: the dependency graph itself is built once per recovery generation
+    // (engine side) and reused across all speculative branches in that
+    // generation; per-branch reroute consumes it read-only via Stream-1
+    // candidates_conflict/candidate_legal_vs_board calls (which already
+    // carry their own bounds precheck) — no divergent-board graph sharing,
+    // which would risk stale legality.
     {
         std::set<NetId> covered;
         for (const auto& h : frontier_hits)
             if (h.net >= 0) covered.insert(h.net);
-        std::size_t budget = out.size() >= 8 ? 0 : 8 - out.size();
+        std::size_t budget = supplement_budget;
         std::size_t added = 0;
         for (const auto& h : hits) {
             if (added >= budget) break;
@@ -736,12 +748,10 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
     std::int64_t expansions = 0;
     for (std::size_t k = 0; k < order.size(); ++k) {
         int ti = order[k];
-        std::size_t pos = 0;
-        for (std::size_t j = 0; j < order.size(); ++j)
-            if (order[j] == ti) {
-                pos = j;
-                break;
-            }
+        // S8: pos is the task's index in the branch order — the loop above
+        // iterates k over that same order, so pos == k directly (the old
+        // linear rescan was O(n^2) for the identical value).
+        std::size_t pos = k;
         CandidateRoute cand = route_candidate_task(work, r, tasks[ti], pos, tasks[ti].difficulty,
                                                    ctx, layer_mult, astar_cfg, congestion,
                                                    reservations, hier_cfg, hier_cache);
@@ -1121,9 +1131,7 @@ JsonValue RecoveryInfo::to_json() const {
     o["branches_pruned"] = static_cast<double>(branches_pruned);
     o["ripups"] = static_cast<double>(ripups);
     o["transposition_hits"] = static_cast<double>(transposition_hits);
-    JsonValue modes = JsonValue::array();
-    for (const auto& m : modes_attempted) modes.as_array().push_back(JsonValue(m));
-    o["modes_attempted"] = modes;
+    o["modes_attempted"] = json_string_array(modes_attempted);
     o["dependency_graph"] = last_graph.to_json();
     o["multiply_depth_requested"] = static_cast<double>(multiply_depth_requested);
     o["multiply_depth_effective"] = static_cast<double>(multiply_depth_effective);
@@ -1133,9 +1141,7 @@ JsonValue RecoveryInfo::to_json() const {
     o["multiply_nodes_evaluated"] = static_cast<double>(multiply_nodes_evaluated);
     o["multiply_nodes_pruned"] = static_cast<double>(multiply_nodes_pruned);
     o["multiply_fallback_to_one_ply"] = multiply_fallback_to_one_ply;
-    JsonValue pv = JsonValue::array();
-    for (const auto& s : multiply_pv) pv.as_array().push_back(JsonValue(s));
-    o["multiply_pv"] = pv;
+    o["multiply_pv"] = json_string_array(multiply_pv);
     o["multiply_best_hash"] = multiply_best_hash;
     return o;
 }

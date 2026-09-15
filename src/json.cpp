@@ -357,6 +357,32 @@ void write_value(std::string& out, const JsonValue& v, bool pretty, int indent) 
 
 JsonValue parse_json(const std::string& text) { return Parser(text).run(); }
 
+// D5: shared array builders (single home for the repeated
+// "JsonValue a = array(); for (...) push_back(...)" pattern).
+JsonValue json_string_array(const std::vector<std::string>& v) {
+    JsonValue a = JsonValue::array();
+    for (const auto& s : v) a.as_array().push_back(JsonValue(s));
+    return a;
+}
+
+JsonValue json_double_array(const std::vector<double>& v) {
+    JsonValue a = JsonValue::array();
+    for (double d : v) a.as_array().push_back(JsonValue(d));
+    return a;
+}
+
+JsonValue json_int_array(const std::vector<int>& v) {
+    JsonValue a = JsonValue::array();
+    for (int i : v) a.as_array().push_back(JsonValue(static_cast<double>(i)));
+    return a;
+}
+
+JsonValue json_int_array(const std::vector<long long>& v) {
+    JsonValue a = JsonValue::array();
+    for (long long i : v) a.as_array().push_back(JsonValue(static_cast<double>(i)));
+    return a;
+}
+
 std::string serialize_json(const JsonValue& v, bool pretty) {
     std::string out;
     write_value(out, v, pretty, 0);

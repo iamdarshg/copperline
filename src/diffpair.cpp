@@ -7,6 +7,7 @@
 
 #include "router/simplify.h"
 #include "router/via_bundle.h"
+#include "router/board_stats.h"
 
 namespace copperline {
 
@@ -430,9 +431,7 @@ std::vector<ConnectionTask> build_global_tasks_with_pairs(
 }
 
 Coord pair_total_length(const std::vector<TraceSeg>& traces) {
-    Coord total = 0;
-    for (const auto& t : traces) total += euclid_len_nm(t.a, t.b);
-    return total;
+    return trace_set_length_nm(traces);  // (D7) shared integer-nm sum
 }
 
 // Issue #26: the old floor-only check stored err=abs(edge-gap) but never

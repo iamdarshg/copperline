@@ -7,13 +7,11 @@
 #include <map>
 #include <set>
 
+#include "router/board_stats.h"
+#include "router/transaction_gate.h"
+
 namespace copperline {
 namespace {
-
-double seg_len_mm(const TraceSeg& s) {
-    double dx = nm_to_mm(s.b.x - s.a.x), dy = nm_to_mm(s.b.y - s.a.y);
-    return std::sqrt(dx * dx + dy * dy);
-}
 
 int count_bends(const Board& board) {
     // Bends = direction changes between consecutive same-net/same-layer
@@ -44,12 +42,6 @@ int count_bends(const Board& board) {
         }
     }
     return bends;
-}
-
-double total_length_mm(const Board& board) {
-    double total = 0;
-    for (const auto& s : board.traces) total += seg_len_mm(s);
-    return total;
 }
 
 }  // namespace
@@ -85,19 +77,17 @@ OptimizerReport CleanupOptimizer::run() {
         rep.gate_reason = "disabled";
         return rep;
     }
-    BoardVerifier verifier;
-    auto gate_ok = [&]() {
-        VerifyResult vr = verifier.verify(*board_, *resolver_, ctx_);
-        return vr.ok;
-    };
-    if (!gate_ok()) {
+    // Shared transactional gate (D6): snapshot/mutate/verify-or-revert
+    // through the independent BoardVerifier. FINAL full gate always.
+    TransactionGate gate(board_, resolver_, &ctx_);
+    if (!gate.check()) {
         rep.gate_reason = "gated: input copper is not completely and legally connected";
         return rep;
     }
     rep.ran = true;
     rep.bends_before = count_bends(*board_);
-    rep.vias_before = static_cast<int>(board_->vias.size());
-    rep.length_before_mm = total_length_mm(*board_);
+    rep.vias_before = static_cast<int>(board_via_count(*board_));
+    rep.length_before_mm = board_total_length_mm(*board_);
     double base_len = rep.length_before_mm;
     // Length-tuned and pair-coupled copper is load-bearing electrical
     // geometry (issue #15 targets, issue #12 skew): the optimizer must not
@@ -112,17 +102,22 @@ OptimizerReport CleanupOptimizer::run() {
     }
     auto is_protected = [&](NetId net) { return protected_nets.count(net) != 0; };
 
-    // Transaction helper: snapshot, mutate, verify, keep-or-revert.
-    auto attempt = [&](auto&& mutate, bool must_shorten) {
+    // Transaction helper (D6 shared gate + S3 delta pre-check): snapshot,
+    // mutate, scoped sound-reject on the touched net/bbox, FINAL full
+    // verify, keep-or-revert.
+    auto attempt = [&](auto&& mutate, bool must_shorten, NetId touched_net,
+                       const Rect& touched_area) {
         if (rep.candidates >= static_cast<int>(opt_.max_candidates)) return;
         rep.candidates++;
-        Board backup = *board_;
-        mutate();
-        VerifyResult vr = verifier.verify(*board_, *resolver_, ctx_);
-        double now = total_length_mm(*board_);
-        bool shorter_ok = !must_shorten || now <= base_len + 1e-9;
-        if (!vr.ok || !shorter_ok) {
-            *board_ = backup;
+        double now = base_len;
+        bool kept = gate.try_apply_scoped(
+            mutate,
+            [&]() {
+                now = board_total_length_mm(*board_);
+                return !must_shorten || now <= base_len + 1e-9;
+            },
+            touched_net, touched_area);
+        if (!kept) {
             rep.reverted++;
         } else {
             rep.applied++;
@@ -168,7 +163,8 @@ OptimizerReport CleanupOptimizer::run() {
                         board_->traces.erase(board_->traces.begin() +
                                              static_cast<std::ptrdiff_t>(j));
                     },
-                    /*must_shorten=*/false);
+                    /*must_shorten=*/false, A.net,
+                    rect_union(A.segment().bounds(), B.segment().bounds()));
                 changed = true;
                 break;  // re-sort after mutation (indices shift)
             }
@@ -192,12 +188,10 @@ OptimizerReport CleanupOptimizer::run() {
                     if (is_protected(A.net)) continue;
                     if (!(A.b == B.a)) continue;
                     // Corner at A.b: direct shortcut A.a -> B.b.
-                    double old_len = seg_len_mm(A) + seg_len_mm(B);
+                    double old_len = trace_seg_length_mm(A) + trace_seg_length_mm(B);
                     TraceSeg shortcut = A;
                     shortcut.b = B.b;
-                    double dx = nm_to_mm(shortcut.b.x - shortcut.a.x);
-                    double dy = nm_to_mm(shortcut.b.y - shortcut.a.y);
-                    double new_len = std::sqrt(dx * dx + dy * dy);
+                    double new_len = trace_seg_length_mm(shortcut);
                     if (new_len >= old_len - 1e-9) continue;
                     attempt(
                         [&]() {
@@ -205,7 +199,8 @@ OptimizerReport CleanupOptimizer::run() {
                             board_->traces.erase(board_->traces.begin() +
                                                  static_cast<std::ptrdiff_t>(j));
                         },
-                        /*must_shorten=*/true);
+                        /*must_shorten=*/true, A.net,
+                        rect_union(A.segment().bounds(), B.segment().bounds()));
                     changed = true;
                 }
             }
@@ -244,6 +239,9 @@ OptimizerReport CleanupOptimizer::run() {
             Point far_b = (B.a == v.pos) ? B.b : B.a;
             std::size_t lo = std::min(s1, s2), hi = std::max(s1, s2);
             int applied_before = rep.applied;
+            Rect touched =
+                rect_union(Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm),
+                           rect_union(A.segment().bounds(), B.segment().bounds()));
             attempt(
                 [&]() {
                     board_->traces[lo].a = far_a;
@@ -254,7 +252,7 @@ OptimizerReport CleanupOptimizer::run() {
                     board_->vias.erase(board_->vias.begin() +
                                        static_cast<std::ptrdiff_t>(vi));
                 },
-                /*must_shorten=*/false);
+                /*must_shorten=*/false, v.net, touched);
             if (rep.applied > applied_before) {
                 vi = 0;  // accepted removal shifted indices: rescan
             } else {
@@ -294,13 +292,13 @@ OptimizerReport CleanupOptimizer::run() {
                 [&]() {
                     for (std::size_t si : segs_by_net[n]) board_->traces[si].layer = pref;
                 },
-                /*must_shorten=*/false);
+                /*must_shorten=*/false, n, board_->bounds());
         }
     }
 
     rep.bends_after = count_bends(*board_);
-    rep.vias_after = static_cast<int>(board_->vias.size());
-    rep.length_after_mm = total_length_mm(*board_);
+    rep.vias_after = static_cast<int>(board_via_count(*board_));
+    rep.length_after_mm = board_total_length_mm(*board_);
     rep.peak_bytes = rep.candidates * 64;  // bounded scratch accounting
     return rep;
 }

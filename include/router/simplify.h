@@ -30,6 +30,8 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <map>
+#include <memory>
 #include <vector>
 
 #include "router/board.h"
@@ -135,5 +137,96 @@ bool simplify_escape_traces(const Board& work, const RuleResolver& resolver,
 // Currently driven by the per-task flag only; region-based producers land
 // with #15.
 inline bool simplify_exempt_task(const ConnectionTask& task) { return task.tuning_exempt; }
+
+// ---- D3/D4/S4: shared per-task segment-legality context ----
+//
+// One definition of the verifier-exact centerline predicate shared by the
+// simplifier, the parallel arbiter (trace probes) and the via-bundle stub
+// probes — the 5x clone (simplify_segment_legal_except, parallel
+// trace_legal/via_legal, via_bundle stub_seg_legal, escape direct_seg_legal,
+// diffpair segment legality; escape/diffpair call sites migrate in their
+// owning streams).
+//
+// Predicate (verifier-exact, integer-only, exact 4*d2 >= rhs^2 with full
+// widths folded in and no half-width truncation):
+//   board bounds contain the hw-expanded segment bbox;
+//   keepouts: hw-expanded bbox strictly disjoint (the verifier flags even
+//     closed-interval copper-bbox touch) plus the max_clear + half-width
+//     centerline margin with bbox precheck;
+//   foreign pads/traces/vias/planes: pair voltage clearance, each guarded by
+//     a bbox precheck, decided by 4*d2 >= rhs^2.
+// Foreign-copper loops skip the exempt set {net, exempt_net} (own net plus
+// the coupled pair sibling, which is gap-governed at materialization, not
+// voltage-governed here); exempt_net < 0 disables the sibling exemption.
+//
+// Speed (D4/S4): ClearanceCache memoizes requiredClearance(net, other) —
+// pure w.r.t. (board, net pair): the resolver ignores layer/ctx — plus the
+// worst-case max_clear, so N probes cost one resolver scan per foreign net
+// instead of N. The object is thread-local per task (no sharing, no locks),
+// which is also why this lives here instead of as RuleResolver state:
+// adding RuleResolver::maxClearance needs a rules.h edit (follow-up for the
+// rules.h owner); a file-local static cache would need locking and
+// invalidation for zero benefit over this.
+struct ClearanceCache {
+    const Board* board = nullptr;
+    const RuleResolver* resolver = nullptr;
+    ElectricalContext ctx;
+    NetId net = -1;
+    // Shared memo: copies of one task's cache (e.g. one SegLegalityCtx per
+    // distinct leg width) accumulate into the same table. Still strictly
+    // per-task/thread-local — never shared across tasks or threads.
+    struct Memo {
+        std::map<NetId, Coord> per_net;
+        bool max_ready = false;
+        Coord max_value = 0;
+    };
+    std::shared_ptr<Memo> memo = std::make_shared<Memo>();
+
+    ClearanceCache() = default;
+    ClearanceCache(const Board& b, const RuleResolver& r, const ElectricalContext& c,
+                   NetId n)
+        : board(&b), resolver(&r), ctx(c), net(n) {}
+
+    Coord get(NetId other, LayerId layer = 0) const {
+        auto it = memo->per_net.find(other);
+        if (it != memo->per_net.end()) return it->second;
+        std::string cs;
+        Coord c = resolver->requiredClearance(net, other, layer, ctx, &cs);
+        memo->per_net[other] = c;
+        return c;
+    }
+    Coord max_clear() const {
+        if (memo->max_ready) return memo->max_value;
+        Coord m = 0;
+        for (const auto& o : board->nets) {
+            if (o.id == net) continue;
+            m = std::max(m, get(o.id));
+        }
+        memo->max_value = m;
+        memo->max_ready = true;
+        return m;
+    }
+};
+
+// Verifier-exact single-segment probe over committed board copper.
+struct SegLegalityCtx {
+    ClearanceCache cc;
+    NetId exempt_net = -1;  // coupled pair sibling, or -1
+    LayerId layer = 0;
+    Coord width_nm = 0;  // full candidate width; rhs keeps full widths
+
+    SegLegalityCtx() = default;
+    SegLegalityCtx(const Board& b, const RuleResolver& r, const ElectricalContext& c,
+                   NetId n, LayerId l, Coord w, NetId exempt = -1)
+        : cc(b, r, c, n), exempt_net(exempt), layer(l), width_nm(w) {}
+
+    NetId net() const { return cc.net; }
+    Coord half() const { return width_nm / 2; }
+    // Exact centerline legality of s against the whole board. Same predicate
+    // as simplify_segment_legal_except (which is implemented on top of it).
+    // With why != nullptr, failure reasons use the arbiter's stable labels
+    // ("off_board", "keepout:<reason>", "clearance:plane|pad|trace|via").
+    bool segment_legal(const Segment& s, std::string* why = nullptr) const;
+};
 
 }  // namespace copperline

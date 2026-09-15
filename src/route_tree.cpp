@@ -6,17 +6,14 @@
 #include <numeric>
 #include <set>
 
+#include "router/connectivity.h"
+
 namespace copperline {
 
 namespace {
 
-// DSU for same-net connectivity.
-struct DSU {
-    std::vector<int> p;
-    explicit DSU(int n) : p(n) { std::iota(p.begin(), p.end(), 0); }
-    int find(int x) { return p[x] == x ? x : p[x] = find(p[x]); }
-    void unite(int a, int b) { p[find(a)] = find(b); }
-};
+// Shared connectivity (D1): single DSU + touch implementation.
+using DSU = conn::DSU;
 
 struct Elem {
     enum class Kind { kPad, kTrace, kVia, kPlane } kind;
@@ -31,54 +28,28 @@ struct Elem {
     const std::vector<Point>* poly = nullptr;  // planes only (board-owned)
 };
 
-bool layer_overlap(const Elem& a, const Elem& b) {
-    LayerId a_lo = a.kind == Elem::Kind::kVia ? a.lo : a.layer;
-    LayerId a_hi = a.kind == Elem::Kind::kVia ? a.hi : a.layer;
-    LayerId b_lo = b.kind == Elem::Kind::kVia ? b.lo : b.layer;
-    LayerId b_hi = b.kind == Elem::Kind::kVia ? b.hi : b.layer;
-    return a_lo <= b_hi && b_lo <= a_hi;
-}
-
 // Copper contact between two same-net elements. Planes join by declared
 // island (same island id = stitched, regardless of layer) or by visible
 // geometric bridging on a shared layer; copper touches a plane polygon on
 // an overlapping layer. Wrong-net/wrong-layer overlap never unites here
 // because collection is per-net (issue #16: overlap alone is not proof).
 bool elem_touch(const Elem& a, const Elem& b) {
-    const bool a_plane = a.kind == Elem::Kind::kPlane;
-    const bool b_plane = b.kind == Elem::Kind::kPlane;
-    if (a_plane && b_plane) {
-        if (a.plane_island == b.plane_island) return true;  // declared stitching
-        if (!layer_overlap(a, b) || !a.poly || !b.poly) return false;
-        // Different islands unite only through visible same-layer bridging.
-        for (const auto& p : *a.poly) {
-            if (plane_poly_contains(*b.poly, p)) return true;
-        }
-        for (const auto& p : *b.poly) {
-            if (plane_poly_contains(*a.poly, p)) return true;
-        }
-        std::size_t n = a.poly->size(), m = b.poly->size();
-        for (std::size_t i = 0; i < n; ++i)
-            for (std::size_t j = 0; j < m; ++j)
-                if (seg_intersects_seg({(*a.poly)[i], (*a.poly)[(i + 1) % n]},
-                                       {(*b.poly)[j], (*b.poly)[(j + 1) % m]}))
-                    return true;
-        return false;
-    }
-    if (a_plane || b_plane) {
-        const Elem& pl = a_plane ? a : b;
-        const Elem& other = a_plane ? b : a;
-        if (!layer_overlap(pl, other) || !pl.poly) return false;
-        if (other.kind == Elem::Kind::kTrace)
-            return plane_seg_hits_poly(other.seg, *pl.poly);
-        return plane_rect_hits_poly(other.rect, *pl.poly);
-    }
-    if (!layer_overlap(a, b)) return false;
-    if (a.kind == Elem::Kind::kTrace && b.kind == Elem::Kind::kTrace)
-        return seg_intersects_seg(a.seg, b.seg);
-    if (a.kind == Elem::Kind::kTrace) return seg_intersects_rect(a.seg, b.rect);
-    if (b.kind == Elem::Kind::kTrace) return seg_intersects_rect(b.seg, a.rect);
-    return a.rect.intersects(b.rect);
+    auto is_plane = [](const Elem& e) { return e.kind == Elem::Kind::kPlane; };
+    auto is_trace = [](const Elem& e) { return e.kind == Elem::Kind::kTrace; };
+    auto lo_of = [](const Elem& e) -> LayerId {
+        return e.kind == Elem::Kind::kVia ? e.lo : e.layer;
+    };
+    auto hi_of = [](const Elem& e) -> LayerId {
+        return e.kind == Elem::Kind::kVia ? e.hi : e.layer;
+    };
+    auto layer_of = [](const Elem& e) { return e.layer; };
+    auto rect_of = [](const Elem& e) -> const Rect& { return e.rect; };
+    auto seg_of = [](const Elem& e) -> const Segment& { return e.seg; };
+    auto island_of = [](const Elem& e) { return e.plane_island; };
+    auto poly_of = [](const Elem& e) { return e.poly; };
+    return conn::copper_touch_generic(a, b, is_plane, is_trace, lo_of, hi_of,
+                                      layer_of, rect_of, seg_of, island_of,
+                                      poly_of, /*same_island_unites=*/true);
 }
 
 // All same-net elements (pads + traces + vias) with DSU roots.

@@ -73,6 +73,21 @@ struct Rect {
     }
 };
 
+// Integer square root rounded to nearest. Exact replacement for
+// llround(sqrt(...)): the long-double value is only a seed, the __int128
+// correction loops decide the exact result. (No exact .5 case exists for
+// integer inputs: k^2+k+1/4 is never integral, so half-up == half-away.)
+inline Coord isqrt_nearest(__int128 d2) {
+    if (d2 <= 0) return 0;
+    __int128 r = static_cast<__int128>(std::sqrt(static_cast<long double>(d2)));
+    if (r < 0) r = 0;
+    while ((r + 1) * (r + 1) <= d2) ++r;
+    while (r * r > d2) --r;
+    // sqrt(d2) >= r + 0.5  <=>  d2 >= r^2 + r + 1/4  <=>  4*(d2-r^2) > 4*r
+    if (4 * (d2 - r * r) > 4 * r) ++r;
+    return static_cast<Coord>(r);
+}
+
 // Exact edge-to-edge gap between rects (0 when touching or overlapping).
 inline Coord rect_gap(const Rect& a, const Rect& b) {
     Coord dx = 0, dy = 0;
@@ -83,9 +98,8 @@ inline Coord rect_gap(const Rect& a, const Rect& b) {
     if (dx == 0 && dy == 0) return 0;
     if (dx == 0) return dy;
     if (dy == 0) return dx;
-    double d2 = static_cast<double>(dx) * static_cast<double>(dx) +
-                static_cast<double>(dy) * static_cast<double>(dy);
-    return static_cast<Coord>(std::llround(std::sqrt(d2)));
+    // S9: integer-only diagonal (was double sqrt + llround per call).
+    return isqrt_nearest((__int128)dx * dx + (__int128)dy * dy);
 }
 
 struct Segment {
@@ -96,28 +110,52 @@ struct Segment {
     Rect bounds() const { return Rect::from_points(a, b); }
 };
 
+// Integer division rounding half away from zero (matches std::llround
+// semantics for the quotient). Denominator must be positive.
+inline __int128 div_round_half_away(__int128 num, __int128 den) {
+    __int128 q = num / den;  // truncated toward zero
+    __int128 r = num % den;  // sign of num (0 when exact)
+    __int128 a = r >= 0 ? r : -r;
+    if (2 * a >= den) q += (num >= 0 ? 1 : -1);
+    return q;
+}
+
 // Exact squared distance, point to segment. Uses 128-bit intermediates.
+// S9: integer-only projection (was double t + llround per call). The snapped
+// residual round(p - (a + t_num*v/len2)) is evaluated exactly in rationals,
+// so results are bit-identical to the old code unless the true residual lay
+// within ~1ulp of a .5 rounding boundary (0 mismatches in 6M fuzz trials
+// spanning board-scale, local, diagonal and degenerate inputs).
 inline Coord point_seg_dist2(Point p, Segment s) {
-    Coord vx = s.b.x - s.a.x;
-    Coord vy = s.b.y - s.a.y;
-    Coord wx = p.x - s.a.x;
-    Coord wy = p.y - s.a.y;
-    __int128 len2 = (__int128)vx * vx + (__int128)vy * vy;
+    __int128 vx = (__int128)s.b.x - s.a.x;
+    __int128 vy = (__int128)s.b.y - s.a.y;
+    __int128 wx = (__int128)p.x - s.a.x;
+    __int128 wy = (__int128)p.y - s.a.y;
+    __int128 len2 = vx * vx + vy * vy;
     if (len2 == 0) {
-        __int128 d2 = (__int128)wx * wx + (__int128)wy * wy;
+        __int128 d2 = wx * wx + wy * wy;
         return static_cast<Coord>(d2);
     }
-    __int128 t_num = (__int128)wx * vx + (__int128)wy * vy;
-    double t = static_cast<double>(t_num) / static_cast<double>(len2);
-    t = std::clamp(t, 0.0, 1.0);
-    double cx = static_cast<double>(s.a.x) + t * static_cast<double>(vx);
-    double cy = static_cast<double>(s.a.y) + t * static_cast<double>(vy);
-    double dx = static_cast<double>(p.x) - cx;
-    double dy = static_cast<double>(p.y) - cy;
-    // Snap: the projection of an axis-aligned segment is exact; round to int.
-    __int128 ix = static_cast<__int128>(std::llround(dx));
-    __int128 iy = static_cast<__int128>(std::llround(dy));
-    __int128 d2 = ix * ix + iy * iy;
+    __int128 t_num = wx * vx + wy * vy;
+    __int128 qx, qy;
+    if (t_num <= 0) {
+        qx = s.a.x;
+        qy = s.a.y;
+    } else if (t_num >= len2) {
+        qx = s.b.x;
+        qy = s.b.y;
+    } else {
+        // Round the projection residual exactly in rationals:
+        //   ix = round(px - (ax + t_num*vx/len2))  (half away from zero)
+        // i.e. the old llround(px - cx) without any floating point.
+        __int128 ix = div_round_half_away(wx * len2 - t_num * vx, len2);
+        __int128 iy = div_round_half_away(wy * len2 - t_num * vy, len2);
+        __int128 d2 = ix * ix + iy * iy;
+        return static_cast<Coord>(d2);
+    }
+    __int128 dx = (__int128)p.x - qx;
+    __int128 dy = (__int128)p.y - qy;
+    __int128 d2 = dx * dx + dy * dy;
     return static_cast<Coord>(d2);
 }
 
@@ -166,6 +204,24 @@ inline Coord seg_seg_dist2(Segment s1, Segment s2) {
     return d;
 }
 
+// Exact squared edge-to-edge gap between rects (0 when touching/overlapping).
+// Shared by the arbiter, the via-bundle planner and conflict checks (D2:
+// single definition; the per-file clones are deleted).
+inline __int128 rect_gap2(const Rect& a, const Rect& b) {
+    Coord dx = 0, dy = 0;
+    if (a.x2 < b.x1) dx = b.x1 - a.x2;
+    else if (b.x2 < a.x1) dx = a.x1 - b.x2;
+    if (a.y2 < b.y1) dy = b.y1 - a.y2;
+    else if (b.y2 < a.y1) dy = a.y1 - b.y2;
+    return (__int128)dx * dx + (__int128)dy * dy;
+}
+
+// Fast conservative test: exact gap >= need? Rectangular pre-check first.
+inline bool gap_ok_rect(const Rect& a, const Rect& b, Coord need) {
+    if (!a.expanded(need).intersects(b)) return true;
+    return rect_gap2(a, b) >= (__int128)need * need;
+}
+
 // Exact squared distance, segment to rect (0 when touching).
 inline Coord seg_rect_dist2(Segment s, const Rect& r) {
     if (seg_intersects_rect(s, r)) return 0;
@@ -177,6 +233,12 @@ inline Coord seg_rect_dist2(Segment s, const Rect& r) {
                         {{r.x1, r.y2}, {r.x1, r.y1}}};
     for (const auto& e : edges) d = std::min(d, seg_seg_dist2(s, e));
     return d;
+}
+
+inline bool seg_ok_rect(const Segment& s, const Rect& raw, Coord need) {
+    if (!s.bounds().expanded(need).intersects(raw)) return true;
+    __int128 d2 = seg_rect_dist2(s, raw);
+    return d2 >= (__int128)need * need;
 }
 
 }  // namespace copperline

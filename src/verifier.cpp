@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <numeric>
 #include <set>
 
@@ -9,6 +10,7 @@
 #include "router/simplify.h"
 #include "router/spatial_index.h"
 #include "router/via_bundle.h"
+#include "router/connectivity.h"
 
 namespace copperline {
 
@@ -78,14 +80,8 @@ JsonValue VerifyResult::to_json() const {
 
 namespace {
 
-struct DSU {
-    std::vector<int> p;
-    explicit DSU(int n) : p(n) {
-        std::iota(p.begin(), p.end(), 0);
-    }
-    int find(int x) { return p[x] == x ? x : p[x] = find(p[x]); }
-    void unite(int a, int b) { p[find(a)] = find(b); }
-};
+// Shared connectivity (D1): single DSU + touch implementation.
+using DSU = conn::DSU;
 
 // Copper element for connectivity (per net) and clearance (global).
 struct Element {
@@ -112,52 +108,41 @@ bool elem_layer_overlap(const Element& a, const Element& b) {
     LayerId a_hi = a.kind == Element::Kind::kVia ? a.hi : a.layer;
     LayerId b_lo = b.kind == Element::Kind::kVia ? b.lo : b.layer;
     LayerId b_hi = b.kind == Element::Kind::kVia ? b.hi : b.layer;
-    return a_lo <= b_hi && b_lo <= a_hi;
+    return conn::span_overlap(a_lo, a_hi, b_lo, b_hi);
 }
+
+namespace conn_detail {
+inline bool verifier_touch_impl(const Element& a, const Element& b,
+                                bool same_island_unites) {
+    auto is_plane = [](const Element& e) { return e.kind == Element::Kind::kPlane; };
+    auto is_trace = [](const Element& e) { return e.kind == Element::Kind::kTrace; };
+    auto lo_of = [](const Element& e) -> LayerId {
+        return e.kind == Element::Kind::kVia ? e.lo : e.layer;
+    };
+    auto hi_of = [](const Element& e) -> LayerId {
+        return e.kind == Element::Kind::kVia ? e.hi : e.layer;
+    };
+    auto layer_of = [](const Element& e) { return e.layer; };
+    auto rect_of = [](const Element& e) -> const Rect& { return e.rect; };
+    auto seg_of = [](const Element& e) -> const Segment& { return e.seg; };
+    auto island_of = [](const Element& e) { return e.plane_island; };
+    auto poly_of = [](const Element& e) { return e.poly; };
+    return conn::copper_touch_generic(a, b, is_plane, is_trace, lo_of, hi_of,
+                                      layer_of, rect_of, seg_of, island_of,
+                                      poly_of, same_island_unites);
+}
+}  // namespace conn_detail
 
 // Issue #16: planes join connectivity by declared island (same island id =
 // stitched) or by visible geometric bridging; copper touches a plane
 // polygon on an overlapping layer. Cross-net overlap never unites because
 // the DSU loop only pairs same-net elements.
 bool elem_touch(const Element& a, const Element& b) {
-    const bool a_plane = a.kind == Element::Kind::kPlane;
-    const bool b_plane = b.kind == Element::Kind::kPlane;
-    if (a_plane && b_plane) {
-        if (a.plane_island == b.plane_island) return true;
-        if (!elem_layer_overlap(a, b) || !a.poly || !b.poly) return false;
-        for (const auto& p : *a.poly) {
-            if (plane_poly_contains(*b.poly, p)) return true;
-        }
-        for (const auto& p : *b.poly) {
-            if (plane_poly_contains(*a.poly, p)) return true;
-        }
-        std::size_t n = a.poly->size(), m = b.poly->size();
-        for (std::size_t i = 0; i < n; ++i)
-            for (std::size_t j = 0; j < m; ++j)
-                if (seg_intersects_seg({(*a.poly)[i], (*a.poly)[(i + 1) % n]},
-                                       {(*b.poly)[j], (*b.poly)[(j + 1) % m]}))
-                    return true;
-        return false;
-    }
-    if (a_plane || b_plane) {
-        const Element& pl = a_plane ? a : b;
-        const Element& other = a_plane ? b : a;
-        if (!elem_layer_overlap(pl, other) || !pl.poly) return false;
-        if (other.kind == Element::Kind::kTrace)
-            return plane_seg_hits_poly(other.seg, *pl.poly);
-        return plane_rect_hits_poly(other.rect, *pl.poly);
-    }
-    if (!elem_layer_overlap(a, b)) return false;
-    if (a.kind == Element::Kind::kTrace && b.kind == Element::Kind::kTrace)
-        return seg_intersects_seg(a.seg, b.seg);
-    if (a.kind == Element::Kind::kTrace)
-        return seg_intersects_rect(a.seg, b.rect);
-    if (b.kind == Element::Kind::kTrace)
-        return seg_intersects_rect(b.seg, a.rect);
-    return a.rect.intersects(b.rect);
+    return conn_detail::verifier_touch_impl(a, b, /*same_island_unites=*/true);
 }
 
 // Exact squared edge-to-edge distance between two polygons (0 on hit).
+// S5: early exit on touch (0 is the minimum; further pairs cannot improve).
 __int128 plane_poly_dist2(const std::vector<Point>& a, const std::vector<Point>& b) {
     for (const auto& p : a) {
         if (plane_poly_contains(b, p)) return 0;
@@ -166,12 +151,15 @@ __int128 plane_poly_dist2(const std::vector<Point>& a, const std::vector<Point>&
         if (plane_poly_contains(a, p)) return 0;
     }
     __int128 best = -1;
-    for (std::size_t i = 0; i < a.size(); ++i)
-        for (std::size_t j = 0; j < b.size(); ++j) {
-            __int128 d = seg_seg_dist2({a[i], a[(i + 1) % a.size()]},
-                                       {b[j], b[(j + 1) % b.size()]});
+    const std::size_t n = a.size(), m = b.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        const Segment sa{a[i], a[(i + 1) % n]};
+        for (std::size_t j = 0; j < m; ++j) {
+            __int128 d = seg_seg_dist2(sa, {b[j], b[(j + 1) % m]});
+            if (d == 0) return 0;
             if (best < 0 || d < best) best = d;
         }
+    }
     return best < 0 ? 0 : best;
 }
 
@@ -301,32 +289,21 @@ bool elem_present_on(const Element& e, LayerId layer) {
 // proves nothing about this layer's star). Callers ensure both elements
 // are present on the same layer.
 bool elem_layer_touch(const Element& a, const Element& b) {
-    const bool a_plane = a.kind == Element::Kind::kPlane;
-    const bool b_plane = b.kind == Element::Kind::kPlane;
-    if (a_plane && b_plane) {
-        if (!elem_layer_overlap(a, b) || !a.poly || !b.poly) return false;
-        for (const auto& p : *a.poly) {
-            if (plane_poly_contains(*b.poly, p)) return true;
-        }
-        for (const auto& p : *b.poly) {
-            if (plane_poly_contains(*a.poly, p)) return true;
-        }
-        std::size_t n = a.poly->size(), m = b.poly->size();
-        for (std::size_t i = 0; i < n; ++i)
-            for (std::size_t j = 0; j < m; ++j)
-                if (seg_intersects_seg({(*a.poly)[i], (*a.poly)[(i + 1) % n]},
-                                       {(*b.poly)[j], (*b.poly)[(j + 1) % m]}))
-                    return true;
-        return false;
-    }
-    return elem_touch(a, b);
+    return conn_detail::verifier_touch_impl(a, b, /*same_island_unites=*/false);
 }
 
 // Verify one pair from committed copper only. Appends hard violations to
 // `violations` and returns the per-pair measurement for VerifyResult::pairs
 // and the route JSON. Deterministic: board order iteration, sorted vias.
+// S5: member copper comes from per-net index lists built once per verify()
+// (not a full board rescan per pair); board-order is preserved via ascending
+// indices so measurements are identical.
+using NetMembers = std::map<NetId, std::vector<std::size_t>>;
 PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
-                                 std::vector<Violation>& violations) {
+                                 std::vector<Violation>& violations,
+                                 const NetMembers& traces_of,
+                                 const NetMembers& vias_of,
+                                 const NetMembers& terms_of) {
     PairVerifyDetail d;
     d.pair_id = pr.id;
     d.name = pr.name;
@@ -355,18 +332,27 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
     std::vector<TraceSeg> tp, tn;
     std::vector<Via> vp, vn;
     std::vector<Terminal> pads_p, pads_n;
-    for (const auto& t : board.traces) {
-        if (t.net == pr.net_p) tp.push_back(t);
-        if (t.net == pr.net_n) tn.push_back(t);
-    }
-    for (const auto& v : board.vias) {
-        if (v.net == pr.net_p) vp.push_back(v);
-        if (v.net == pr.net_n) vn.push_back(v);
-    }
-    for (const auto& t : board.terminals) {
-        if (t.net == pr.net_p) pads_p.push_back(t);
-        if (t.net == pr.net_n) pads_n.push_back(t);
-    }
+    auto gather_traces = [&](NetId net, std::vector<TraceSeg>& dst) {
+        auto it = traces_of.find(net);
+        if (it == traces_of.end()) return;
+        for (std::size_t idx : it->second) dst.push_back(board.traces[idx]);
+    };
+    auto gather_vias = [&](NetId net, std::vector<Via>& dst) {
+        auto it = vias_of.find(net);
+        if (it == vias_of.end()) return;
+        for (std::size_t idx : it->second) dst.push_back(board.vias[idx]);
+    };
+    auto gather_terms = [&](NetId net, std::vector<Terminal>& dst) {
+        auto it = terms_of.find(net);
+        if (it == terms_of.end()) return;
+        for (std::size_t idx : it->second) dst.push_back(board.terminals[idx]);
+    };
+    gather_traces(pr.net_p, tp);
+    gather_traces(pr.net_n, tn);
+    gather_vias(pr.net_p, vp);
+    gather_vias(pr.net_n, vn);
+    gather_terms(pr.net_p, pads_p);
+    gather_terms(pr.net_n, pads_n);
     d.vias_p = static_cast<int>(vp.size());
     d.vias_n = static_cast<int>(vn.size());
     d.via_pairs = std::min(d.vias_p, d.vias_n);
@@ -889,13 +875,7 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
     return d;
 }
 
-}  // namespace
-
-VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resolver,
-                                   const ElectricalContext& ctx) const {
-    VerifyResult out;
-
-    // ---- Collect elements ----
+std::vector<Element> collect_elements(const Board& board) {
     std::vector<Element> elems;
     for (const auto& t : board.terminals) {
         Element e;
@@ -938,6 +918,84 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
         e.poly = &z.poly;
         elems.push_back(e);
     }
+    return elems;
+}
+
+}  // namespace
+
+// S3 scoped fast-reject (see verifier.h for the soundness contract).
+bool BoardVerifier::has_local_violation(const Board& board,
+                                        const RuleResolver& resolver,
+                                        const ElectricalContext& ctx, NetId net,
+                                        const Rect& area) const {
+    // Width + off-board over the touched net's traces (exact predicates).
+    for (const auto& t : board.traces) {
+        if (t.net != net) continue;
+        std::string source;
+        Coord need = resolver.requiredTraceWidth(t.net, t.layer, ctx, &source);
+        if (t.width_nm < need) return true;
+        Rect r = t.segment().bounds().expanded(t.width_nm / 2);
+        if (!board.bounds().contains(r)) return true;
+    }
+    // Keepout intrusions over the touched net's traces (exact predicate).
+    for (const auto& ko : board.keepouts) {
+        for (const auto& t : board.traces) {
+            if (t.net != net) continue;
+            if (ko.layer != kAllLayers && ko.layer != t.layer) continue;
+            Rect copper = t.segment().bounds().expanded(t.width_nm / 2);
+            if (copper.intersects(ko.rect)) return true;
+        }
+    }
+    // Foreign clearance for pairs involving the touched net near the area.
+    // Local need matrix (net vs every net) mirrors the full-verify cache.
+    std::map<std::pair<NetId, NetId>, Coord> local_need;
+    auto need_for = [&](NetId a, NetId b) {
+        auto key = std::make_pair(a, b);
+        auto it = local_need.find(key);
+        if (it != local_need.end()) return it->second;
+        std::string source;
+        Coord v = resolver.requiredClearance(a, b, 0, ctx, &source);
+        local_need.emplace(key, v);
+        return v;
+    };
+    Coord max_need = 0;
+    for (const auto& o : board.nets) max_need = std::max(max_need, need_for(net, o.id));
+    const Rect wide = area.expanded(max_need + 1);
+    std::vector<Element> elems = collect_elements(board);
+    SpatialIndex index(mm_to_nm(1.0));
+    for (std::size_t i = 0; i < elems.size(); ++i) {
+        IndexedRect r;
+        r.rect = elem_bounds(elems[i]);
+        r.net = elems[i].net;
+        r.layer = elems[i].layer;
+        r.index = static_cast<int>(i);
+        index.insert(r);
+    }
+    for (std::size_t i = 0; i < elems.size(); ++i) {
+        if (elems[i].net != net) continue;
+        Rect here = elem_bounds(elems[i]);
+        if (!here.intersects(wide)) continue;
+        Rect query = here.expanded(max_need + 1);
+        for (int j : index.query(query)) {
+            if (j <= static_cast<int>(i)) continue;
+            const Element& a = elems[i];
+            const Element& b = elems[j];
+            if (a.net == b.net) continue;
+            if (pair_declared(board, a.net, b.net)) continue;
+            if (!elem_layer_overlap(a, b)) continue;
+            if (!elem_bounds(b).intersects(wide)) continue;
+            if (!elem_gap_ok(a, b, need_for(a.net, b.net))) return true;
+        }
+    }
+    return false;
+}
+
+VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resolver,
+                                   const ElectricalContext& ctx) const {
+    VerifyResult out;
+
+    // ---- Collect elements ----
+    std::vector<Element> elems = collect_elements(board);
 
     // ---- Connectivity per net ----
     DSU dsu(static_cast<int>(elems.size()));
@@ -1079,6 +1137,43 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
             out.violations.push_back(v);
         }
     }
+    // S5: per-(net, layer) same-net connectivity is shared across all
+    // over-current vias instead of rebuilding the per-layer DSU per via.
+    // Union order (element order, a<b pairs, bounds prefilter) is identical
+    // to the old inline rebuild, so partitions — and verdicts — match
+    // exactly. DSU::find is const (mutable path compression), hence the
+    // cache is safe to share read-only.
+    struct LayerConn {
+        std::vector<int> nodes;   // element indices present on the layer
+        std::vector<int> pos_of;  // element index -> position in nodes
+        DSU dsu{0};
+    };
+    std::map<std::pair<NetId, LayerId>, LayerConn> layer_conns;
+    auto layer_conn = [&](NetId net, LayerId layer) -> const LayerConn& {
+        auto key = std::make_pair(net, layer);
+        auto it = layer_conns.find(key);
+        if (it != layer_conns.end()) return it->second;
+        LayerConn lc;
+        lc.pos_of.assign(elems.size(), -1);
+        lc.nodes.reserve(elems.size());
+        for (std::size_t ei = 0; ei < elems.size(); ++ei) {
+            if (elems[ei].net != net) continue;
+            if (!elem_present_on(elems[ei], layer)) continue;
+            lc.pos_of[ei] = static_cast<int>(lc.nodes.size());
+            lc.nodes.push_back(static_cast<int>(ei));
+        }
+        lc.dsu = DSU(static_cast<int>(lc.nodes.size()));
+        for (std::size_t a = 0; a < lc.nodes.size(); ++a) {
+            for (std::size_t b = a + 1; b < lc.nodes.size(); ++b) {
+                const Element& ea = elems[lc.nodes[a]];
+                const Element& eb = elems[lc.nodes[b]];
+                if (!elem_bounds(ea).intersects(elem_bounds(eb))) continue;
+                if (elem_layer_touch(ea, eb))
+                    lc.dsu.unite(static_cast<int>(a), static_cast<int>(b));
+            }
+        }
+        return layer_conns.emplace(key, std::move(lc)).first->second;
+    };
     for (std::size_t vi = 0; vi < board.vias.size(); ++vi) {
         const Via& v = board.vias[vi];
         const NetInfo* n = board.find_net(v.net);
@@ -1185,41 +1280,24 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
                     if (hi != lo) layers.push_back(hi);
                     std::vector<int> cluster = pool;
                     for (LayerId layer : layers) {
-                        std::vector<int> nodes;
-                        nodes.reserve(elems.size());
-                        std::vector<int> pos_of(elems.size(), -1);
-                        for (std::size_t ei = 0; ei < elems.size(); ++ei) {
-                            if (elems[ei].net != v.net) continue;
-                            if (!elem_present_on(elems[ei], layer)) continue;
-                            pos_of[ei] = static_cast<int>(nodes.size());
-                            nodes.push_back(static_cast<int>(ei));
-                        }
+                        const LayerConn& lc = layer_conn(v.net, layer);
                         if (v_elem < 0 ||
-                            static_cast<std::size_t>(v_elem) >= pos_of.size() ||
-                            pos_of[static_cast<std::size_t>(v_elem)] < 0) {
+                            static_cast<std::size_t>(v_elem) >= lc.pos_of.size() ||
+                            lc.pos_of[static_cast<std::size_t>(v_elem)] < 0) {
                             cluster.clear();
                             break;
                         }
-                        DSU ldsu(static_cast<int>(nodes.size()));
-                        for (std::size_t a = 0; a < nodes.size(); ++a) {
-                            for (std::size_t b = a + 1; b < nodes.size(); ++b) {
-                                const Element& ea = elems[nodes[a]];
-                                const Element& eb = elems[nodes[b]];
-                                if (!elem_bounds(ea).intersects(elem_bounds(eb)))
-                                    continue;
-                                if (elem_layer_touch(ea, eb))
-                                    ldsu.unite(static_cast<int>(a),
-                                               static_cast<int>(b));
-                            }
-                        }
-                        int root = ldsu.find(pos_of[static_cast<std::size_t>(v_elem)]);
+                        int root = lc.dsu.find(
+                            lc.pos_of[static_cast<std::size_t>(v_elem)]);
                         std::vector<int> next;
                         next.reserve(cluster.size());
                         for (int idx : cluster) {
                             std::size_t e =
                                 via_base + static_cast<std::size_t>(idx);
-                            if (e >= pos_of.size() || pos_of[e] < 0) continue;
-                            if (ldsu.find(pos_of[e]) == root) next.push_back(idx);
+                            if (e >= lc.pos_of.size() || lc.pos_of[e] < 0)
+                                continue;
+                            if (lc.dsu.find(lc.pos_of[e]) == root)
+                                next.push_back(idx);
                         }
                         cluster = std::move(next);
                         if (static_cast<int>(cluster.size()) < need) break;
@@ -1247,12 +1325,23 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
     }
 
     // ---- Clearance between foreign copper ----
+    // S5: net-pair needs are resolved once (the resolver is pure for a fixed
+    // board/ctx) and reused for every element pair; the max over the same
+    // matrix bounds index queries exactly as before.
+    std::map<std::pair<NetId, NetId>, std::pair<Coord, std::string>> need_cache;
+    auto need_for = [&](NetId na, NetId nb) -> const std::pair<Coord, std::string>& {
+        auto key = std::make_pair(na, nb);
+        auto it = need_cache.find(key);
+        if (it != need_cache.end()) return it->second;
+        std::string source;
+        Coord v = resolver.requiredClearance(na, nb, 0, ctx, &source);
+        return need_cache.emplace(key, std::make_pair(v, source)).first->second;
+    };
     Coord max_clear = board.defaults.clearance_nm;
     for (std::size_t i = 0; i < board.nets.size(); ++i) {
         for (std::size_t j = i + 1; j < board.nets.size(); ++j) {
-            std::string cs;
             max_clear = std::max(
-                max_clear, resolver.requiredClearance(board.nets[i].id, board.nets[j].id, 0, ctx, &cs));
+                max_clear, need_for(board.nets[i].id, board.nets[j].id).first);
         }
     }
     for (std::size_t i = 0; i < elems.size(); ++i) {
@@ -1267,8 +1356,9 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
             // verify_one_pair enforces the gap exactly below.
             if (pair_declared(board, a.net, b.net)) continue;
             if (!elem_layer_overlap(a, b)) continue;
-            std::string source;
-            Coord need = resolver.requiredClearance(a.net, b.net, 0, ctx, &source);
+            const auto& need_src = need_for(a.net, b.net);
+            Coord need = need_src.first;
+            const std::string& source = need_src.second;
             if (!elem_gap_ok(a, b, need)) {
                 const NetInfo* na = board.find_net(a.net);
                 const NetInfo* nb = board.find_net(b.net);
@@ -1339,13 +1429,22 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
     // Pair declarations sorted by id for determinism. Uses traces/vias/pads
     // only, never router metadata. Each failing aspect is a hard violation
     // so the final success gate (COMPLETE requires verifier clean) refuses
-    // bad pairs.
+    // bad pairs. S5: per-net member lists are indexed once here (ascending
+    // board order, identical to the old per-pair rescans).
     {
+        NetMembers traces_of, vias_of, terms_of;
+        for (std::size_t i = 0; i < board.traces.size(); ++i)
+            traces_of[board.traces[i].net].push_back(i);
+        for (std::size_t i = 0; i < board.vias.size(); ++i)
+            vias_of[board.vias[i].net].push_back(i);
+        for (std::size_t i = 0; i < board.terminals.size(); ++i)
+            terms_of[board.terminals[i].net].push_back(i);
         std::vector<DiffPair> pairs_sorted = board.diffpairs;
         std::sort(pairs_sorted.begin(), pairs_sorted.end(),
                   [](const DiffPair& a, const DiffPair& b) { return a.id < b.id; });
         for (const auto& pr : pairs_sorted) {
-            out.pairs.push_back(verify_one_pair(board, pr, out.violations));
+            out.pairs.push_back(
+                verify_one_pair(board, pr, out.violations, traces_of, vias_of, terms_of));
         }
     }
 

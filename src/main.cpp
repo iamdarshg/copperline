@@ -479,17 +479,13 @@ JsonValue capabilities_json() {
     r["name"] = "copperline";
     r["version"] = COPPERLINE_VERSION;
     r["phase"] = "prompt-5-release";
-    JsonValue cmds = JsonValue::array();
-    for (const char* c : {"capabilities", "analyze", "verify", "route", "escape",
-                          "benchmark", "explain-failure"})
-        cmds.as_array().push_back(JsonValue(c));
-    r["commands"] = cmds;
+    r["commands"] = json_string_array(
+        std::vector<std::string>{"capabilities", "analyze", "verify", "route",
+                                 "escape", "benchmark", "explain-failure"});
     JsonValue planned = JsonValue::array();
     r["planned_commands"] = planned;
     JsonValue formats = JsonValue::object();
-    JsonValue sup = JsonValue::array();
-    for (const auto& s : supported_formats()) sup.as_array().push_back(JsonValue(s));
-    formats["supported"] = sup;
+    formats["supported"] = json_string_array(supported_formats());
     JsonValue fut = JsonValue::array();
     formats["planned"] = fut;
     formats["notes"] =

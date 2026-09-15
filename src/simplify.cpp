@@ -19,11 +19,11 @@ Coord max_clear_for_net(const Board& board, const RuleResolver& resolver, NetId 
 
 bool all_legal(const Board& board, const RuleResolver& resolver, NetId net, LayerId layer,
                Coord width_nm, const std::vector<Point>& pts, const ElectricalContext& ctx) {
+    // S4: one shared clearance cache for the whole run, not one scan per leg.
+    SegLegalityCtx leg(board, resolver, ctx, net, layer, width_nm);
     for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
         if (pts[i] == pts[i + 1]) continue;
-        if (!simplify_segment_legal(board, resolver, net, layer, width_nm,
-                                    {pts[i], pts[i + 1]}, ctx))
-            return false;
+        if (!leg.segment_legal({pts[i], pts[i + 1]})) return false;
     }
     return true;
 }
@@ -50,10 +50,22 @@ bool simplify_segment_legal_except(const Board& board, const RuleResolver& resol
                                    NetId net, LayerId layer, Coord width_nm,
                                    const Segment& s, const ElectricalContext& ctx,
                                    NetId exempt_net) {
-    Coord hw = width_nm / 2;
-    if (!board.bounds().contains(s.bounds().expanded(hw))) return false;
-    std::string cs;
-    Coord max_clear = max_clear_for_net(board, resolver, net, ctx);
+    // D3: the public entry is the shared verifier-exact probe (same predicate,
+    // per-call cache). Hot paths build one SegLegalityCtx per task instead.
+    SegLegalityCtx leg(board, resolver, ctx, net, layer, width_nm, exempt_net);
+    return leg.segment_legal(s);
+}
+
+bool SegLegalityCtx::segment_legal(const Segment& s, std::string* why) const {
+    const Board& board = *cc.board;
+    NetId net = cc.net;
+    Coord hw = half();
+    auto fail = [&](const std::string& r) {
+        if (why) *why = r;
+        return false;
+    };
+    if (!board.bounds().contains(s.bounds().expanded(hw))) return fail("off_board");
+    Coord max_clear = cc.max_clear();
     // Keepouts: two parts. (1) Verifier-exact: the verifier flags even
     // closed-interval touch of the copper bbox, so the hw-expanded bbox
     // must be strictly disjoint from the raw rect. (2) Policy margin: the
@@ -63,11 +75,12 @@ bool simplify_segment_legal_except(const Board& board, const RuleResolver& resol
     // predicate so raw Manhattan legs stay simplifiable.
     for (const auto& ko : board.keepouts) {
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
-        if (s.bounds().expanded(hw).intersects(ko.rect)) return false;
+        if (s.bounds().expanded(hw).intersects(ko.rect)) return fail("keepout:" + ko.reason);
         if (max_clear > 0) {
             Coord need = max_clear + hw;
             if (!s.bounds().expanded(need).intersects(ko.rect)) continue;
-            if (seg_rect_dist2(s, ko.rect) < (__int128)need * need) return false;
+            if (seg_rect_dist2(s, ko.rect) < (__int128)need * need)
+                return fail("keepout:" + ko.reason);
         }
     }
     // Foreign copper: verifier-exact centerline math (4*d2 >= rhs^2 with full
@@ -75,40 +88,44 @@ bool simplify_segment_legal_except(const Board& board, const RuleResolver& resol
     // always re-verify clean, even for odd-nm widths.
     for (const auto& z : board.planes) {
         if (z.net == net || z.net == exempt_net || z.layer != layer) continue;
-        Coord c = resolver.requiredClearance(net, z.net, layer, ctx, &cs);
+        Coord c = cc.get(z.net, layer);
         __int128 rhs = (__int128)2 * c + width_nm;
         if (s.bounds().expanded(c + hw).intersects(z.bounds())) {
-            if ((__int128)4 * plane_seg_poly_dist2(s, z.poly) < rhs * rhs) return false;
+            if ((__int128)4 * plane_seg_poly_dist2(s, z.poly) < rhs * rhs)
+                return fail("clearance:plane");
         }
     }
     for (const auto& t : board.terminals) {
         if (t.net == net || t.net == exempt_net || t.layer != layer) continue;
-        Coord c = resolver.requiredClearance(net, t.net, layer, ctx, &cs);
+        Coord c = cc.get(t.net, layer);
         __int128 rhs = (__int128)2 * c + width_nm;
         Rect pr = t.pad_rect();
         if (s.bounds().expanded(c + hw).intersects(pr)) {
-            if ((__int128)4 * seg_rect_dist2(s, pr) < rhs * rhs) return false;
+            if ((__int128)4 * seg_rect_dist2(s, pr) < rhs * rhs)
+                return fail("clearance:pad");
         }
     }
     for (const auto& t : board.traces) {
         if (t.net == net || t.net == exempt_net || t.layer != layer) continue;
-        Coord c = resolver.requiredClearance(net, t.net, layer, ctx, &cs);
+        Coord c = cc.get(t.net, layer);
         Segment b = t.segment();
         __int128 rhs = (__int128)2 * c + width_nm + t.width_nm;
         if (!s.bounds().expanded(c + hw + t.width_nm / 2).intersects(b.bounds()))
             continue;
-        if ((__int128)4 * seg_seg_dist2(s, b) < rhs * rhs) return false;
+        if ((__int128)4 * seg_seg_dist2(s, b) < rhs * rhs)
+            return fail("clearance:trace");
     }
     for (const auto& v : board.vias) {
         if (v.net == net || v.net == exempt_net) continue;
         if (layer < std::min(v.top_layer, v.bottom_layer) ||
             layer > std::max(v.top_layer, v.bottom_layer))
             continue;
-        Coord c = resolver.requiredClearance(net, v.net, layer, ctx, &cs);
+        Coord c = cc.get(v.net, layer);
         __int128 rhs = (__int128)2 * c + width_nm;
         Rect vr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
         if (s.bounds().expanded(c + hw).intersects(vr)) {
-            if ((__int128)4 * seg_rect_dist2(s, vr) < rhs * rhs) return false;
+            if ((__int128)4 * seg_rect_dist2(s, vr) < rhs * rhs)
+                return fail("clearance:via");
         }
     }
     return true;
@@ -121,7 +138,8 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
                                                const ElectricalContext& ctx,
                                                std::size_t max_corners) {
     Coord hw = width_nm / 2;
-    std::string cs;
+    // S4: one shared clearance cache for all corner emissions.
+    ClearanceCache cc(board, resolver, ctx, net);
     std::vector<Point> out;
     auto emit_expanded = [&](const Rect& raw, Coord dist) {
         if (!raw.expanded(dist).intersects(corridor)) return;
@@ -131,19 +149,18 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
         out.push_back({e.x2, e.y2});
         out.push_back({e.x1, e.y2});
     };
-    Coord max_clear = max_clear_for_net(board, resolver, net, ctx);
+    Coord max_clear = cc.max_clear();
     for (const auto& ko : board.keepouts) {
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
         emit_expanded(ko.rect, max_clear + hw);
     }
     for (const auto& t : board.terminals) {
         if (t.net == net || t.layer != layer) continue;
-        emit_expanded(t.pad_rect(), resolver.requiredClearance(net, t.net, layer, ctx, &cs) + hw);
+        emit_expanded(t.pad_rect(), cc.get(t.net, layer) + hw);
     }
     for (const auto& t : board.traces) {
         if (t.net == net || t.layer != layer) continue;
-        Coord need = resolver.requiredClearance(net, t.net, layer, ctx, &cs) + hw +
-                     t.width_nm / 2;
+        Coord need = cc.get(t.net, layer) + hw + t.width_nm / 2;
         emit_expanded(t.segment().bounds(), need);
     }
     for (const auto& v : board.vias) {
@@ -152,11 +169,11 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
             layer > std::max(v.top_layer, v.bottom_layer))
             continue;
         emit_expanded(Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm),
-                      resolver.requiredClearance(net, v.net, layer, ctx, &cs) + hw);
+                      cc.get(v.net, layer) + hw);
     }
     for (const auto& z : board.planes) {
         if (z.net == net || z.layer != layer) continue;
-        emit_expanded(z.bounds(), resolver.requiredClearance(net, z.net, layer, ctx, &cs) + hw);
+        emit_expanded(z.bounds(), cc.get(z.net, layer) + hw);
     }
     Rect inner = board.bounds().expanded(-hw);
     std::vector<Point> kept;
@@ -189,9 +206,11 @@ std::vector<Point> simplify_polyline(const Board& board, const RuleResolver& res
     }
     if (clean.size() <= 2) return clean;
 
+    // S4: one shared clearance cache for all probes of this run.
+    SegLegalityCtx leg(board, resolver, ctx, net, layer, width_nm);
     auto legal = [&](Point a, Point b) {
         if (a == b) return true;
-        return simplify_segment_legal(board, resolver, net, layer, width_nm, {a, b}, ctx);
+        return leg.segment_legal({a, b});
     };
 
     const Point src = clean.front(), dst = clean.back();
@@ -383,11 +402,20 @@ SimplifyStats simplify_candidate_traces(const Board& snapshot, const RuleResolve
     std::vector<TraceSeg> merged = simplified;
     merged.insert(merged.end(), stubs_only.begin(), stubs_only.end());
     bool ok = true;
-    for (const auto& t : simplified) {
-        if (!simplify_segment_legal(snapshot, resolver, net, t.layer, t.width_nm,
-                                    t.segment(), ctx)) {
-            ok = false;
-            break;
+    {
+        // S4: one shared memo for the gate; legs may vary in (layer, width)
+        // so each gets a light ctx view over the same cache.
+        ClearanceCache cc(snapshot, resolver, ctx, net);
+        for (const auto& t : simplified) {
+            SegLegalityCtx leg;
+            leg.cc = cc;  // shares the memo table
+            leg.exempt_net = -1;
+            leg.layer = t.layer;
+            leg.width_nm = t.width_nm;
+            if (!leg.segment_legal(t.segment())) {
+                ok = false;
+                break;
+            }
         }
     }
     if (!ok) {

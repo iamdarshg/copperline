@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <map>
 #include <set>
+#include <string>
 #include <thread>
+#include <unordered_map>
 
 #include "router/density.h"
 #include "router/escape.h"
@@ -23,15 +25,12 @@ JsonValue EscapeStageInfo::to_json() const {
     r["pads_total"] = static_cast<double>(pads_total);
     r["pads_escaped"] = static_cast<double>(pads_escaped);
     r["pads_infeasible"] = static_cast<double>(pads_infeasible);
-    JsonValue esc = JsonValue::array();
-    for (TermId t : escaped_terminals) esc.as_array().push_back(JsonValue(static_cast<double>(t)));
-    r["escaped_terminals"] = esc;
-    JsonValue unr = JsonValue::array();
-    for (TermId t : unresolved_terminals) unr.as_array().push_back(JsonValue(static_cast<double>(t)));
-    r["unresolved_terminals"] = unr;
-    JsonValue rea = JsonValue::array();
-    for (const auto& s : unresolved_reasons) rea.as_array().push_back(JsonValue(s));
-    r["unresolved_reasons"] = rea;
+    // D5: shared array helpers (byte-identical numbers/strings).
+    r["escaped_terminals"] = json_int_array(
+        std::vector<int>(escaped_terminals.begin(), escaped_terminals.end()));
+    r["unresolved_terminals"] = json_int_array(
+        std::vector<int>(unresolved_terminals.begin(), unresolved_terminals.end()));
+    r["unresolved_reasons"] = json_string_array(unresolved_reasons);
     return r;
 }
 
@@ -43,8 +42,8 @@ JsonValue PlaneAccessInfo::to_json() const {
     o["plane_id"] = static_cast<double>(plane_id);
     o["plane_layer"] = static_cast<double>(plane_layer);
     o["island"] = static_cast<double>(island);
-    o["entry_x_mm"] = nm_to_mm(entry.x);
-    o["entry_y_mm"] = nm_to_mm(entry.y);
+    json_add_point_mm(o, "entry_x_mm", "entry_y_mm", nm_to_mm(entry.x),
+                      nm_to_mm(entry.y));
     o["via_count"] = static_cast<double>(via_count);
     o["required_current_a"] = required_current_a;
     o["via_capacity_a"] = via_capacity_a;
@@ -117,9 +116,7 @@ JsonValue RouteReport::to_json() const {
         o["vias_required"] = static_cast<double>(f.vias_required);
         o["via_reason"] = f.via_reason;
         o["ripup_attempts"] = static_cast<double>(f.ripup_attempts);
-        JsonValue ma = JsonValue::array();
-        for (const auto& m : f.modes_attempted) ma.as_array().push_back(JsonValue(m));
-        o["modes_attempted"] = ma;
+        o["modes_attempted"] = json_string_array(f.modes_attempted);
         // Prompt 5 agent-stable attribution (stable IDs for iteration).
         o["src_component"] = f.src_component;
         o["src_pin"] = f.src_pin;
@@ -130,12 +127,9 @@ JsonValue RouteReport::to_json() const {
         o["candidate_count"] = static_cast<double>(f.candidate_count);
         o["best_partial"] = f.best_partial;
         o["category"] = f.category;
-        JsonValue al = JsonValue::array();
-        for (LayerId l : f.attempted_layers) al.as_array().push_back(JsonValue(static_cast<double>(l)));
-        o["attempted_layers"] = al;
-        JsonValue av = JsonValue::array();
-        for (const auto& v : f.attempted_via_classes) av.as_array().push_back(JsonValue(v));
-        o["attempted_via_classes"] = av;
+        o["attempted_layers"] = json_int_array(
+            std::vector<int>(f.attempted_layers.begin(), f.attempted_layers.end()));
+        o["attempted_via_classes"] = json_string_array(f.attempted_via_classes);
         // Issue #11: controlled-impedance accounting.
         o["has_impedance"] = f.has_impedance;
         if (f.has_impedance) {
@@ -164,14 +158,10 @@ JsonValue RouteReport::to_json() const {
             o["pair_name"] = f.pair_name;
             o["pair_other_net"] = static_cast<double>(f.pair_other_net);
         }
-        JsonValue bl = JsonValue::array();
-        for (const auto& b : f.blockers) bl.as_array().push_back(JsonValue(b));
-        o["blockers"] = bl;
+        o["blockers"] = json_string_array(f.blockers);
         // Issue #10: hierarchical-guidance diagnostics for the last attempt.
         JsonValue hier = JsonValue::object();
-        JsonValue hlv = JsonValue::array();
-        for (double m : f.hierarchy_levels_mm) hlv.as_array().push_back(JsonValue(m));
-        hier["levels_used_mm"] = hlv;
+        hier["levels_used_mm"] = json_double_array(f.hierarchy_levels_mm);
         hier["fallback"] = f.hierarchy_fallback;
         hier["fallback_reason"] = f.hierarchy_reason;
         hier["coarse_expansions"] = static_cast<double>(f.hierarchy_coarse_expansions);
@@ -563,6 +553,40 @@ RouteReport RouterEngine::run() {
     };
     std::vector<int> fail_count(tasks.size(), 0);
     std::vector<Corridor> corridors(tasks.size());
+    // S1: corridor cache per board generation (Stream-1 probable_corridor
+    // calls only; cache lives on our side). probable_corridor depends only
+    // on terminals/nets/rules (endpoint bbox + width/2 + max clearance +
+    // scarcity) — never on committed traces/vias — so a task key hit is
+    // valid across epochs/generations. This memoizes the internal
+    // width/clearance lookups too. The HierarchyCache clip tube below is
+    // likewise shared across epochs/branches (Stream-1 API, self-
+    // invalidating on board signature).
+    std::unordered_map<std::string, Corridor> corridor_cache;
+    auto corridor_key_of = [](const ConnectionTask& t) {
+        std::string k = std::to_string(t.net) + ":" + std::to_string(t.a) +
+                        ":" + std::to_string(t.b) + ":";
+        k += t.has_copper_target ? std::to_string(t.copper_point.x) + "," +
+                                       std::to_string(t.copper_point.y) + "," +
+                                       std::to_string(t.copper_layer)
+                                 : "-";
+        k += ":";
+        k += t.has_plane_target ? std::to_string(t.plane_id) + "," +
+                                      std::to_string(t.plane_point.x) + "," +
+                                      std::to_string(t.plane_point.y) + "," +
+                                      std::to_string(t.plane_layer) + "," +
+                                      std::to_string(t.plane_island)
+                                : "-";
+        k += t.is_pair_corridor ? ":pair" + std::to_string(t.pair_id) : ":nopair";
+        return k;
+    };
+    auto cached_corridor = [&](const ConnectionTask& t) {
+        std::string k = corridor_key_of(t);
+        auto it = corridor_cache.find(k);
+        if (it != corridor_cache.end()) return it->second;
+        Corridor c = probable_corridor(board_, resolver_, t, ctx);
+        corridor_cache.emplace(std::move(k), c);
+        return c;
+    };
     auto refresh_difficulties = [&](const std::vector<int>& idx) {
         for (int i : idx) {
             DifficultyVector dv = compute_difficulty(board_, resolver_, tasks[i], ctx,
@@ -575,7 +599,7 @@ RouteReport RouterEngine::run() {
     for (std::size_t i = 0; i < tasks.size(); ++i) all_idx[i] = static_cast<int>(i);
     refresh_difficulties(all_idx);
     for (std::size_t i = 0; i < tasks.size(); ++i)
-        corridors[i] = probable_corridor(board_, resolver_, tasks[i], ctx);
+        corridors[i] = cached_corridor(tasks[i]);
 
     report.stats.tasks_total = static_cast<int>(tasks.size());
     report.stats.nets_total = static_cast<int>(board_.nets.size());
@@ -701,10 +725,13 @@ RouteReport RouterEngine::run() {
             DifficultyVector dv = compute_difficulty(board_, resolver_, tasks.back(), ctx,
                                                      density.terminal_density, depth_of, 0);
             tasks.back().difficulty = dv.total;
-            corridors.push_back(probable_corridor(board_, resolver_, tasks.back(), ctx));
+            // S1: corridor push per commit rebuilds only affected nets (this
+            // loop); the cache above dedups identical regenerated tasks. S8:
+            // no per-net global aggregate here — tasks_total is refreshed
+            // once per affected set by the caller (see both call sites).
+            corridors.push_back(cached_corridor(tasks.back()));
             remaining.push_back(pos);
         }
-        report.stats.tasks_total = active_tasks_total();
         return true;
     };
 
@@ -1179,11 +1206,14 @@ RouteReport RouterEngine::run() {
         remaining = std::move(next_remaining);
 
         // Issue #4: grow affected multi-terminal nets from the new copper.
-        // Only nets with an accepted commit are regenerated (§4).
+        // Only nets with an accepted commit are regenerated (§4). S8: the
+        // active-task aggregate is refreshed once here, not per net.
         if (!arb.accepted.empty()) {
             std::set<NetId> affected;
             for (std::size_t k : arb.accepted) affected.insert(tasks[batch_idx[k]].net);
-            for (NetId net : affected) regenerate_net(net);
+            bool grown = false;
+            for (NetId net : affected) grown = regenerate_net(net) || grown;
+            if (grown) report.stats.tasks_total = active_tasks_total();
         }
 
         auto epoch_t1 = std::chrono::steady_clock::now();
@@ -1590,7 +1620,12 @@ RouteReport RouterEngine::run() {
                 for (const auto& o : win.owned) affected.insert(o.task.net);
                 affected.insert(moves[best].failed_task.net);
                 if (moves[best].blocker_net >= 0) affected.insert(moves[best].blocker_net);
-                for (NetId net : affected) regenerate_net(net);
+                bool grown = false;
+                for (NetId net : affected) grown = regenerate_net(net) || grown;
+                if (grown) {
+                    int active = active_tasks_total();
+                    report.stats.tasks_total = active;
+                }
                 // Refresh remaining after regen (regenerate_net already
                 // rebuilt it); drop any newly-redundant tasks.
                 std::vector<int> still;
@@ -1616,15 +1651,12 @@ RouteReport RouterEngine::run() {
                 if (b == best) continue;
                 report.stats.expansions_total += results[b].expansions;
             }
-            // Recompute length/via stats from committed copper.
-            {
-                report.stats.length_nm = 0;
-                report.stats.via_count = 0;
-                for (const auto& o : owned) {
-                    for (const auto& t : o.traces) report.stats.length_nm += euclid_len_nm(t.a, t.b);
-                    report.stats.via_count += (int)o.vias.size();
-                }
-            }
+            // S7: incremental stats — the winning branch already measured its
+            // global copper (length_nm/via_count over surviving + rerouted
+            // owned). Reuse it O(1) instead of rescanning all owned routes.
+            // Identical values: win.owned becomes owned verbatim above.
+            report.stats.length_nm = win.length_nm;
+            report.stats.via_count = win.via_count;
             // Epoch log entry for the generation (agents observe it).
             // Continue numbering past the greedy epochs (no duplicates).
             {
@@ -2196,8 +2228,12 @@ RouteReport RouterEngine::run() {
     report.stats.time_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     report.hotspots = congestion.hotspots();
-    report.board_hash = geometry_hash(board_);
-    report.state_hash = state_hash128(board_, tasks, remaining);
+    // S7: single final hash — deferred until after the optimizer stage
+    // below. Neither status classification nor the verifier gate consumes
+    // board_hash/state_hash, so hashing once at the end is identical and
+    // saves a full copper+task rescan on COMPLETE boards. Per-epoch report
+    // JSON stays lazy: EpochInfo JSON is built once per epoch for the
+    // final log, and progress NDJSON only when a callback is set.
 
     if (report.failures.empty()) {
         report.status = "COMPLETE";
@@ -2265,8 +2301,6 @@ RouteReport RouterEngine::run() {
             BoardVerifier recheck;
             VerifyResult vr2 = recheck.verify(board_, resolver_, ctx);
             apply_verifier_gate(report, vr2);
-            report.board_hash = geometry_hash(board_);
-            report.state_hash = state_hash128(board_, tasks, remaining);
             for (auto& f : report.failures) f.category = report.result_category;
         }
     } else {
@@ -2275,6 +2309,10 @@ RouteReport RouterEngine::run() {
             std::string("gated: status=") + report.status +
             (report.verification.ok ? "" : " (verifier not ok)");
     }
+    // S7: the single final hash (covers both optimizer-ran and gated-off
+    // paths; verifier gating semantics above are unchanged).
+    report.board_hash = geometry_hash(board_);
+    report.state_hash = state_hash128(board_, tasks, remaining);
     if (options_.progress) {
         JsonValue done = JsonValue::object();
         done["event"] = "done";

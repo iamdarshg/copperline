@@ -172,16 +172,12 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
         r["fine_pitch"] = fe;
     }
 
-    JsonValue cc = JsonValue::array();
-    for (const auto& c : current_classes) cc.as_array().push_back(JsonValue(c));
-    r["current_classes"] = cc;
-    JsonValue vc = JsonValue::array();
-    for (const auto& c : voltage_classes) vc.as_array().push_back(JsonValue(c));
-    r["voltage_classes"] = vc;
+    r["current_classes"] = json_string_array(
+        std::vector<std::string>(current_classes.begin(), current_classes.end()));
+    r["voltage_classes"] = json_string_array(
+        std::vector<std::string>(voltage_classes.begin(), voltage_classes.end()));
 
-    JsonValue du = JsonValue::array();
-    for (const auto& n : defaults_used) du.as_array().push_back(JsonValue(n));
-    r["defaults_used_for_current"] = du;
+    r["defaults_used_for_current"] = json_string_array(defaults_used);
 
     // Bottlenecks: all tasks scored, hardest first (top 20).
     // Issue #12: pair members never bottleneck individually; the atomic
@@ -228,9 +224,7 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
     }
     r["likely_bottlenecks"] = bn;
 
-    JsonValue w = JsonValue::array();
-    for (const auto& s : import_warnings) w.as_array().push_back(JsonValue(s));
-    r["import_warnings"] = w;
+    r["import_warnings"] = json_string_array(import_warnings);
 
     // Issue #12: pair inventory for agents (members, gap, occupied width).
     JsonValue dp = JsonValue::array();

@@ -85,6 +85,16 @@ class BoardVerifier {
   public:
     VerifyResult verify(const Board& board, const RuleResolver& resolver,
                         const ElectricalContext& ctx) const;
+    // S3 scoped fast-reject: true means a DEFINITE violation exists among
+    // `net`'s copper near `area` (width, off-board, keepout, foreign
+    // clearance via the exact full-verify predicates), so the caller may
+    // revert without a full verify. False means "unknown" — the caller must
+    // still run the FINAL full verify. Never a false positive: every
+    // reported hit would also fail verify(). Connectivity, impedance, via
+    // current and pair checks stay full-verify-only.
+    bool has_local_violation(const Board& board, const RuleResolver& resolver,
+                             const ElectricalContext& ctx, NetId net,
+                             const Rect& area) const;
 };
 
 }  // namespace copperline

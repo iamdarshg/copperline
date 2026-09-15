@@ -4,6 +4,7 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <tuple>
 
 #include "router/via_bundle.h"
 
@@ -59,6 +60,61 @@ bool seg_in_bounds(const Segment& s, const Rect& bounds, Coord half_width) {
     Rect r = s.bounds().expanded(half_width);
     return bounds.contains(r);
 }
+
+// S2: uniform bucket index over the per-task expanded obstacles. An obstacle
+// can only fail seg_legal_vs(s) when s.bounds() touches
+// raw.expanded(dist_min) (box-expansion symmetry with the bbox precheck), so
+// filing each obstacle under raw.expanded(dist_min) and querying with the
+// bare segment bbox prunes exactly the obstacles the precheck would pass.
+// Exact predicates still decide everything; callers re-scan candidates in
+// original obstacle order, so first-blocker identity and rejected-probe
+// evidence are bit-identical to the linear scan. Buckets own their member
+// lists outright: a shared head/next chain cannot work here because one
+// obstacle spans many buckets and a single next[] link per obstacle would
+// orphan earlier buckets' chains on every re-file.
+struct ObstacleIndex {
+    Coord bucket = 1000000;  // 1mm
+    int nx = 0, ny = 0;
+    Rect bounds{};
+    std::vector<std::vector<int>> cells;  // nx*ny buckets, filing order
+
+    template <typename Obs>
+    void build(const std::vector<Obs>& obs, const Rect& b) {
+        bounds = b;
+        Coord w = std::max<Coord>(1, b.width());
+        Coord h = std::max<Coord>(1, b.height());
+        nx = std::max(1, static_cast<int>((w + bucket - 1) / bucket));
+        ny = std::max(1, static_cast<int>((h + bucket - 1) / bucket));
+        cells.assign(static_cast<std::size_t>(nx) * ny, {});
+        for (std::size_t oi = 0; oi < obs.size(); ++oi) {
+            Rect r = obs[oi].raw.expanded(obs[oi].dist_min_nm);
+            int ix0 = std::clamp(static_cast<int>((r.x1 - b.x1) / bucket), 0, nx - 1);
+            int ix1 = std::clamp(static_cast<int>((r.x2 - b.x1) / bucket), 0, nx - 1);
+            int iy0 = std::clamp(static_cast<int>((r.y1 - b.y1) / bucket), 0, ny - 1);
+            int iy1 = std::clamp(static_cast<int>((r.y2 - b.y1) / bucket), 0, ny - 1);
+            for (int iy = iy0; iy <= iy1; ++iy)
+                for (int ix = ix0; ix <= ix1; ++ix)
+                    cells[static_cast<std::size_t>(iy) * nx + ix].push_back(
+                        static_cast<int>(oi));
+        }
+    }
+
+    // Collects candidate obstacle indices overlapped by q (duplicates
+    // possible; the caller sorts/uniques into original order).
+    void query(const Rect& q, std::vector<int>& out) const {
+        if (nx <= 0 || ny <= 0) return;
+        int ix0 = std::clamp(static_cast<int>((q.x1 - bounds.x1) / bucket), 0, nx - 1);
+        int ix1 = std::clamp(static_cast<int>((q.x2 - bounds.x1) / bucket), 0, nx - 1);
+        int iy0 = std::clamp(static_cast<int>((q.y1 - bounds.y1) / bucket), 0, ny - 1);
+        int iy1 = std::clamp(static_cast<int>((q.y2 - bounds.y1) / bucket), 0, ny - 1);
+        for (int iy = iy0; iy <= iy1; ++iy)
+            for (int ix = ix0; ix <= ix1; ++ix) {
+                const std::vector<int>& cell =
+                    cells[static_cast<std::size_t>(iy) * nx + ix];
+                out.insert(out.end(), cell.begin(), cell.end());
+            }
+    }
+};
 
 }  // namespace
 
@@ -163,8 +219,21 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // below) and only accumulated for nodes A* actually expands. Aggregating
     // every probe globally is what biased dependency/rip-up ranking toward
     // copper in regions the search never reached (#21 regression).
+    // S2: the linear scan is served by the obstacle index. Candidates are
+    // re-scanned in original obstacle order, so the returned first blocker
+    // (and every recorded rejected probe) is identical to the linear scan;
+    // the index only skips obstacles the bbox precheck would have passed.
+    ObstacleIndex obs_index;
+    obs_index.build(obstacles, committed.bounds());
+    std::vector<int> scratch;  // per-build scratch (no sharing across threads:
+                               // every build_multi call owns its locals)
     auto first_blocker = [&](const Segment& s, LayerId layer) -> const Obstacle* {
-        for (const auto& o : obstacles) {
+        scratch.clear();
+        obs_index.query(s.bounds(), scratch);
+        std::sort(scratch.begin(), scratch.end());
+        scratch.erase(std::unique(scratch.begin(), scratch.end()), scratch.end());
+        for (int oi : scratch) {
+            const Obstacle& o = obstacles[static_cast<std::size_t>(oi)];
             if (!layer_match(o.layer, layer)) continue;
             if (!seg_legal_vs(s, o)) return &o;
         }
@@ -425,8 +494,11 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             for (int j : by_x[g.nodes_[i].p.x]) try_edge(i, j);
             for (int j : by_y[g.nodes_[i].p.y]) try_edge(i, j);
         }
-        // K nearest on the same layer (deterministic: full sort by
-        // (distance, node id); lists are small after corridor clipping).
+        // K nearest on the same layer (deterministic: (distance, node id)
+        // order). partial_sort yields EXACTLY the full-sort head by
+        // construction (nth_element + resize + sort would cut ties at the
+        // boundary arbitrarily and change the tried-pair set on grid
+        // layouts with massive distance ties — maze regression).
         for (int i : ids) {
             std::vector<std::pair<Coord, int>> near;
             near.reserve(ids.size());
@@ -434,9 +506,15 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 if (j == i) continue;
                 near.push_back({manhattan(g.nodes_[i].p, g.nodes_[j].p), j});
             }
-            std::sort(near.begin(), near.end());
-            for (int k = 0; k < static_cast<int>(near.size()) && k < kNearest; ++k) {
-                try_edge(i, near[k].second);
+            if (static_cast<int>(near.size()) > kNearest) {
+                std::partial_sort(near.begin(), near.begin() + kNearest,
+                                  near.end());
+                near.resize(kNearest);
+            } else {
+                std::sort(near.begin(), near.end());
+            }
+            for (const auto& pr : near) {
+                try_edge(i, pr.second);
             }
         }
     }
@@ -447,6 +525,21 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // (all barrels + star stubs clear foreign copper under pair clearance).
     // The planner is deterministic, so candidate materialization replays the
     // identical bundle for the committed edge.
+    //
+    // S2: plan() is pure in (center, span) within one build (board, resolver,
+    // net, width and ctx are fixed), so each copy-pair plans once and both
+    // directions share it. Map key order keeps the result deterministic.
+    std::map<std::tuple<Coord, Coord, LayerId, LayerId>, ViaBundle> via_memo;
+    auto bundle_for = [&](Point p, LayerId a, LayerId b) -> const ViaBundle& {
+        LayerId lo = std::min(a, b), hi = std::max(a, b);
+        auto key = std::make_tuple(p.x, p.y, lo, hi);
+        auto it = via_memo.find(key);
+        if (it != via_memo.end()) return it->second;
+        LayerSpan span{a, b};
+        ViaBundle bundle = ViaBundlePlanner::plan(committed, resolver, net, p, span,
+                                                  route_width_nm, ctx);
+        return via_memo.emplace(key, std::move(bundle)).first->second;
+    };
     if (!committed.layers.empty()) {
         for (const auto& [bi, per_layer] : node_of) {
             std::vector<std::pair<LayerId, int>> copies(per_layer.begin(), per_layer.end());
@@ -454,9 +547,8 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 for (std::size_t j = 0; j < copies.size(); ++j) {
                     if (i == j) continue;
                     Point p = g.nodes_[copies[i].second].p;
-                    LayerSpan span{copies[i].first, copies[j].first};
-                    ViaBundle bundle = ViaBundlePlanner::plan(
-                        committed, resolver, net, p, span, route_width_nm, ctx);
+                    const ViaBundle& bundle =
+                        bundle_for(p, copies[i].first, copies[j].first);
                     if (!bundle.feasible) continue;
                     SparseEdge e;
                     e.to = copies[j].second;
