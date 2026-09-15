@@ -241,4 +241,47 @@ inline bool seg_ok_rect(const Segment& s, const Rect& raw, Coord need) {
     return d2 >= (__int128)need * need;
 }
 
+// Issue #14: via barrels are discs (KiCad annulus), not squares. The square
+// bbox stays as broadphase; these are the exact narrow-phase predicates.
+// All integer-exact (__int128 intermediates, no floating point).
+
+// Exact squared distance, point to rect (0 when inside/touching).
+inline __int128 point_rect_dist2(Point p, const Rect& r) {
+    Coord dx = 0, dy = 0;
+    if (p.x < r.x1) dx = r.x1 - p.x;
+    else if (p.x > r.x2) dx = p.x - r.x2;
+    if (p.y < r.y1) dy = r.y1 - p.y;
+    else if (p.y > r.y2) dy = p.y - r.y2;
+    return (__int128)dx * dx + (__int128)dy * dy;
+}
+
+// Exact disc-vs-segment clearance: center distance from the segment
+// centerline >= via_radius + trace_halfwidth + clear. Full diameters/widths
+// stay folded in (4*d2 >= rhs^2) so odd-nm sizes stay exact.
+inline bool via_disc_ok_seg(Point via_pos, Coord via_d, const Segment& s,
+                             Coord trace_w, Coord need) {
+    __int128 d2 = point_seg_dist2(via_pos, s);
+    __int128 rhs = (__int128)via_d + trace_w + (__int128)2 * need;
+    return (__int128)4 * d2 >= rhs * rhs;
+}
+
+// Exact disc-vs-rect clearance: center distance from the rect >=
+// via_radius + clear.
+inline bool via_disc_ok_rect(Point via_pos, Coord via_d, const Rect& raw,
+                              Coord need) {
+    __int128 d2 = point_rect_dist2(via_pos, raw);
+    __int128 rhs = (__int128)via_d + (__int128)2 * need;
+    return (__int128)4 * d2 >= rhs * rhs;
+}
+
+// Exact disc-vs-disc clearance: center distance >= (d1+d2)/2 + clear.
+inline bool via_disc_ok_disc(Point a, Coord d_a, Point b, Coord d_b,
+                              Coord need) {
+    __int128 dx = (__int128)a.x - b.x;
+    __int128 dy = (__int128)a.y - b.y;
+    __int128 d2 = dx * dx + dy * dy;
+    __int128 rhs = (__int128)d_a + d_b + (__int128)2 * need;
+    return (__int128)4 * d2 >= rhs * rhs;
+}
+
 }  // namespace copperline

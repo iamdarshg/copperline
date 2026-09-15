@@ -259,11 +259,16 @@ CT_TEST(one_member_only_rejected_atomically) {
     // N member's path: P stays legal, N cannot. Materialization must fail
     // with empty outputs (never a P-only commit).
     Board b = load_fixture_board("diffpair_basic.json");
-    // Strip y 10.40..10.50 sits inside N copper (10.35..10.55) but clear of
-    // P copper (9.95..10.15).
+    // Full-width wall across the N member's band (10.30..10.60 sits inside
+    // N copper 10.35..10.55 but clear of P copper 9.95..10.15): N is
+    // blocked on every layer with no detour around either end. A thin
+    // sliver no longer suffices here -- issue-#14 via-disc legality admits
+    // layer transitions the old square approximation rejected, so N used
+    // to slip around the sliver ends. P stays legal, N cannot.
+    // Materialization must fail with empty outputs (never a P-only commit).
     Keepout sliver;
-    sliver.rect = {mm_to_nm(5.0), mm_to_nm(0.40 + 10.0), mm_to_nm(15.0),
-                   mm_to_nm(0.50 + 10.0)};
+    sliver.rect = {mm_to_nm(0.0), mm_to_nm(10.30), mm_to_nm(20.0),
+                   mm_to_nm(10.60)};
     sliver.layer = kAllLayers;
     sliver.reason = "n_sliver";
     b.keepouts.push_back(sliver);

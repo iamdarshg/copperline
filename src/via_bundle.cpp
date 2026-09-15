@@ -44,20 +44,28 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
     for (const auto& ko : board.keepouts) {
         bool hit = ko.layer == kAllLayers || span_hits(ko.layer, span);
         if (!hit) continue;
-        if (!gap_ok_rect(vr, ko.rect, max_clear)) return false;
+        // Issue #14: candidate barrel is a disc, not a square: square
+        // broadphase first, circle-exact second.
+        if (!gap_ok_rect(vr, ko.rect, max_clear) &&
+            !via_disc_ok_rect(pos, style.outer_nm, ko.rect, max_clear))
+            return false;
     }
     for (const auto& t : board.terminals) {
         if (t.net == net || t.net == exempt_net) continue;
         if (!span_hits(t.layer, span)) continue;
         Coord c = cc.get(t.net, t.layer);
-        if (!gap_ok_rect(vr, t.pad_rect(), c)) return false;
+        if (!gap_ok_rect(vr, t.pad_rect(), c) &&
+            !via_disc_ok_rect(pos, style.outer_nm, t.pad_rect(), c))
+            return false;
     }
     for (const auto& t : board.traces) {
         if (t.net == net || t.net == exempt_net) continue;
         if (!span_hits(t.layer, span)) continue;
         Coord c = cc.get(t.net, t.layer);
         Coord need = c + t.width_nm / 2;
-        if (!seg_ok_rect(t.segment(), vr, need)) return false;
+        if (!seg_ok_rect(t.segment(), vr, need) &&
+            !via_disc_ok_seg(pos, style.outer_nm, t.segment(), t.width_nm, c))
+            return false;
     }
     for (const auto& v : board.vias) {
         if (v.net == net || v.net == exempt_net) continue;
@@ -66,7 +74,9 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
         if (!overlap) continue;
         Coord c = cc.get(v.net, v.top_layer);
         Rect orr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
-        if (!gap_ok_rect(vr, orr, c)) return false;
+        if (!gap_ok_rect(vr, orr, c) &&
+            !via_disc_ok_disc(pos, style.outer_nm, v.pos, v.outer_d_nm, c))
+            return false;
     }
     // Issue #16: bundle barrels keep clearance from foreign pours on spanned
     // layers; own-net pours are connectable and never block.
@@ -77,7 +87,12 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
             continue;
         Coord c = cc.get(z.net, z.layer);
         if (vr.expanded(c).intersects(z.bounds())) {
-            if (plane_rect_poly_dist2(vr, z.poly) < (__int128)c * c) return false;
+            // Issue #14: square bbox broadphase, disc-vs-polygon exact.
+            __int128 rhs = (__int128)style.outer_nm + (__int128)2 * c;
+            if (plane_rect_poly_dist2(vr, z.poly) < (__int128)c * c &&
+                (__int128)4 * plane_seg_poly_dist2(Segment{pos, pos}, z.poly) <
+                    rhs * rhs)
+                return false;
         }
     }
     return true;

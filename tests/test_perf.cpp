@@ -216,10 +216,13 @@ CT_TEST(perf_graph_build_floor) {
     CT_CHECK(g.src_node() >= 0 && g.dst_node() >= 0);
     // Probe-audit identity gate: the committed graph (nodes, edges, #23
     // rejected-probe evidence) must be bit-identical across probe-cut work.
+    // Issue-#14 re-baseline: via-disc (circle-exact) bundle legality admits
+    // diagonal-near-pad transitions the square approximation rejected.
     CT_CHECK((int)g.nodes().size() == 768);
-    CT_CHECK(g.stats().edge_count == 42236);
-    // Probe-audit identity gate: pre-cut baseline ident=0x060c2fdf3f4510f3.
-    CT_CHECK(ident == 0x060c2fdf3f4510f3ULL);
+    CT_CHECK(g.stats().edge_count == 52652);
+    // Probe-audit identity gate: pre-cut baseline ident=0x060c2fdf3f4510f3,
+    // issue-#14 baseline ident=0xc0555f98fd1fc99d.
+    CT_CHECK(ident == 0xc0555f98fd1fc99dULL);
     CT_CHECK(s < 5.0);  // corridor clipping keeps dense fields tractable
 }
 

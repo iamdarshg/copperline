@@ -210,9 +210,17 @@ CT_TEST(route_blocked_reports_incomplete) {
 }
 
 CT_TEST(route_budget_exhausted_exit_7) {
+    // Pin maturity escalation off so the tiny search cap cannot be
+    // outgrown across epochs: without this, issue-#14 via-disc legality
+    // admits extra transitions and the escalated attempt completes.
+    std::string cfg = temp_path("no_maturity.json");
+    {
+        std::ofstream f(cfg, std::ios::binary | std::ios::trunc);
+        f << "{\"maturity\":{\"enabled\":false}}";
+    }
     int rc = 0;
     std::string out = run_cli("route " + fixture("obstacle_detour.json") +
-                                  " --json --max-search-nodes 1",
+                                  " --json --max-search-nodes 1 --config \"" + cfg + "\"",
                               rc);
     CT_CHECK(rc == 7);
     JsonValue v = must_parse(out);

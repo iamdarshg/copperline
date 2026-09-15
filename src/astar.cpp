@@ -151,7 +151,12 @@ AStarResult astar_route_masked(const SparseRoutingGraph& graph,
                 (e.to < 0 || e.to >= static_cast<int>(allowed.size()) || !allowed[e.to]))
                 continue;
             int ndir = dir;
-            Coord step = e.len_nm + e.penalty_nm;
+            // Issue #13: the impedance layer multiplier prices physical
+            // copper length only. Soft ordering costs (congestion /
+            // reservation penalty_nm, enter_bias) and bend/via costs stay
+            // unmultiplied.
+            Coord step =
+                static_cast<Coord>(e.len_nm * node_layer_cost[e.to]) + e.penalty_nm;
             if (!enter_bias.empty() && e.to >= 0 &&
                 e.to < static_cast<int>(enter_bias.size()) && enter_bias[e.to] > 0)
                 step += enter_bias[e.to];
@@ -161,7 +166,6 @@ AStarResult astar_route_masked(const SparseRoutingGraph& graph,
             } else {
                 int first = 4, second = -1;
                 edge_exit_dirs(e, first, second);
-                step = static_cast<Coord>(step * node_layer_cost[e.to]);
                 if (dir != 4 && first != 4 && first != dir) step += config.bend_cost_nm;
                 if (second >= 0 && second != first) step += config.bend_cost_nm;
                 ndir = second >= 0 ? second : first;

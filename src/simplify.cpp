@@ -123,10 +123,12 @@ bool SegLegalityCtx::segment_legal(const Segment& s, std::string* why) const {
             layer > std::max(v.top_layer, v.bottom_layer))
             continue;
         Coord c = cc.get(v.net, layer);
-        __int128 rhs = (__int128)2 * c + width_nm;
         Rect vr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
         if (s.bounds().expanded(c + hw).intersects(vr)) {
-            if ((__int128)4 * seg_rect_dist2(s, vr) < rhs * rhs)
+            // Issue #14: via barrels are discs (KiCad annulus), not
+            // squares: the square bbox above stays as broadphase, the
+            // disc-vs-capsule predicate below is exact.
+            if (!via_disc_ok_seg(v.pos, v.outer_d_nm, s, width_nm, c))
                 return fail("clearance:via");
         }
     }

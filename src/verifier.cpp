@@ -92,6 +92,8 @@ struct Element {
     Rect rect{};        // pads + via discs (square approx) + plane bboxes
     Segment seg{};      // traces
     Coord width = 0;    // traces
+    Point via_pos{};    // vias: disc center (circle-exact narrow phase)
+    Coord via_d = 0;    // vias: full barrel diameter
     int term_id = -1;   // pads
     int plane_id = -1;  // planes
     int plane_island = 0;
@@ -186,6 +188,18 @@ bool elem_gap_ok(const Element& a, const Element& b, Coord need) {
             __int128 rhs = (__int128)2 * need + other.width;
             return (__int128)4 * d2 >= rhs * rhs;
         }
+        if (other.kind == Element::Kind::kVia) {
+            // Issue #14: via barrel is a disc: square broadphase first,
+            // disc-vs-polygon exact second.
+            if (plane_rect_poly_dist2(other.rect, *pl.poly) >=
+                (__int128)need * need)
+                return true;
+            __int128 d2 =
+                plane_seg_poly_dist2(Segment{other.via_pos, other.via_pos},
+                                     *pl.poly);
+            __int128 rhs = (__int128)other.via_d + (__int128)2 * need;
+            return (__int128)4 * d2 >= rhs * rhs;
+        }
         __int128 d2 = plane_rect_poly_dist2(other.rect, *pl.poly);
         return d2 >= (__int128)need * need;
     }
@@ -193,6 +207,19 @@ bool elem_gap_ok(const Element& a, const Element& b, Coord need) {
         __int128 d2 = seg_seg_dist2(a.seg, b.seg);
         __int128 rhs = (__int128)2 * need + a.width + b.width;
         return (__int128)4 * d2 >= rhs * rhs;
+    }
+    if (a.kind == Element::Kind::kTrace && b.kind == Element::Kind::kVia) {
+        // Issue #14: square broadphase, disc-vs-capsule exact.
+        __int128 d2 = seg_rect_dist2(a.seg, b.rect);
+        __int128 rhs = (__int128)2 * need + a.width;
+        if ((__int128)4 * d2 >= rhs * rhs) return true;
+        return via_disc_ok_seg(b.via_pos, b.via_d, a.seg, a.width, need);
+    }
+    if (a.kind == Element::Kind::kVia && b.kind == Element::Kind::kTrace) {
+        __int128 d2 = seg_rect_dist2(b.seg, a.rect);
+        __int128 rhs = (__int128)2 * need + b.width;
+        if ((__int128)4 * d2 >= rhs * rhs) return true;
+        return via_disc_ok_seg(a.via_pos, a.via_d, b.seg, b.width, need);
     }
     if (a.kind == Element::Kind::kTrace) {
         __int128 d2 = seg_rect_dist2(a.seg, b.rect);
@@ -203,6 +230,19 @@ bool elem_gap_ok(const Element& a, const Element& b, Coord need) {
         __int128 d2 = seg_rect_dist2(b.seg, a.rect);
         __int128 rhs = (__int128)2 * need + b.width;
         return (__int128)4 * d2 >= rhs * rhs;
+    }
+    if (a.kind == Element::Kind::kVia && b.kind == Element::Kind::kVia) {
+        // Issue #14: square broadphase, disc-vs-disc exact.
+        if (rect_gap(a.rect, b.rect) >= need) return true;
+        return via_disc_ok_disc(a.via_pos, a.via_d, b.via_pos, b.via_d, need);
+    }
+    if (a.kind == Element::Kind::kVia) {
+        if (rect_gap(a.rect, b.rect) >= need) return true;
+        return via_disc_ok_rect(a.via_pos, a.via_d, b.rect, need);
+    }
+    if (b.kind == Element::Kind::kVia) {
+        if (rect_gap(a.rect, b.rect) >= need) return true;
+        return via_disc_ok_rect(b.via_pos, b.via_d, a.rect, need);
     }
     return rect_gap(a.rect, b.rect) >= need;
 }
@@ -570,7 +610,11 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
             Rect vr = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
             __int128 d2 = seg_rect_dist2(s.segment(), vr);
             __int128 rhs_lo = (__int128)2 * lo + s.width_nm;
-            if (rhs_lo >= 0 && (__int128)4 * d2 < rhs_lo * rhs_lo) {
+            // Issue #14: via barrel is a disc: a square-bbox violation
+            // stands only when the disc-vs-capsule check fails too.
+            if (rhs_lo >= 0 && (__int128)4 * d2 < rhs_lo * rhs_lo &&
+                !via_disc_ok_seg(v.pos, v.outer_d_nm, s.segment(), s.width_nm,
+                                 lo)) {
                 exact_too_close = true;
                 Point m = seg_mid(s.segment());
                 close_at = {(m.x + v.pos.x) / 2, (m.y + v.pos.y) / 2};
@@ -597,7 +641,10 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
                 Rect ra = Rect::from_center_size(a.pos, a.outer_d_nm, a.outer_d_nm);
                 Rect rb = Rect::from_center_size(b.pos, b.outer_d_nm, b.outer_d_nm);
                 Coord g = rect_gap(ra, rb);
-                if (g < lo) {
+                // Issue #14: square broadphase, disc-vs-disc exact.
+                if (g < lo &&
+                    !via_disc_ok_disc(a.pos, a.outer_d_nm, b.pos, b.outer_d_nm,
+                                      lo)) {
                     exact_too_close = true;
                     close_at = {(a.pos.x + b.pos.x) / 2, (a.pos.y + b.pos.y) / 2};
                     close_layer = a.top_layer;
@@ -902,6 +949,8 @@ std::vector<Element> collect_elements(const Board& board) {
         e.lo = std::min(v.top_layer, v.bottom_layer);
         e.hi = std::max(v.top_layer, v.bottom_layer);
         e.rect = Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
+        e.via_pos = v.pos;
+        e.via_d = v.outer_d_nm;
         elems.push_back(e);
     }
     // Issue #16: declared pours are fixed copper. Same-net contact counts
