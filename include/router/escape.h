@@ -27,6 +27,7 @@
 #include "router/board.h"
 #include "router/json.h"
 #include "router/rules.h"
+#include "router/spatial_index.h"
 
 namespace copperline {
 
@@ -97,13 +98,19 @@ EscapeBoundary build_escape_boundary(const Board& board, const FinePitchFootprin
 // ---- Per-pad escape analysis ----
 
 // 8 exit sectors: 0:E 1:NE 2:N 3:NW 4:W 5:SW 6:S 7:SE
+// `foreign` (optional): a spatial index of foreign pads + keepouts and
+// `net_max_clear` (optional) the per-net max foreign clearance used to size
+// the query box. When supplied, only nearby geometry is tested; the exact
+// predicates are unchanged, so the result is identical.
 std::vector<int> legal_exit_sectors(const Board& board, const RuleResolver& resolver,
                                     const ElectricalContext& ctx, const FinePitchFootprint& fp,
-                                    TermId terminal, Coord route_width_nm);
+                                    TermId terminal, Coord route_width_nm,
+                                    const SpatialIndex* foreign = nullptr,
+                                    const std::map<NetId, Coord>* net_max_clear = nullptr);
 
 // Number of legal nearby via sites (dogbone/via-first opportunities).
 int via_site_count(const Board& board, const RuleResolver& resolver, const FinePitchFootprint& fp,
-                   TermId terminal);
+                   TermId terminal, const SpatialIndex* foreign = nullptr);
 
 // Local escape-density map over the footprint bbox (pads per mm^2 per cell).
 struct EscapeDensityMap {
@@ -228,7 +235,10 @@ class EscapePlanner {
                                              const ElectricalContext& ctx,
                                              const FinePitchFootprint& fp, Board& work,
                                              std::atomic<bool>& aborted,
-                                             int pad_threads) const;
+                                             int pad_threads,
+                                             const SpatialIndex* foreign = nullptr,
+                                             const std::map<NetId, Coord>* net_max_clear =
+                                                 nullptr) const;
 };
 
 int principal_direction(Point from, Point to);

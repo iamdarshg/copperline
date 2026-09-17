@@ -97,6 +97,10 @@ JsonValue RouteReport::to_json() const {
     }
     r["congestion_hotspots"] = hs;
     JsonValue fails = JsonValue::array();
+    // Reserve up front: without it the growing array deep-copies every
+    // previously-built failure object on each reallocation, turning report
+    // construction into O(N^2) JsonValue copies on failure-heavy boards.
+    fails.as_array().reserve(failures.size());
     for (const auto& f : failures) {
         JsonValue o = JsonValue::object();
         o["net"] = static_cast<double>(f.net);
@@ -288,7 +292,7 @@ void apply_verifier_gate(RouteReport& report, const VerifyResult& vr) {
                 f.b = -1;
                 f.reason = "hard_violation:" + v.type;
                 f.blockers.push_back(v.detail);
-                report.failures.push_back(f);
+                report.failures.push_back(std::move(f));
             }
         }
         // Illegal boards are also disconnected in general; keep the terminal
@@ -312,7 +316,7 @@ void apply_verifier_gate(RouteReport& report, const VerifyResult& vr) {
                 f.a = u.terminal;
                 f.b = -1;
                 f.reason = "verifier_unconnected";
-                report.failures.push_back(f);
+                report.failures.push_back(std::move(f));
             }
         }
         int un = static_cast<int>(vr.unconnected.size());
@@ -328,6 +332,10 @@ RouteReport RouterEngine::run() {
             ? t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
                        std::chrono::duration<double>(options_.timeout_s))
             : std::chrono::steady_clock::time_point::max();
+    // Propagate the command deadline into every A* config derived from
+    // options_.astar (greedy epochs, recovery modes, portfolios) so no single
+    // long search can overrun --timeout.
+    options_.astar.deadline = deadline;
     RouteReport report;
     report.total_terminals = static_cast<int>(board_.terminals.size());
     // ---- Lightweight stage timer (EngineOptions::time_stages) ----
@@ -341,6 +349,9 @@ RouteReport RouterEngine::run() {
     double ms_escape = 0, ms_taskgen = 0, ms_batch = 0, ms_workers = 0;
     double ms_arbiter = 0, ms_recovery = 0, ms_materialize = 0, ms_tuning = 0;
     double ms_attribution = 0, ms_verify = 0, ms_optimizer = 0, ms_hash = 0;
+    // --time-stages diagnostics: worker phase split (guidance/graph/A*/fill).
+    RoutePhaseTiming phase_timing;
+    sparse_graph_build_phases_reset();
     const auto t_escape_start = stage_now();
     // Resolve this before preprocessing so timeout reports still describe
     // the requested worker capacity truthfully. Escape planning is currently
@@ -535,11 +546,11 @@ RouteReport RouterEngine::run() {
                     g.net = pr.net_n;
                     const NetInfo* nn = board_.find_net(pr.net_n);
                     g.net_name = nn ? nn->name : "?";
-                    report.failures.push_back(g);
+                    report.failures.push_back(std::move(g));
                     break;
                 }
             }
-            report.failures.push_back(f);
+            report.failures.push_back(std::move(f));
         }
     }
     // Centre-out boost (Prompt 2): depth outranks density but never legality.
@@ -872,6 +883,7 @@ RouteReport RouterEngine::run() {
     while (!remaining.empty() && epoch < options_.max_epochs) {
         if (std::chrono::steady_clock::now() > deadline) {
             timed_out = true;
+            report.failures.reserve(report.failures.size() + remaining.size());
             for (int i : remaining) {
                 RouteFailure f;
                 f.net = tasks[i].net;
@@ -895,7 +907,7 @@ RouteReport RouterEngine::run() {
                             resolver_, ordered.front(), tasks[i].net);
                     }
                 }
-                report.failures.push_back(f);
+                report.failures.push_back(std::move(f));
                 int ni = net_index(tasks[i].net);
                 if (ni >= 0) net_ok[ni] = 0;
             }
@@ -989,6 +1001,9 @@ RouteReport RouterEngine::run() {
         epoch_astar.max_expansions = active_budget.astar_max_expansions;
         epoch_astar.weight_factor = active_budget.weight_factor;
         HierarchyConfig epoch_hier = options_.hierarchy;
+        // Board-scale backlogs skip coarse-to-fine guidance (maturity policy,
+        // see kGuidanceDisableRemaining): it costs more than it steers there.
+        epoch_hier.enabled = options_.hierarchy.enabled && active_budget.hier_enabled;
         epoch_hier.max_coarse_expansions = active_budget.hier_max_coarse_expansions;
         epoch_hier.max_window_attempts = active_budget.hier_window_attempts;
         epoch_hier.tube_half_nm = active_budget.hier_tube_half_nm;
@@ -1133,7 +1148,7 @@ RouteReport RouterEngine::run() {
                             snapshot, resolver_, tasks[ti], rem_pos[ti],
                             tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
                             congestion, reservations, epoch_hier, &hier_cache,
-                            &epoch_graph_budget);
+                            &epoch_graph_budget, &phase_timing);
                         score_single_for_recovery(candidates[k]);
                     }
                 } else {
@@ -1141,7 +1156,7 @@ RouteReport RouterEngine::run() {
                         snapshot, resolver_, tasks[ti], rem_pos[ti],
                         tasks[ti].difficulty, ctx, layer_mult, epoch_astar,
                         congestion, reservations, epoch_hier, &hier_cache,
-                        &epoch_graph_budget);
+                        &epoch_graph_budget, &phase_timing);
                     score_single_for_recovery(candidates[k]);
                 }
             }
@@ -1159,7 +1174,7 @@ RouteReport RouterEngine::run() {
             RouteFailure f;
             f.reason = "internal_worker_mutation";
             f.blockers.push_back("worker mutated committed snapshot");
-            report.failures.push_back(f);
+            report.failures.push_back(std::move(f));
             break;
         }
 
@@ -1399,6 +1414,10 @@ RouteReport RouterEngine::run() {
                     for (std::size_t fi = static_cast<std::size_t>(w);
                          fi < remaining.size();
                          fi += static_cast<std::size_t>(attr_workers)) {
+                        // Recovery attribution is O(remaining x copper); honor
+                        // the global deadline inside it so one generation
+                        // cannot overrun a bounded run by minutes.
+                        if (std::chrono::steady_clock::now() > deadline) return;
                         int ti = remaining[fi];
                         const ConnectionTask& task = tasks[ti];
                         const Terminal* ta = board_.find_terminal(task.a);
@@ -1463,11 +1482,20 @@ RouteReport RouterEngine::run() {
             }
             rec.last_graph = graph;
             if (graph.edges.empty()) break;  // keepout-only: nothing to rip
+            if (std::chrono::steady_clock::now() > deadline) {
+                timed_out = true;
+                break;
+            }
 
             std::vector<ConnectionTask> failed_tasks = graph.failed;
             std::vector<RipupMove> moves = generate_ripup_moves(
-                failed_tasks, graph, owned, history, pv_key, mode, width, breadth);
+                failed_tasks, graph, owned, history, pv_key, mode, width, breadth,
+                deadline);
             if (moves.empty()) break;
+            if (std::chrono::steady_clock::now() > deadline) {
+                timed_out = true;
+                break;
+            }
 
             // Count rip-up attempts per failed task for the failure report.
             for (const auto& m : moves) {
@@ -1483,12 +1511,22 @@ RouteReport RouterEngine::run() {
             std::vector<BranchResult> results(branch_n);
             auto branch_fn = [&](int w) {
                 for (int b = w; b < branch_n; b += workers) {
+                    // Deadline-responsive: a branch is a full reroute, so stop
+                    // starting new ones once the global budget is spent (the
+                    // unevaluated slots are skipped by the selection pass).
+                    if (std::chrono::steady_clock::now() > deadline) break;
                     const RipupMove& m = moves[b];
-                    // Surviving owned copper (rip set removed).
-                    std::set<int> rip(m.owned_idx.begin(), m.owned_idx.end());
+                    // Surviving owned copper (rip set removed). O(N) mask
+                    // membership (no per-branch std::set allocations), one
+                    // reserved pass over owned.
+                    std::vector<char> rip(owned.size(), 0);
+                    for (int oi : m.owned_idx)
+                        if (oi >= 0 && static_cast<std::size_t>(oi) < owned.size())
+                            rip[static_cast<std::size_t>(oi)] = 1;
                     std::vector<OwnedRoute> surviving;
+                    surviving.reserve(owned.size());
                     for (std::size_t i = 0; i < owned.size(); ++i)
-                        if (!rip.count((int)i)) surviving.push_back(owned[i]);
+                        if (!rip[i]) surviving.push_back(owned[i]);
                     // Tasks to retry: the failed task + every ripped task.
                     // Issue #1: ripped escape stubs (task_pos=-1) map to the
                     // global tasks covering their terminal/net so the pad can
@@ -1519,7 +1557,7 @@ RouteReport RouterEngine::run() {
                         board_, fixed_traces, fixed_vias, surviving, to_route, failed_ti,
                         tasks, remaining, corridors, resolver_, ctx, layer_mult, mode_cfg,
                         congestion, mode_name, m, rec_hier, &hier_cache,
-                        active_budget.reservation_strength);
+                        active_budget.reservation_strength, deadline);
                     // Issue #18: no transposition access on worker threads.
                     // The worker returns the outcome + exact remaining_task_ids
                     // and exact hash; pruning/recording happens serially on
@@ -1964,7 +2002,7 @@ RouteReport RouterEngine::run() {
                                                     nullptr);
                     f.blockers.push_back("pair_materialization:" + mat.reason);
                 }
-                report.failures.push_back(f);
+                report.failures.push_back(std::move(f));
                 {
                     // Companion entry for the N member (per-net queries).
                     RouteFailure g = f;
@@ -1972,7 +2010,7 @@ RouteReport RouterEngine::run() {
                     g.net_name = prep.net_n_name;
                     g.a = tasks[ti].pair_a_other;
                     g.b = tasks[ti].pair_b_other;
-                    report.failures.push_back(g);
+                    report.failures.push_back(std::move(g));
                 }
                 int ni = net_index(pr.net_p);
                 if (ni >= 0) net_ok[ni] = 0;
@@ -2326,7 +2364,7 @@ RouteReport RouterEngine::run() {
         auto eb = escape_infeasible_reason.find(task.b);
         if (eb != escape_infeasible_reason.end() && eb->first != task.a)
             f.blockers.push_back("escape_infeasible:" + eb->second);
-        report.failures.push_back(f);
+        report.failures.push_back(std::move(f));
         int ni = net_index(task.net);
         if (ni >= 0) net_ok[ni] = 0;
         // Issue #12: a corridor failure strands both members.
@@ -2469,19 +2507,38 @@ RouteReport RouterEngine::run() {
     }
     (void)options_.seed;
     if (options_.time_stages) {
-        std::fprintf(stderr,
-                     "{\"event\":\"stage_timings\",\"escape_ms\":%.3f,"
-                     "\"taskgen_ms\":%.3f,\"batch_ms\":%.3f,\"workers_ms\":%.3f,"
-                     "\"arbiter_ms\":%.3f,\"recovery_ms\":%.3f,"
-                     "\"materialize_ms\":%.3f,\"tuning_ms\":%.3f,"
-                     "\"attribution_ms\":%.3f,\"verify_ms\":%.3f,"
-                     "\"optimizer_ms\":%.3f,\"hash_ms\":%.3f,"
-                     "\"threads\":%d,\"epochs\":%d,\"tasks_total\":%d}\n",
-                     ms_escape, ms_taskgen, ms_batch, ms_workers, ms_arbiter,
-                     ms_recovery, ms_materialize, ms_tuning, ms_attribution,
-                     ms_verify, ms_optimizer, ms_hash, effective_threads,
-                     static_cast<int>(report.epochs.size()),
-                     report.stats.tasks_total);
+        const SparseBuildPhases gbp = sparse_graph_build_phases();
+        std::fprintf(
+            stderr,
+            "{\"event\":\"stage_timings\",\"escape_ms\":%.3f,"
+            "\"taskgen_ms\":%.3f,\"batch_ms\":%.3f,\"workers_ms\":%.3f,"
+            "\"arbiter_ms\":%.3f,\"recovery_ms\":%.3f,"
+            "\"materialize_ms\":%.3f,\"tuning_ms\":%.3f,"
+            "\"attribution_ms\":%.3f,\"verify_ms\":%.3f,"
+            "\"optimizer_ms\":%.3f,\"hash_ms\":%.3f,"
+            "\"guide_ms\":%.3f,\"graph_ms\":%.3f,\"soft_ms\":%.3f,"
+            "\"astar_ms\":%.3f,\"fill_ms\":%.3f,\"task_calls\":%lld,"
+            "\"gb_obstacles_ms\":%.3f,\"gb_bases_ms\":%.3f,"
+            "\"gb_nodes_ms\":%.3f,\"gb_edges_ms\":%.3f,"
+            "\"gb_via_ms\":%.3f,\"gb_final_ms\":%.3f,\"gb_calls\":%lld,"
+            "\"gb_nodes_total\":%lld,\"gb_edges_total\":%lld,"
+            "\"threads\":%d,\"epochs\":%d,\"tasks_total\":%d}\n",
+            ms_escape, ms_taskgen, ms_batch, ms_workers, ms_arbiter,
+            ms_recovery, ms_materialize, ms_tuning, ms_attribution,
+            ms_verify, ms_optimizer, ms_hash,
+            phase_timing.guidance_ns.load(std::memory_order_relaxed) / 1e6,
+            phase_timing.build_ns.load(std::memory_order_relaxed) / 1e6,
+            phase_timing.soft_ns.load(std::memory_order_relaxed) / 1e6,
+            phase_timing.astar_ns.load(std::memory_order_relaxed) / 1e6,
+            phase_timing.materialize_ns.load(std::memory_order_relaxed) / 1e6,
+            static_cast<long long>(
+                phase_timing.calls.load(std::memory_order_relaxed)),
+            gbp.obstacles_ns / 1e6, gbp.bases_ns / 1e6, gbp.nodes_ns / 1e6,
+            gbp.edges_ns / 1e6, gbp.via_ns / 1e6, gbp.finalize_ns / 1e6,
+            static_cast<long long>(gbp.calls),
+            static_cast<long long>(gbp.nodes_total),
+            static_cast<long long>(gbp.edges_total), effective_threads,
+            static_cast<int>(report.epochs.size()), report.stats.tasks_total);
     }
     return report;
 }

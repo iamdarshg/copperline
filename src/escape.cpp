@@ -306,16 +306,23 @@ EscapeBoundary build_escape_boundary(const Board& board, const FinePitchFootprin
 
 std::vector<int> legal_exit_sectors(const Board& board, const RuleResolver& resolver,
                                     const ElectricalContext& ctx, const FinePitchFootprint& fp,
-                                    TermId terminal, Coord route_width_nm) {
+                                    TermId terminal, Coord route_width_nm,
+                                    const SpatialIndex* foreign,
+                                    const std::map<NetId, Coord>* net_max_clear) {
     std::vector<int> out;
     const Terminal* t = board.find_terminal(terminal);
     if (!t) return out;
     Coord half_w = route_width_nm / 2;
     Coord pitch = fp.pitch_nm > 0 ? fp.pitch_nm : mm_to_nm(0.8);
     Coord len = std::max(pitch * 3, half_w + fp.clearance_nm + std::max(t->pad_w_nm, t->pad_h_nm));
+    const bool indexed = foreign != nullptr && net_max_clear != nullptr;
+    Coord net_clear = 0;
+    if (indexed) {
+        auto it = net_max_clear->find(t->net);
+        if (it != net_max_clear->end()) net_clear = it->second;
+    }
 
     for (int s = 0; s < 8; ++s) {
-        double inv = 1.0;
         double dx = kExitDx[s], dy = kExitDy[s];
         double norm = std::sqrt(dx * dx + dy * dy);
         dx /= norm;
@@ -326,38 +333,70 @@ std::vector<int> legal_exit_sectors(const Board& board, const RuleResolver& reso
         // Must stay on the board (centreline + half width).
         if (!board.bounds().contains(seg.bounds().expanded(half_w))) continue;
         bool ok = true;
-        for (const auto& o : board.terminals) {
-            if (o.id == terminal) continue;
-            std::string cs;
-            Coord c = resolver.requiredClearance(t->net, o.net, t->layer, ctx, &cs);
-            Coord need = c + half_w;
-            __int128 d2 = seg_rect_dist2(seg, o.pad_rect());
-            __int128 need2 = (__int128)need * need;
-            if (d2 < need2) {
-                ok = false;
-                break;
+        if (indexed) {
+            // Query box covers any pad within net_clear and any keepout within
+            // fp.clearance; the exact predicates below are unchanged.
+            Coord expand = std::max(net_clear + half_w, fp.clearance_nm + half_w);
+            std::vector<int> near = foreign->query(seg.bounds().expanded(expand));
+            for (int id : near) {
+                const IndexedRect& ir = foreign->item(id);
+                if (ir.kind == CopperKind::kPad) {
+                    if (ir.index < 0 ||
+                        ir.index >= static_cast<int>(board.terminals.size()))
+                        continue;
+                    const Terminal& o = board.terminals[static_cast<std::size_t>(ir.index)];
+                    if (o.id == terminal) continue;
+                    std::string cs;
+                    Coord c = resolver.requiredClearance(t->net, o.net, t->layer, ctx, &cs);
+                    Coord need = c + half_w;
+                    if (seg_rect_dist2(seg, o.pad_rect()) < (__int128)need * need) {
+                        ok = false;
+                        break;
+                    }
+                } else if (ir.kind == CopperKind::kKeepout) {
+                    if (ir.index < 0 ||
+                        ir.index >= static_cast<int>(board.keepouts.size()))
+                        continue;
+                    const Keepout& ko = board.keepouts[static_cast<std::size_t>(ir.index)];
+                    if (ko.layer != kAllLayers && ko.layer != t->layer) continue;
+                    Coord need = fp.clearance_nm + half_w;
+                    if (seg_rect_dist2(seg, ko.rect) < (__int128)need * need) {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+        } else {
+            for (const auto& o : board.terminals) {
+                if (o.id == terminal) continue;
+                std::string cs;
+                Coord c = resolver.requiredClearance(t->net, o.net, t->layer, ctx, &cs);
+                Coord need = c + half_w;
+                __int128 d2 = seg_rect_dist2(seg, o.pad_rect());
+                __int128 need2 = (__int128)need * need;
+                if (d2 < need2) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) continue;
+            for (const auto& ko : board.keepouts) {
+                if (ko.layer != kAllLayers && ko.layer != t->layer) continue;
+                __int128 d2 = seg_rect_dist2(seg, ko.rect);
+                Coord need = fp.clearance_nm + half_w;
+                if (d2 < (__int128)need * need) {
+                    ok = false;
+                    break;
+                }
             }
         }
-        if (!ok) continue;
-        for (const auto& ko : board.keepouts) {
-            if (ko.layer != kAllLayers && ko.layer != t->layer) continue;
-            __int128 d2 = seg_rect_dist2(seg, ko.rect);
-            Coord need = fp.clearance_nm + half_w;
-            if (d2 < (__int128)need * need) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) {
-            (void)inv;
-            out.push_back(s);
-        }
+        if (ok) out.push_back(s);
     }
     return out;
 }
 
 int via_site_count(const Board& board, const RuleResolver& resolver, const FinePitchFootprint& fp,
-                   TermId terminal) {
+                   TermId terminal, const SpatialIndex* foreign) {
     const Terminal* t = board.find_terminal(terminal);
     if (!t) return 0;
     ViaStyle style;
@@ -365,6 +404,7 @@ int via_site_count(const Board& board, const RuleResolver& resolver, const FineP
     if (!resolver.select_via(t->net, full, style)) return 0;
     Coord dist = std::max(t->pad_w_nm, t->pad_h_nm) / 2 + style.outer_nm / 2 + fp.clearance_nm;
     if (dist <= 0) dist = mm_to_nm(0.4);
+    const bool indexed = foreign != nullptr;
     int count = 0;
     for (int s = 0; s < 8; ++s) {
         double dx = kExitDx[s], dy = kExitDy[s];
@@ -376,18 +416,45 @@ int via_site_count(const Board& board, const RuleResolver& resolver, const FineP
         Rect via_rect = Rect::from_center_size(site, style.outer_nm, style.outer_nm);
         if (!board.bounds().contains(via_rect)) continue;
         bool ok = true;
-        for (const auto& o : board.terminals) {
-            if (o.id == terminal) continue;
-            if (rect_gap(via_rect, o.pad_rect()) < fp.clearance_nm) {
-                ok = false;
-                break;
+        if (indexed) {
+            std::vector<int> near = foreign->query(via_rect.expanded(fp.clearance_nm));
+            for (int id : near) {
+                const IndexedRect& ir = foreign->item(id);
+                if (ir.kind == CopperKind::kPad) {
+                    if (ir.index < 0 ||
+                        ir.index >= static_cast<int>(board.terminals.size()))
+                        continue;
+                    const Terminal& o = board.terminals[static_cast<std::size_t>(ir.index)];
+                    if (o.id == terminal) continue;
+                    if (rect_gap(via_rect, o.pad_rect()) < fp.clearance_nm) {
+                        ok = false;
+                        break;
+                    }
+                } else if (ir.kind == CopperKind::kKeepout) {
+                    if (ir.index < 0 ||
+                        ir.index >= static_cast<int>(board.keepouts.size()))
+                        continue;
+                    const Keepout& ko = board.keepouts[static_cast<std::size_t>(ir.index)];
+                    if (rect_gap(via_rect, ko.rect) < fp.clearance_nm) {
+                        ok = false;
+                        break;
+                    }
+                }
             }
-        }
-        if (!ok) continue;
-        for (const auto& ko : board.keepouts) {
-            if (rect_gap(via_rect, ko.rect) < fp.clearance_nm) {
-                ok = false;
-                break;
+        } else {
+            for (const auto& o : board.terminals) {
+                if (o.id == terminal) continue;
+                if (rect_gap(via_rect, o.pad_rect()) < fp.clearance_nm) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (!ok) continue;
+            for (const auto& ko : board.keepouts) {
+                if (rect_gap(via_rect, ko.rect) < fp.clearance_nm) {
+                    ok = false;
+                    break;
+                }
             }
         }
         if (ok) ++count;
@@ -876,6 +943,32 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
     // wins, 0 = auto). Footprint results merge in component order, so the
     // worker count never changes the committed geometry.
     const int workers = resolve_worker_threads(options_.threads);
+    // Shared per-plan spatial index of foreign pads + keepouts, plus the
+    // per-net max foreign clearance that sizes the query box. The per-pad
+    // exit-sector / via-site scans touch only nearby geometry instead of
+    // walking every terminal and keepout for every pad. Built once on the
+    // immutable base board (footprint planning never mutates `board`) and
+    // read-only across the footprint fan-out; exact predicates are unchanged.
+    SpatialIndex pad_index(mm_to_nm(1.0));
+    for (std::size_t i = 0; i < board.terminals.size(); ++i) {
+        const Terminal& t = board.terminals[i];
+        pad_index.insert(
+            {t.pad_rect(), t.net, t.layer, CopperKind::kPad, static_cast<int>(i)});
+    }
+    for (std::size_t i = 0; i < board.keepouts.size(); ++i) {
+        const Keepout& k = board.keepouts[i];
+        pad_index.insert({k.rect, -1, k.layer, CopperKind::kKeepout, static_cast<int>(i)});
+    }
+    std::map<NetId, Coord> net_max_clear;
+    for (const auto& net : board.nets) {
+        Coord mc = 0;
+        for (const auto& other : board.nets) {
+            if (other.id == net.id) continue;
+            std::string cs;
+            mc = std::max(mc, resolver.requiredClearance(net.id, other.id, 0, ctx, &cs));
+        }
+        net_max_clear[net.id] = mc;
+    }
     // S1 escape parallelism, level 1: several footprints plan on independent
     // scratch boards and merge deterministically (detector sorts by
     // component; slots preserve it). Single-footprint boards keep the legacy
@@ -901,7 +994,7 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
         fan_out_tasks(fps.size(), slots, [&](std::size_t i) {
             Board work = board;  // per-footprint scratch (own commits only)
             out[i] = plan_one_footprint(board, resolver, ctx, fps[i], work, aborted,
-                                        pad_threads);
+                                        pad_threads, &pad_index, &net_max_clear);
         });
         for (auto& fr : out) result.footprints.push_back(std::move(fr));
         result.timed_out = aborted.load();
@@ -932,11 +1025,11 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
         FootprintEscapeResult fr;
         if (share_work) {
             fr = plan_one_footprint(board, resolver, ctx, fps[fi], shared_work, aborted,
-                                    pad_threads);
+                                    pad_threads, &pad_index, &net_max_clear);
         } else {
             Board work = board;
             fr = plan_one_footprint(board, resolver, ctx, fps[fi], work, aborted,
-                                    /*pad_threads=*/1);
+                                    /*pad_threads=*/1, &pad_index, &net_max_clear);
         }
         result.footprints.push_back(std::move(fr));
         if (aborted.load()) break;
@@ -958,7 +1051,8 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
 FootprintEscapeResult EscapePlanner::plan_one_footprint(
     const Board& board, const RuleResolver& resolver, const ElectricalContext& ctx,
     const FinePitchFootprint& fp, Board& work, std::atomic<bool>& aborted,
-    int pad_threads) const {
+    int pad_threads, const SpatialIndex* foreign,
+    const std::map<NetId, Coord>* net_max_clear) const {
     const auto expired = [&]() {
         if (aborted.load()) return true;
         if (std::chrono::steady_clock::now() >= options_.deadline) {
@@ -1001,22 +1095,28 @@ FootprintEscapeResult EscapePlanner::plan_one_footprint(
                 s.has_terminal = true;
                 std::string ws;
                 Coord w = resolver.requiredTraceWidth(t->net, t->layer, ctx, &ws);
-                s.exits = legal_exit_sectors(board, resolver, ctx, fp, s.tid, w);
-                s.vias = via_site_count(board, resolver, fp, s.tid);
+                s.exits =
+                    legal_exit_sectors(board, resolver, ctx, fp, s.tid, w, foreign,
+                                       net_max_clear);
+                s.vias = via_site_count(board, resolver, fp, s.tid, foreign);
                 // Terminal-order density index lookup.
-                for (std::size_t i = 0; i < board.terminals.size(); ++i) {
-                    if (board.terminals[i].id == s.tid) {
-                        s.dens = density_est.local_density(board, board.terminals[i].pos);
-                        break;
-                    }
-                }
+                s.dens = density_est.local_density(board, t->pos);
                 // Downstream difficulty proxy: escape span + electrical burden.
+                // The per-net max foreign clearance is precomputed once per
+                // plan (shared, read-only); fall back to the local scan only
+                // when the cache is absent.
                 Coord max_clear = 0;
-                for (const auto& other : board.nets) {
-                    if (other.id == t->net) continue;
-                    std::string cs;
-                    max_clear = std::max(max_clear, resolver.requiredClearance(
-                                                       t->net, other.id, t->layer, ctx, &cs));
+                if (net_max_clear != nullptr) {
+                    auto it = net_max_clear->find(t->net);
+                    if (it != net_max_clear->end()) max_clear = it->second;
+                } else {
+                    for (const auto& other : board.nets) {
+                        if (other.id == t->net) continue;
+                        std::string cs;
+                        max_clear = std::max(
+                            max_clear,
+                            resolver.requiredClearance(t->net, other.id, t->layer, ctx, &cs));
+                    }
                 }
                 double span_mm = nm_to_mm(manhattan(t->pos, fp.centroid) +
                                            manhattan(fp.centroid, fr.boundary.rect.center()));

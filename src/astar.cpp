@@ -135,6 +135,15 @@ AStarResult astar_route_masked(const SparseRoutingGraph& graph,
             finish_frontier();
             return out;
         }
+        // Wall-clock deadline (checked every 4096 expansions: cheap, and only
+        // ever aborts searches that were going to be cut off anyway).
+        if ((expansions & 4095) == 0 &&
+            std::chrono::steady_clock::now() > config.deadline) {
+            out.expansions = expansions;
+            out.fail_reason = "budget_exhausted";
+            finish_frontier();
+            return out;
+        }
         expanded[u] = 1;
         Coord gd = goal_dist(u);
         if (gd < out.closest_goal_dist_nm) {

@@ -9,12 +9,22 @@
 namespace copperline {
 
 const NetInfo* Board::find_net(NetId id) const {
+    // Fast path: importers assign dense sequential ids, so the id indexes the
+    // vector directly. This runs in the innermost clearance loops (rules,
+    // sparse-graph legality, escape), where a full linear scan over hundreds
+    // of nets dominates. Falls back to the scan for sparse/reordered ids.
+    if (id >= 0 && static_cast<std::size_t>(id) < nets.size() &&
+        nets[static_cast<std::size_t>(id)].id == id)
+        return &nets[static_cast<std::size_t>(id)];
     for (const auto& n : nets)
         if (n.id == id) return &n;
     return nullptr;
 }
 
 NetInfo* Board::find_net(NetId id) {
+    if (id >= 0 && static_cast<std::size_t>(id) < nets.size() &&
+        nets[static_cast<std::size_t>(id)].id == id)
+        return &nets[static_cast<std::size_t>(id)];
     for (auto& n : nets)
         if (n.id == id) return &n;
     return nullptr;
@@ -27,6 +37,12 @@ const NetInfo* Board::find_net_by_name(const std::string& name) const {
 }
 
 const Terminal* Board::find_terminal(TermId id) const {
+    // Same dense-id fast path as find_net: terminals are assigned sequential
+    // ids on import, and this is called per-node/per-pad in hot geometry
+    // loops over boards with thousands of terminals.
+    if (id >= 0 && static_cast<std::size_t>(id) < terminals.size() &&
+        terminals[static_cast<std::size_t>(id)].id == id)
+        return &terminals[static_cast<std::size_t>(id)];
     for (const auto& t : terminals)
         if (t.id == id) return &t;
     return nullptr;

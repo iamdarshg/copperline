@@ -10,6 +10,8 @@
 #include "router/ipc2581.h"
 #include "router/verifier.h"
 
+#include <set>
+
 using namespace copperline;
 using namespace copperline::test;
 
@@ -160,6 +162,40 @@ CT_TEST(kicad_zone_imports_as_plane) {
     // The net-0 zone warns explicitly (never silent).
     CT_CHECK(has_warning(ir.warnings, "zone"));
     CT_CHECK(has_warning(ir.warnings, "warning"));
+}
+
+CT_TEST(kicad_property_reference_keeps_instances_distinct) {
+    // KiCad 7+ writes the reference as a footprint property, not fp_text.
+    // Missing it collapses every instance of a shared footprint name into one
+    // synthetic component, which explodes fine-pitch grouping downstream.
+    static const char* kPcb =
+        "(kicad_pcb (version 20241229) (generator pcbnew)\n"
+        "  (general)\n"
+        "  (paper \"A4\")\n"
+        "  (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal))\n"
+        "  (setup)\n"
+        "  (net 0 \"\")\n"
+        "  (net 1 \"GND\")\n"
+        "  (footprint \"Test:R_0805\" (layer \"F.Cu\") (at 100 100)\n"
+        "    (property \"Reference\" \"R1\" (at 0 -1.5 0))\n"
+        "    (pad \"1\" smd rect (at -0.95 0) (size 1 1.2) (layers \"F.Cu\") (net 1 \"GND\"))\n"
+        "    (pad \"2\" smd rect (at 0.95 0) (size 1 1.2) (layers \"F.Cu\") (net 1 \"GND\"))\n"
+        "  )\n"
+        "  (footprint \"Test:R_0805\" (layer \"F.Cu\") (at 105 100)\n"
+        "    (property \"Reference\" \"R2\" (at 0 -1.5 0))\n"
+        "    (pad \"1\" smd rect (at -0.95 0) (size 1 1.2) (layers \"F.Cu\") (net 1 \"GND\"))\n"
+        "    (pad \"2\" smd rect (at 0.95 0) (size 1 1.2) (layers \"F.Cu\") (net 1 \"GND\"))\n"
+        "  )\n"
+        ")\n";
+    KicadPcbImporter kicad;
+    ImportResult ir = kicad.import_text(kPcb, "prop_ref.kicad_pcb");
+    CT_CHECK(ir.board.terminals.size() == 4);
+    std::set<std::string> comps;
+    for (const auto& t : ir.board.terminals) comps.insert(t.component);
+    // Distinct references -> distinct instances, not "Test:R_0805" twice.
+    CT_CHECK(comps.count("R1") == 1);
+    CT_CHECK(comps.count("R2") == 1);
+    CT_CHECK(comps.count("Test:R_0805") == 0);
 }
 
 CT_TEST(kicad_export_roundtrip) {

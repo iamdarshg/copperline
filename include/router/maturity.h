@@ -145,7 +145,10 @@ double copper_occupancy_frac(const Board& board);
 struct MaturityCaps {
     // 0 = auto (base * 16). Otherwise an absolute ceiling on A* expansions.
     std::int64_t max_astar_expansions = 0;
-    int max_batch_width = 8;
+    // Ceiling for the backlog-adaptive epoch batch width (see
+    // effective_budget_for_phase). Small boards stay at the legacy width 8;
+    // large boards widen up to this cap, subject to the memory bound.
+    int max_batch_width = 64;
     int max_route_k = 15;  // issue #8 hook: 10-15 diverse alternatives
     int max_recovery_branches = 8;
     int max_rip_breadth = 4;
@@ -164,10 +167,20 @@ struct MaturityCaps {
     int max_graph_k_nearest = 0;
 };
 
+// Board-scale backlog: at or above this many unconnected tasks the
+// coarse-to-fine guidance grid is itself congested, so its per-task search
+// costs far more than the exact search it steers. Measured on a 2458-task
+// board: disabling guidance routed strictly MORE connections in LESS wall
+// time. Small boards keep the legacy enabled behaviour exactly.
+inline constexpr int kGuidanceDisableRemaining = 2048;
+
 // ---- Effective search budget: the single consumed object ----
 
 struct EffectiveSearchBudget {
     std::int64_t astar_max_expansions = 200000;
+    // Coarse-to-fine guidance for this phase (false once the backlog is
+    // board-scale; see kGuidanceDisableRemaining).
+    bool hier_enabled = true;
     double weight_factor = 1.0;  // weighted-A* heuristic scale (1 = exact)
     std::int64_t hier_max_coarse_expansions = 200000;
     int hier_window_attempts = 2;

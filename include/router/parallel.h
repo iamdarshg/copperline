@@ -18,6 +18,7 @@
 //   affects planning pressure only; final DRC legality is always exact.
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -202,6 +203,14 @@ class CongestionMap {
 // Soft reservations from probable corridors of not-yet-routed tasks.
 // Stronger for high-difficulty tasks. Pure cost: never rejects the only
 // legal route for predicted use (callers only add it to edge penalties).
+//
+// Corridors are bucketed into a fine uniform grid so a query only tests the
+// corridors under its own bbox instead of every remaining task. The
+// accumulation is additionally capped (it saturates at 800000) and the
+// candidate loop early-exits the moment the cap is reached. Both are exact:
+// the grid supplies a superset of the intersecting corridors visited in
+// ascending index order, and skipping past-cap corridors cannot change the
+// capped result.
 class ReservationSet {
   public:
     void build(const std::vector<ConnectionTask>& tasks, const std::vector<Corridor>& corridors,
@@ -213,8 +222,16 @@ class ReservationSet {
     double strength() const { return strength_; }
 
   private:
+    int cell_of_x(Coord x) const;
+    int cell_of_y(Coord y) const;
     std::vector<Corridor> corridors_;
     std::vector<double> weights_;
+    Rect bounds_{};
+    Coord cell_w_ = 1;
+    Coord cell_h_ = 1;
+    int nx_ = 0;
+    int ny_ = 0;
+    std::vector<std::vector<int>> cells_;
     double strength_ = 1.0;
 };
 
@@ -300,6 +317,19 @@ Coord materialized_route_cost(const std::vector<TraceSeg>& traces,
 // speed. On an unreachable miss the task always gets one genuinely
 // expanded last-resort rebuild (uncapped bases, K=64) before it is
 // declared unreachable, no matter the incoming budget.
+// Diagnostics only: per-phase wall time inside route_candidate_task, summed
+// across worker threads (relaxed atomics). Null on all hot paths, so the
+// timers are only touched under --time-stages; the routing result is
+// unaffected either way.
+struct RoutePhaseTiming {
+    std::atomic<std::int64_t> guidance_ns{0};
+    std::atomic<std::int64_t> build_ns{0};   // SparseRoutingGraph::build_multi
+    std::atomic<std::int64_t> soft_ns{0};    // congestion/reservation penalties
+    std::atomic<std::int64_t> astar_ns{0};
+    std::atomic<std::int64_t> materialize_ns{0};
+    std::atomic<std::int64_t> calls{0};
+};
+
 CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& resolver,
                                     const ConnectionTask& task, std::size_t task_index,
                                     double difficulty, const ElectricalContext& ctx,
@@ -308,7 +338,8 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                                     const ReservationSet& reservations,
                                     const HierarchyConfig& hier_cfg = HierarchyConfig{},
                                     const HierarchyCache* hier_cache = nullptr,
-                                    const SparseGraphBudget* graph_budget = nullptr);
+                                    const SparseGraphBudget* graph_budget = nullptr,
+                                    RoutePhaseTiming* timing = nullptr);
 
 // ---- Conflict graph + deterministic central arbiter ----
 

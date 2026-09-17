@@ -1,6 +1,7 @@
 // Shared test helpers: tiny framework + synthetic board builders.
 #pragma once
 
+#include <chrono>
 #include <cmath>
 #include <functional>
 #include <iostream>
@@ -50,11 +51,19 @@ inline std::vector<TestCase>& registry() {
 inline int run_all_tests() {
     int fails = 0;
     for (auto& t : registry()) {
+        auto t0 = std::chrono::steady_clock::now();
         try {
             t.fn();
-            std::cout << "ok - " << t.name << "\n";
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - t0)
+                          .count();
+            std::cout << "ok - " << t.name << " (" << ms << "ms)\n";
         } catch (const std::exception& e) {
-            std::cout << "not ok - " << t.name << ": " << e.what() << "\n";
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now() - t0)
+                          .count();
+            std::cout << "not ok - " << t.name << " (" << ms << "ms): " << e.what()
+                      << "\n";
             ++fails;
         }
     }

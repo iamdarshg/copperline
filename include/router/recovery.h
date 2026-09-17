@@ -231,10 +231,14 @@ struct RipupMove {
 // combined sets (gain = summed blocker weights, cost = summed protection).
 // Equivalent owned-route index sets are deduplicated; fixed copper is never
 // included.
+// `deadline` (optional): the generation stops enumerating once passed, so a
+// bounded run cannot overrun inside move generation. Default = no deadline.
 std::vector<RipupMove> generate_ripup_moves(
     const std::vector<ConnectionTask>& failed_tasks, const DependencyGraph& graph,
     const std::vector<OwnedRoute>& owned, const HistoryHeuristic& history,
-    const std::string& pv_key, RecoveryMode mode, int max_moves, int max_breadth);
+    const std::string& pv_key, RecoveryMode mode, int max_moves, int max_breadth,
+    std::chrono::steady_clock::time_point deadline =
+        std::chrono::steady_clock::time_point::max());
 
 // ---- Branch evaluation (speculative, parallel-safe) ----
 
@@ -319,7 +323,12 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
                             const HierarchyCache* hier_cache = nullptr,
                             // Issue #14: maturity-driven reservation strength
                             // (soft cost only; 1.0 = legacy).
-                            double reservation_strength = 1.0);
+                            double reservation_strength = 1.0,
+                            // Global command deadline: the branch reroute stops
+                            // early once it is spent so a bounded run cannot
+                            // overrun inside one branch. Default = no deadline.
+                            std::chrono::steady_clock::time_point deadline =
+                                std::chrono::steady_clock::time_point::max());
 
 // ---- Issue #22: bounded multi-ply high-level recovery search ----
 //

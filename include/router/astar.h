@@ -7,6 +7,7 @@
 // costs only order legal alternatives, never override legality.
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -25,6 +26,12 @@ struct AStarConfig {
     // optimality for speed. Ordering-only: illegal edges are never built,
     // so legality is structural regardless of the weight.
     double weight_factor = 1.0;
+    // Wall-clock budget shared by the whole route command (default none). A
+    // search that overruns reports "budget_exhausted" and stops, so one long
+    // A* (a deep recovery branch, a large greedy task) can never blow past
+    // --timeout by minutes. Ordering-only: no effect on legality.
+    std::chrono::steady_clock::time_point deadline =
+        std::chrono::steady_clock::time_point::max();
 };
 
 struct AStarResult {

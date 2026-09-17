@@ -624,6 +624,21 @@ std::vector<Hotspot> CongestionMap::hotspots(int top_k) const {
 
 // ---- Reservations ----
 
+int ReservationSet::cell_of_x(Coord x) const {
+    if (nx_ <= 0) return 0;
+    long long i = static_cast<long long>(x - bounds_.x1) / (cell_w_ > 0 ? cell_w_ : 1);
+    if (i < 0) i = 0;
+    if (i >= nx_) i = nx_ - 1;
+    return static_cast<int>(i);
+}
+int ReservationSet::cell_of_y(Coord y) const {
+    if (ny_ <= 0) return 0;
+    long long i = static_cast<long long>(y - bounds_.y1) / (cell_h_ > 0 ? cell_h_ : 1);
+    if (i < 0) i = 0;
+    if (i >= ny_) i = ny_ - 1;
+    return static_cast<int>(i);
+}
+
 void ReservationSet::build(const std::vector<ConnectionTask>& tasks,
                            const std::vector<Corridor>& corridors,
                            const std::vector<double>& difficulties) {
@@ -631,14 +646,83 @@ void ReservationSet::build(const std::vector<ConnectionTask>& tasks,
     weights_.resize(tasks.size());
     for (std::size_t i = 0; i < tasks.size(); ++i)
         weights_[i] = 0.5 + (i < difficulties.size() ? difficulties[i] / 8.0 : 0.0);
+    cells_.clear();
+    nx_ = ny_ = 0;
+    Rect b{};
+    bool have = false;
+    for (const auto& c : corridors_) {
+        const Rect& r = c.rect;
+        if (r.x2 < r.x1 || r.y2 < r.y1) continue;
+        if (!have) {
+            b = r;
+            have = true;
+        } else {
+            b.x1 = std::min(b.x1, r.x1);
+            b.y1 = std::min(b.y1, r.y1);
+            b.x2 = std::max(b.x2, r.x2);
+            b.y2 = std::max(b.y2, r.y2);
+        }
+    }
+    if (!have) return;
+    bounds_ = b;
+    // ~one cell per corridor, bounded to [64, 4096] cells: fine enough that a
+    // short query segment touches few corridors, small enough to stay cheap.
+    int target = static_cast<int>(corridors_.size());
+    if (target < 64) target = 64;
+    if (target > 4096) target = 4096;
+    int side = static_cast<int>(std::sqrt(static_cast<double>(target)));
+    if (side < 1) side = 1;
+    nx_ = side;
+    ny_ = side;
+    cell_w_ = std::max<Coord>(1, (bounds_.x2 - bounds_.x1) / nx_);
+    cell_h_ = std::max<Coord>(1, (bounds_.y2 - bounds_.y1) / ny_);
+    cells_.assign(static_cast<std::size_t>(nx_) * static_cast<std::size_t>(ny_), {});
+    for (std::size_t i = 0; i < corridors_.size(); ++i) {
+        const Rect& r = corridors_[i].rect;
+        if (r.x2 < r.x1 || r.y2 < r.y1) continue;
+        int x0 = cell_of_x(r.x1), x1 = cell_of_x(r.x2);
+        int y0 = cell_of_y(r.y1), y1 = cell_of_y(r.y2);
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x)
+                cells_[static_cast<std::size_t>(y) * nx_ + x].push_back(
+                    static_cast<int>(i));
+    }
 }
 
 Coord ReservationSet::penalty_for_segment(std::size_t self_task, const Segment& seg) const {
     Rect r = seg.bounds();
     double acc = 0.0;
-    for (std::size_t i = 0; i < corridors_.size(); ++i) {
-        if (i == self_task) continue;
-        if (corridors_[i].rect.intersects(r)) acc += weights_[i];
+    if (nx_ <= 0 || ny_ <= 0 || cells_.empty()) {
+        // No grid: legacy linear scan with the exact saturation early-out.
+        for (std::size_t i = 0; i < corridors_.size(); ++i) {
+            if (i == self_task) continue;
+            if (corridors_[i].rect.intersects(r)) {
+                acc += weights_[i];
+                if (acc * 20000.0 * strength_ >= 800000.0) return 800000;
+            }
+        }
+        Coord p = static_cast<Coord>(acc * 20000.0 * strength_);
+        return std::min<Coord>(p, 800000);
+    }
+    // Gather the corridors near this segment (superset), then visit them in
+    // ascending index order == the legacy accumulation order. Exact.
+    static thread_local std::vector<int> cand;
+    cand.clear();
+    int x0 = cell_of_x(r.x1), x1 = cell_of_x(r.x2);
+    int y0 = cell_of_y(r.y1), y1 = cell_of_y(r.y2);
+    for (int y = y0; y <= y1; ++y)
+        for (int x = x0; x <= x1; ++x) {
+            const std::vector<int>& v = cells_[static_cast<std::size_t>(y) * nx_ + x];
+            cand.insert(cand.end(), v.begin(), v.end());
+        }
+    std::sort(cand.begin(), cand.end());
+    cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
+    for (int i : cand) {
+        if (static_cast<std::size_t>(i) == self_task) continue;
+        if (corridors_[static_cast<std::size_t>(i)].rect.intersects(r)) {
+            acc += weights_[static_cast<std::size_t>(i)];
+            if (acc * 20000.0 * strength_ >= 800000.0) return 800000;
+        }
     }
     Coord p = static_cast<Coord>(acc * 20000.0 * strength_);
     return std::min<Coord>(p, 800000);
@@ -654,8 +738,19 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                                     const ReservationSet& reservations,
                                     const HierarchyConfig& hier_cfg,
                                     const HierarchyCache* hier_cache,
-                                    const SparseGraphBudget* graph_budget) {
+                                    const SparseGraphBudget* graph_budget,
+                                    RoutePhaseTiming* timing) {
     CandidateRoute cand;
+    // --time-stages phase clocks (no-op when timing == nullptr).
+    auto now_tp = []() { return std::chrono::steady_clock::now(); };
+    auto add_phase = [&](std::atomic<std::int64_t>& acc,
+                         std::chrono::steady_clock::time_point t0) {
+        if (timing == nullptr) return;
+        acc.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(now_tp() - t0)
+                          .count(),
+                      std::memory_order_relaxed);
+    };
+    if (timing != nullptr) timing->calls.fetch_add(1, std::memory_order_relaxed);
     cand.task = task;
     cand.task_index = task_index;
     cand.difficulty = difficulty;
@@ -810,10 +905,11 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         }
     }
 
-    Board filt = snapshot;  // guidance + graph view (sibling-exempt for pairs)
+    Board filt;
     const Board* graph_board = &snapshot;
     NetId pair_exempt = -1;
     if (pair) {
+        filt = snapshot;
         // Issue #12/#6: sibling copper lives inside the reserved envelope;
         // it is same-resource copper for corridor planning (gap-governed at
         // materialization, not voltage-governed here). Terminals are
@@ -859,6 +955,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     };
     GuidanceResult guide;
     bool guidance_on = hier_cfg.enabled && hier_cache != nullptr;
+    auto t_guide0 = now_tp();
     if (guidance_on) {
         guide = hier_cache->build_guidance(*graph_board, resolver, ctx, req,
                                            hier_cfg);
@@ -866,6 +963,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         cand.hierarchy.levels_used_mm = guide.levels_used_mm;
         cand.hierarchy.coarse_expansions = guide.coarse_expansions;
     }
+    if (timing != nullptr) add_phase(timing->guidance_ns, t_guide0);
 
     // Issue #4: effective sparse-graph budget for this task. Null input =
     // legacy defaults (384 bases / K=16) for speed; the engine passes the
@@ -895,6 +993,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     };
     auto build_graph_with = [&](const std::vector<Point>* clip, Coord half,
                                 const SparseGraphBudget& b) {
+        auto t0 = now_tp();
         SparseRoutingGraph g =
             pair ? SparseRoutingGraph::build_multi(filt, resolver, task.net, src_pt,
                                                    src_layer, dsts, width, ctx, clip,
@@ -902,7 +1001,10 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
                  : SparseRoutingGraph::build_multi(snapshot, resolver, task.net, src_pt,
                                                    ta->layer, dsts, width, ctx, clip,
                                                    half, b);
+        if (timing != nullptr) add_phase(timing->build_ns, t0);
+        auto t1 = now_tp();
         apply_soft(g);
+        if (timing != nullptr) add_phase(timing->soft_ns, t1);
         return g;
     };
     auto build_graph = [&](const std::vector<Point>* clip, Coord half) {
@@ -936,8 +1038,10 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         Coord tube = hier_cfg.tube_half_nm;
         for (int attempt = 0; attempt < attempts; ++attempt) {
             graph = build_graph(&path, tube);
+            auto t_a0 = now_tp();
             res = astar_route_masked(graph, eff_mult, astar_cfg, {},
                                      pull_bias(graph, path));
+            if (timing != nullptr) add_phase(timing->astar_ns, t_a0);
             cand.hierarchy.window_attempts = attempt + 1;
             if (res.found) {
                 cand.hierarchy.guided = true;
@@ -950,7 +1054,9 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         if (!res.found) {
             // Unrestricted exact fallback on the full graph.
             graph = build_graph(nullptr, 0);
+            auto t_a0 = now_tp();
             res = astar_route(graph, eff_mult, astar_cfg);
+            if (timing != nullptr) add_phase(timing->astar_ns, t_a0);
             cand.hierarchy.guided = false;
             cand.hierarchy.fallback = true;
             cand.hierarchy.fallback_reason = "window_miss";
@@ -958,7 +1064,9 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         cand.hierarchy.exact_expansions = res.expansions;
     } else {
         graph = build_graph(nullptr, 0);
+        auto t_a0 = now_tp();
         res = astar_route(graph, eff_mult, astar_cfg);
+        if (timing != nullptr) add_phase(timing->astar_ns, t_a0);
         cand.hierarchy.exact_expansions = res.expansions;
         if (guidance_on)
             cand.hierarchy.fallback_reason = "coarse_fail";
@@ -976,7 +1084,9 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         !eff_budget.is_last_resort()) {
         const SparseGraphBudget lr = SparseGraphBudget::last_resort();
         SparseRoutingGraph lr_graph = build_graph_with(nullptr, 0, lr);
+        auto t_a0 = now_tp();
         AStarResult lr_res = astar_route(lr_graph, eff_mult, astar_cfg);
+        if (timing != nullptr) add_phase(timing->astar_ns, t_a0);
         if (lr_res.found) {
             graph = std::move(lr_graph);
             res = std::move(lr_res);
@@ -1063,6 +1173,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         return cand;
     }
     cand.found = true;
+    auto t_mat0 = now_tp();
     // Issue #8: search cost is debug-only from here on; ordering uses the
     // recomputed materialized cost below (after simplification).
     cand.search_cost_nm = res.cost_nm;
@@ -1147,6 +1258,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
         cand.materialized_cost_nm =
             materialized_route_cost(cand.traces, cand.vias, eff_mult, astar_cfg);
         cand.cost_nm = cand.materialized_cost_nm;
+        if (timing != nullptr) add_phase(timing->materialize_ns, t_mat0);
         return cand;
     }
     // Materialize every A* layer transition as one atomic bundle (issue #5):
@@ -1234,6 +1346,7 @@ CandidateRoute route_candidate_task(const Board& snapshot, const RuleResolver& r
     cand.materialized_cost_nm =
         materialized_route_cost(cand.traces, cand.vias, eff_mult, astar_cfg);
     cand.cost_nm = cand.materialized_cost_nm;
+    if (timing != nullptr) add_phase(timing->materialize_ns, t_mat0);
     return cand;
 }
 

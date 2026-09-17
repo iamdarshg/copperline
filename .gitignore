@@ -1,4 +1,9 @@
 build/
+build-dbg/
+build-prof/
+Testing/
+.worktrees/
+gmon.out
 *.user
 .vs/
 .idea/

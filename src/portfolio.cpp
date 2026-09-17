@@ -637,10 +637,11 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
     // (uncapped bases, K=64) before the portfolio reports unreachable.
     const SparseGraphBudget pf_budget =
         opts.has_graph_budget ? opts.graph_budget : SparseGraphBudget::defaults();
-    auto build_pf_graph = [&](const SparseGraphBudget& b) {
+    auto build_pf_graph = [&](const std::vector<Point>* clip, Coord half,
+                              const SparseGraphBudget& b) {
         SparseRoutingGraph g = SparseRoutingGraph::build_multi(
             snapshot, resolver, task.net, src_pt, ta->layer, dsts, width, ctx,
-            nullptr, 0, b);
+            clip, half, b);
         g.add_penalties([&](const SparseNode& n, const SparseEdge& e) -> Coord {
             Coord p = 0;
             if (e.is_via) {
@@ -660,9 +661,6 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
         });
         return g;
     };
-    SparseRoutingGraph base_graph = build_pf_graph(pf_budget);
-    out.graph_builds = 1;
-
     auto pull_bias = [&](const SparseRoutingGraph& g) {
         std::vector<Coord> bias(g.nodes().size(), 0);
         if (guide_path.empty()) return bias;
@@ -677,38 +675,27 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
         }
         return bias;
     };
-    std::vector<Coord> base_bias = pull_bias(base_graph);
 
-    // Base path: normal A* with hierarchy bias.
+    // Base path: normal A* with hierarchy bias. The corridor clip is used for
+    // the exact search bias only (see pull_bias); the graph itself stays
+    // unclipped so no extra graph builds are paid per alternative.
+    out.graph_builds = 0;
+    SparseRoutingGraph base_graph = build_pf_graph(nullptr, 0, pf_budget);
+    out.graph_builds += 1;
+    std::vector<Coord> base_bias = pull_bias(base_graph);
     AStarResult base_res =
         astar_route_masked(base_graph, eff_mult, astar_cfg, {}, base_bias);
     out.total_expansions += base_res.expansions;
     if (!base_res.found && base_res.fail_reason != "budget_exhausted" &&
         !pf_budget.is_last_resort()) {
-        // Issue #4 last resort: uncapped bases + K=64 before unreachable.
-        SparseRoutingGraph lr_graph = build_pf_graph(SparseGraphBudget::last_resort());
-        std::vector<Coord> lr_bias;
-        lr_bias.reserve(lr_graph.nodes().size());
-        {
-            // Recompute the pull-to-path bias against the new node set.
-            std::vector<Coord> b2(lr_graph.nodes().size(), 0);
-            if (!guide_path.empty()) {
-                for (std::size_t i = 0; i < lr_graph.nodes().size(); ++i) {
-                    Coord best = std::numeric_limits<Coord>::max();
-                    for (const auto& p : guide_path) {
-                        Coord d = manhattan(lr_graph.nodes()[i].p, p);
-                        if (d < best) best = d;
-                    }
-                    if (best == std::numeric_limits<Coord>::max()) best = 0;
-                    b2[i] = std::min(hier_cfg.max_bias_nm, best / 4);
-                }
-            }
-            lr_bias = std::move(b2);
-        }
+        // Issue #4 last resort: wide bases + K=64 before unreachable.
+        SparseRoutingGraph lr_graph =
+            build_pf_graph(nullptr, 0, SparseGraphBudget::last_resort());
+        out.graph_builds += 1;
+        std::vector<Coord> lr_bias = pull_bias(lr_graph);
         AStarResult lr_res =
             astar_route_masked(lr_graph, eff_mult, astar_cfg, {}, lr_bias);
         out.total_expansions += lr_res.expansions;
-        out.graph_builds += 1;
         if (lr_res.found || lr_res.fail_reason != "budget_exhausted") {
             base_graph = std::move(lr_graph);
             base_res = std::move(lr_res);
@@ -731,7 +718,8 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
     };
     std::vector<Attempt> attempts;
     attempts.reserve(out.effective_k);
-    attempts.push_back({base_res, base_graph, eff_mult, astar_cfg, base_bias, "base"});
+    attempts.push_back(
+        {base_res, base_graph.clone_for_search(), eff_mult, astar_cfg, base_bias, "base"});
 
     // Bottleneck edge set from the base path (directed from->to pairs).
     std::set<std::pair<int, int>> base_edges;
@@ -769,7 +757,9 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
                              const AStarConfig& cfg, const std::vector<Coord>& bias,
                              bool penalize_late_vias, bool penalize_early_vias) {
         if (static_cast<int>(attempts.size()) >= want) return;
-        SparseRoutingGraph g = base_graph;  // copy: nodes/edges reused, no rebuild
+        // Geometry clone only: nodes/edges reused, no rebuild and no
+        // rejected-probe ledger copy (the dominant per-alternative cost).
+        SparseRoutingGraph g = base_graph.clone_for_search();
         if (forbid_middle_edge && nsteps > 0) {
             std::size_t mid = nsteps / 2;
             int fu = base_res.node_path[mid];
@@ -921,7 +911,7 @@ PortfolioResult build_portfolio(const Board& snapshot, const RuleResolver& resol
         }
         // 14: penalize first+last thirds together (widest corridor shift).
         if (static_cast<int>(attempts.size()) < want) {
-            SparseRoutingGraph g = base_graph;
+            SparseRoutingGraph g = base_graph.clone_for_search();
             g.add_penalties([&](const SparseNode& n, const SparseEdge& e) -> Coord {
                 (void)e;
                 Coord p = 0;

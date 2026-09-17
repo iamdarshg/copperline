@@ -60,6 +60,10 @@ struct Flags {
     bool impact_mlp = false;  // issue #9: tiny fixed-weight MLP scorer
     double timeout_s = 0;
     std::int64_t max_search_nodes = 200000;
+    int max_epochs = 0;  // 0 = engine default; else hard epoch cap (bounded runs)
+    // Recovery runs after the greedy epochs and is NOT bounded by
+    // --max-epochs. -1 = engine default; 0 disables rip-up recovery.
+    int max_ripup_generations = -1;
     bool no_hierarchy = false;  // issue #10: disable coarse-to-fine guidance
     int recovery_depth = 2;     // issue #22: 1 = one-ply, default 2
     int recovery_beam = 4;      // issue #22: beam width, default 4
@@ -185,6 +189,32 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
             }
             if (f.timeout_s < 0) {
                 err = "--timeout must be >= 0";
+                return false;
+            }
+            ++i;
+        } else if (a == "--max-epochs") {
+            if (!need_value(i, "--max-epochs", v)) return false;
+            try {
+                f.max_epochs = std::stoi(v);
+            } catch (...) {
+                err = "bad --max-epochs value";
+                return false;
+            }
+            if (f.max_epochs < 1) {
+                err = "--max-epochs must be >= 1";
+                return false;
+            }
+            ++i;
+        } else if (a == "--max-ripup-generations") {
+            if (!need_value(i, "--max-ripup-generations", v)) return false;
+            try {
+                f.max_ripup_generations = std::stoi(v);
+            } catch (...) {
+                err = "bad --max-ripup-generations value";
+                return false;
+            }
+            if (f.max_ripup_generations < 0) {
+                err = "--max-ripup-generations must be >= 0 (0 disables)";
                 return false;
             }
             ++i;
@@ -752,6 +782,9 @@ int cmd_route(const Flags& f) {
         opt.threads = eff;
     }
     opt.timeout_s = f.timeout_s;
+    if (f.max_epochs > 0) opt.max_epochs = f.max_epochs;
+    if (f.max_ripup_generations >= 0)
+        opt.max_ripup_generations = f.max_ripup_generations;
     opt.astar.max_expansions = f.max_search_nodes;
     opt.hierarchy.enabled = !f.no_hierarchy;  // issue #10
     opt.impact.enabled = !f.no_impact;        // issue #9
@@ -1015,7 +1048,10 @@ int cmd_benchmark(const Flags& f) {
     // Prompt 5 resource accounting (honest bounds, not sampled RSS).
     r["memory_budget_mb"] =
         static_cast<double>(bench_base.memory_budget_bytes / (1024ULL * 1024ULL));
-    r["batch_width_cap"] = 8.0;  // kParallelBatchSize: threads never widen batches
+    // Backlog-adaptive epoch batch width; threads never change it (it is a
+    // pure function of the remaining task count), only the memory bound can.
+    r["batch_width_cap"] =
+        static_cast<double>(bench_base.maturity.caps.max_batch_width);
     r["cpu_threads"] = static_cast<double>(hw);
     if (f.json) {
         emit_json(f, r);
@@ -1143,7 +1179,9 @@ int run(const std::vector<std::string>& args) {
                       "  router verify <board> [--json] [--config cfg.json] [--routes routed.ses]\n"
                       "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
                       "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
-                      "                       [--route-k K] [--output routed.ses] [--report report.json]\n"
+                      "                       [--max-epochs N] [--max-ripup-generations N]\n"
+                      "                       [--route-k K]\n"
+                      "                       [--output routed.ses] [--report report.json]\n"
                       "                       [--no-hierarchy] [--no-impact] [--impact-mlp]\n"
                       "                       [--recovery-depth D] [--recovery-beam B]\n"
                       "                       [--max-multiply-nodes N] [--no-optimizer]\n"

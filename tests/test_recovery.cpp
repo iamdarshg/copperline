@@ -708,6 +708,93 @@ CT_TEST(multilayer_frontier_reports_correct_layer) {
     CT_CHECK((int)g.frontier_stats().size() <= kMaxFrontierStats);
 }
 
+CT_TEST(frontier_expanded_filter_matches_flat_aggregate) {
+    // #23 equivalence pin: aggregating the per-node probe ledger in place
+    // behind an expanded mask must equal aggregating exactly those nodes'
+    // probes (the previous flat-copy implementation), and an all-ones mask
+    // must equal the construction-wide stats. Guards the copy-free
+    // aggregation against drift.
+    Board b;
+    b.source_format = "test";
+    b.width_nm = mm_to_nm(20.0);
+    b.height_nm = mm_to_nm(20.0);
+    b.layers.push_back({0, "Top"});
+    b.layers.push_back({1, "Bottom"});
+    NetInfo blk = make_net(0, "BLOCKER");
+    blk.has_current = true;
+    blk.current_a = 0.1;
+    NetInfo tgt = make_net(1, "TARGET");
+    tgt.has_current = true;
+    tgt.current_a = 0.1;
+    b.nets.push_back(blk);
+    b.nets.push_back(tgt);
+    add_terminal(b, 1, 2.0, 10.0, 1);
+    add_terminal(b, 1, 18.0, 10.0, 1);
+    b.traces.push_back({0, 1, {mm_to_nm(10.0), mm_to_nm(0.0)},
+                        {mm_to_nm(10.0), mm_to_nm(20.0)}, mm_to_nm(0.2)});
+    b.traces.push_back({0, 0, {mm_to_nm(2.0), mm_to_nm(4.0)},
+                        {mm_to_nm(18.0), mm_to_nm(4.0)}, mm_to_nm(0.2)});
+    b.traces.push_back({0, 0, {mm_to_nm(2.0), mm_to_nm(16.0)},
+                        {mm_to_nm(18.0), mm_to_nm(16.0)}, mm_to_nm(0.2)});
+    auto wall_ko = [&](double x1, double x2) {
+        Keepout k;
+        k.rect = {mm_to_nm(x1), mm_to_nm(0.0), mm_to_nm(x2), mm_to_nm(20.0)};
+        k.layer = kAllLayers;
+        k.reason = "side";
+        b.keepouts.push_back(k);
+    };
+    wall_ko(0.0, 1.5);
+    wall_ko(18.5, 20.0);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    const Terminal* pa = b.find_terminal(b.nets[1].terminals[0]);
+    const Terminal* pb = b.find_terminal(b.nets[1].terminals[1]);
+    SparseRoutingGraph g = SparseRoutingGraph::build(b, r, 1, pa->pos, pb->pos, 1, 1,
+                                                     mm_to_nm(0.2), ctx);
+    const std::size_t n = g.nodes().size();
+    CT_CHECK(n > 0);
+    // The equivalence is only meaningful with a non-empty probe ledger.
+    std::size_t probe_total = 0;
+    for (std::size_t i = 0; i < n; ++i)
+        probe_total += g.rejected(static_cast<int>(i)).size();
+    CT_CHECK(probe_total > 0);
+
+    auto same_stats = [](const std::vector<GraphFrontierStat>& a,
+                         const std::vector<GraphFrontierStat>& c) {
+        if (a.size() != c.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            if (a[i].blocker_net != c[i].blocker_net) return false;
+            if (a[i].kind != c[i].kind) return false;
+            if (a[i].desc != c[i].desc) return false;
+            if (a[i].layer != c[i].layer) return false;
+            if (a[i].pos.x != c[i].pos.x || a[i].pos.y != c[i].pos.y) return false;
+            if (a[i].count != c[i].count) return false;
+        }
+        return true;
+    };
+
+    // All expanded == construction-wide stats.
+    std::vector<char> all(n, 1);
+    CT_CHECK(same_stats(g.frontier_stats_for_expanded(all), g.frontier_stats()));
+
+    // Partial mask == flat concatenation of exactly those nodes' probes.
+    // Pick probe-carrying nodes (every other one) so the mask is a genuine
+    // subset and the flat reference is non-empty.
+    std::vector<std::size_t> with_probes;
+    for (std::size_t i = 0; i < n; ++i)
+        if (!g.rejected(static_cast<int>(i)).empty()) with_probes.push_back(i);
+    CT_CHECK(!with_probes.empty());
+    std::vector<char> mask(n, 0);
+    for (std::size_t k = 0; k < with_probes.size(); k += 2) mask[with_probes[k]] = 1;
+    std::vector<SparseRejectedProbe> flat;
+    for (std::size_t i = 0; i < n; ++i)
+        if (mask[i])
+            for (const auto& p : g.rejected(static_cast<int>(i))) flat.push_back(p);
+    CT_CHECK(!flat.empty());
+    CT_CHECK(same_stats(g.frontier_stats_for_expanded(mask),
+                        SparseRoutingGraph::aggregate_probes(flat)));
+}
+
 CT_TEST(frontier_memory_bounded_top_n) {
     // Even on a dense board the evidence stays bounded.
     JsonBoardImporter importer;

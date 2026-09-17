@@ -257,6 +257,14 @@ class KicadImport {
             auto a = tail_atoms(t);
             if (a.size() >= 2 && a[0] == "reference") ref = a[1];
         }
+        // KiCad 7+ stores the reference as a footprint property, not fp_text.
+        for (const SexprNode* p : fp->find_all("property")) {
+            auto a = tail_atoms(p);
+            if (a.size() >= 2 && a[0] == "Reference" && !a[1].empty()) {
+                ref = a[1];
+                break;
+            }
+        }
         bool bottom = false;
         if (const SexprNode* layer = fp->find_child("layer")) {
             auto a = tail_atoms(layer);

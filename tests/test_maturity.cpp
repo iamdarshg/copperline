@@ -78,6 +78,58 @@ CT_TEST(maturity_easy_board_stays_open_and_cheap) {
     CT_CHECK(b.hier_window_attempts == HierarchyConfig{}.max_window_attempts);
     CT_CHECK(b.hier_max_coarse_expansions == 200000);
     CT_CHECK(b.threads_effective == 4);
+    // Small boards keep coarse-to-fine guidance enabled.
+    CT_CHECK(b.hier_enabled);
+}
+
+CT_TEST(maturity_guidance_disabled_once_backlog_is_board_scale) {
+    // Board-scale backlogs turn guidance off (it costs more than it steers);
+    // everything below the threshold is untouched. Pure function of the
+    // backlog, so it stays thread- and timing-independent.
+    MaturityThresholds th;
+    BoardMaturityState st = update_maturity(easy_input(), th, nullptr, 0.10);
+    MaturityCaps caps;
+    auto hier_for = [&](int remaining) {
+        return effective_budget_for_phase(st, base_astar(), HierarchyConfig{}, caps,
+                                          kRouterMemoryBudgetBytes, kPerCandidateBytes, 16,
+                                          -1.0, remaining)
+            .hier_enabled;
+    };
+    CT_CHECK(hier_for(8));
+    CT_CHECK(hier_for(512));
+    CT_CHECK(hier_for(kGuidanceDisableRemaining - 1));
+    CT_CHECK(!hier_for(kGuidanceDisableRemaining));
+    CT_CHECK(!hier_for(4096));
+    // JSON surface carries the decision for agents.
+    EffectiveSearchBudget b = effective_budget_for_phase(
+        st, base_astar(), HierarchyConfig{}, caps, kRouterMemoryBudgetBytes,
+        kPerCandidateBytes, 16, -1.0, 4096);
+    JsonValue j = b.to_json();
+    CT_CHECK(j["hier_enabled"].as_bool() == false);
+}
+
+CT_TEST(maturity_batch_width_scales_with_backlog_and_is_memory_bounded) {
+    MaturityThresholds th;
+    BoardMaturityState st = update_maturity(easy_input(), th, nullptr, 0.10);
+    MaturityCaps caps;
+    auto width_for = [&](int remaining, const MaturityCaps& c) {
+        return effective_budget_for_phase(st, base_astar(), HierarchyConfig{}, c,
+                                          kRouterMemoryBudgetBytes, kPerCandidateBytes,
+                                          16, -1.0, remaining)
+            .batch_width;
+    };
+    // Small/medium backlog keeps the legacy width 8: small-fixture schedules
+    // (and their pinned hashes) are untouched.
+    CT_CHECK(width_for(8, caps) == 8);
+    CT_CHECK(width_for(32, caps) == 8);
+    CT_CHECK(width_for(64, caps) == 8);
+    // Larger backlog widens toward the worker count, then the memory bound
+    // (2048MB / 64MB = 32) and the explicit cap, whichever is smaller.
+    CT_CHECK(width_for(128, caps) == 32);
+    CT_CHECK(width_for(4096, caps) == 32);  // 64 wanted, memory-bounded to 32
+    MaturityCaps capped;
+    capped.max_batch_width = 12;
+    CT_CHECK(width_for(4096, capped) == 12);  // explicit cap always wins
 }
 
 CT_TEST(maturity_same_board_escalates_with_occupancy_and_stalls) {

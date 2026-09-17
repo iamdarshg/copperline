@@ -30,28 +30,34 @@ namespace copperline {
 //   k_nearest  - K nearest neighbours tried per node per layer (<=0 =
 //                uncapped: try every same-layer node; aligned pairs are
 //                always tried regardless).
+// Genuinely expanded scale beyond the ordinary budget: the widest finite
+// base set we will ever build. A true "uncapped" base set makes the K-NN
+// edge pass O(bases^2); on a large board (thousands of pads/traces) that
+// turns a single failing task into minutes of CPU, so the last-resort /
+// CLOSURE scale is bounded here instead of being unlimited.
+inline constexpr std::size_t kLastResortMaxBases = 2048;
+inline constexpr int kLastResortKNearest = 64;
+
 struct SparseGraphBudget {
     std::size_t max_bases = 384;
     int k_nearest = 16;
     static SparseGraphBudget defaults() { return SparseGraphBudget{}; }
-    // Genuinely expanded last-resort scale: no base culling, wide K.
+    // Genuinely expanded last-resort scale: wide base set + wide K.
     // Consumed by the unreachable fallback in route_candidate_task /
     // build_portfolio before a task is declared unreachable.
     static SparseGraphBudget last_resort() {
         SparseGraphBudget b;
-        b.max_bases = 0;  // uncapped: max(bases.size(), uncapped)
-        b.k_nearest = 64;
+        b.max_bases = kLastResortMaxBases;
+        b.k_nearest = kLastResortKNearest;
         return b;
     }
-    bool is_last_resort() const { return max_bases == 0 && k_nearest >= 64; }
+    bool is_last_resort() const {
+        return max_bases >= kLastResortMaxBases && k_nearest >= kLastResortKNearest;
+    }
 };
 
 inline constexpr std::size_t kDefaultMaxBases = 384;
 inline constexpr int kDefaultKNearest = 16;
-// Last-resort floor: at least this many bases survive even when a caller
-// passes a small explicit cap (the uncapped mode keeps everything).
-inline constexpr std::size_t kLastResortMinBases = 2048;
-inline constexpr int kLastResortKNearest = 64;
 
 struct SparseNode {
     Point p{};
@@ -121,9 +127,11 @@ class SparseRoutingGraph {
     const std::vector<SparseRejectedProbe>& rejected(int node) const { return rejected_[node]; }
     const GraphStats& stats() const { return stats_; }
     // Issue #21 legacy: construction-wide aggregation over ALL candidate
-    // probes (reachable or not). Kept for diagnostics only; blocker
-    // attribution must use AStarResult::frontier_stats (A*-frontier-only).
-    const std::vector<GraphFrontierStat>& frontier_stats() const { return frontier_stats_; }
+    // probes (reachable or not). Diagnostics only; blocker attribution must
+    // use AStarResult::frontier_stats (A*-frontier-only). Computed on demand:
+    // production never reads it, so the hot build path no longer pays to
+    // aggregate every probe (string-carrying) on every graph.
+    std::vector<GraphFrontierStat> frontier_stats() const;
     // Issue #23: aggregate per-node probes over an expanded set only.
     // `expanded` is per-node (nonzero = A* expanded the source node).
     // Deterministic, bounded to kMaxFrontierStats.
@@ -176,16 +184,42 @@ class SparseRoutingGraph {
     // Hard legality is untouched: this only biases A* ordering.
     void add_penalties(const std::function<Coord(const SparseNode&, const SparseEdge&)>& fn);
 
+    // Shallow geometry clone for search-variant exploration: copies nodes,
+    // edges, endpoints and stats but NOT the per-node rejected-probe ledger
+    // (attribution-only, and potentially very large: one string-carrying
+    // probe per rejected candidate leg). The portfolio holds one graph per
+    // alternative, so cloning geometry instead of the full graph removes the
+    // dominant copy cost. A* still behaves identically; only failure-frontier
+    // attribution over a clone is empty (never consumed on that path).
+    SparseRoutingGraph clone_for_search() const;
+
   private:
     std::vector<SparseNode> nodes_;
     std::vector<std::vector<SparseEdge>> adj_;
     std::vector<std::vector<SparseRejectedProbe>> rejected_;
     GraphStats stats_;
-    std::vector<GraphFrontierStat> frontier_stats_;
     int src_node_ = -1;
     int dst_node_ = -1;
     std::vector<int> dst_nodes_;
 };
+
+// Diagnostics: cumulative per-section wall time inside
+// SparseRoutingGraph::build_multi (process-wide, summed across threads), plus
+// the build call count. For --time-stages profiling only; never affects
+// routing. Reset before a measured run.
+struct SparseBuildPhases {
+    std::int64_t obstacles_ns = 0;
+    std::int64_t bases_ns = 0;
+    std::int64_t nodes_ns = 0;
+    std::int64_t edges_ns = 0;
+    std::int64_t via_ns = 0;
+    std::int64_t finalize_ns = 0;
+    std::int64_t calls = 0;
+    std::int64_t nodes_total = 0;  // summed node_count across builds
+    std::int64_t edges_total = 0;  // summed edge_count across builds
+};
+SparseBuildPhases sparse_graph_build_phases();
+void sparse_graph_build_phases_reset();
 
 int direction_of(Point from, Point to);  // 0:+x 1:+y 2:-x 3:-y 4:same
 

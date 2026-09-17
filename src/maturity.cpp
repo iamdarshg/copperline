@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "router/sparse_graph.h"
+
 namespace copperline {
 
 std::string maturity_phase_name(MaturityPhase p) {
@@ -220,9 +222,17 @@ EffectiveSearchBudget effective_budget_for_phase(
     static const double kResStrength[4] = {1.0, 1.0, 1.5, 2.0};
     b.reservation_strength = kResStrength[lvl];
 
-    // Batch width: requested 8 every phase (thread-independent scheduling),
-    // then memory-bounded: min(8, floor(budget/per_task)). No dense N^2.
+    // Batch width scales with the live backlog. Small boards keep the legacy
+    // width 8 (nothing to gain, and it keeps the small-fixture schedules
+    // byte-identical); large boards widen so the worker pool is saturated and
+    // per-epoch scheduler/arbiter overhead is amortized over more work. This
+    // is a pure function of remaining_count, so it stays thread- and timing-
+    // independent (the determinism contract is unchanged). Memory-bounded
+    // below: min(want, floor(budget/per_task)). No dense N^2 anywhere.
     int want_batch = 8;
+    if (remaining_count >= 2048) want_batch = 64;
+    else if (remaining_count >= 512) want_batch = 48;
+    else if (remaining_count >= 128) want_batch = 32;
     if (want_batch > caps.max_batch_width) want_batch = caps.max_batch_width;
     if (per_task_bytes == 0) per_task_bytes = 64ULL * 1024 * 1024;
     if (memory_budget_bytes > 0) {
@@ -233,6 +243,13 @@ EffectiveSearchBudget effective_budget_for_phase(
     }
     if (want_batch < 1) want_batch = 1;
     b.batch_width = want_batch;
+
+    // Coarse-to-fine guidance is a net loss once the backlog is board-scale:
+    // the coarse grid is congested too, so per-task guidance costs more than
+    // the exact search it steers. Measured on a 2458-task board, disabling it
+    // routed strictly more connections in less wall time. Small boards keep
+    // the legacy enabled behaviour exactly (their schedules stay pinned).
+    b.hier_enabled = remaining_count < kGuidanceDisableRemaining;
 
     // History growth scales Pathfinder history increments (pressure memory).
     static const double kHist[4] = {1.0, 1.0, 1.5, 2.0};
@@ -261,10 +278,12 @@ EffectiveSearchBudget effective_budget_for_phase(
 
     // Issue #4: sparse-graph budgets per phase. OPEN/MID keep the legacy
     // 384/16 defaults for speed; dense boards spend more exploring
-    // alternatives; CLOSURE goes uncapped on bases (0) with a wide K=64 so
-    // completeness, not the proximity-to-direct-segment cull, decides.
-    static const std::size_t kGraphBases[4] = {384, 512, 1024, 0};
-    static const int kGraphK[4] = {16, 24, 32, 64};
+    // alternatives; CLOSURE widens to the bounded last-resort scale (wide
+    // base set, K=64) so completeness, not the proximity-to-direct-segment
+    // cull, decides -- without the O(bases^2) blow-up of a truly uncapped
+    // base set on a large board.
+    static const std::size_t kGraphBases[4] = {384, 512, 1024, kLastResortMaxBases};
+    static const int kGraphK[4] = {16, 24, 32, kLastResortKNearest};
     std::size_t want_bases = kGraphBases[lvl];
     int want_gk = kGraphK[lvl];
     if (caps.max_graph_bases > 0) {
@@ -314,6 +333,7 @@ JsonValue BoardMaturityState::to_json() const {
 JsonValue EffectiveSearchBudget::to_json() const {
     JsonValue o = JsonValue::object();
     o["astar_max_expansions"] = static_cast<double>(astar_max_expansions);
+    o["hier_enabled"] = hier_enabled;
     o["weight_factor"] = weight_factor;
     o["hier_max_coarse_expansions"] = static_cast<double>(hier_max_coarse_expansions);
     o["hier_window_attempts"] = static_cast<double>(hier_window_attempts);

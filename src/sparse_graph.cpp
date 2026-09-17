@@ -1,16 +1,68 @@
 #include "router/sparse_graph.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <map>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 
 #include "router/via_bundle.h"
 #include "router/simplify.h"
 
 namespace copperline {
+
+namespace {
+// Diagnostics: cumulative per-section wall time inside build_multi (summed
+// across threads via relaxed atomics; only ever added to, never read on the
+// hot path). Exposed through sparse_graph_build_phases().
+struct BuildPhaseAcc {
+    std::atomic<std::int64_t> obstacles{0};
+    std::atomic<std::int64_t> bases{0};
+    std::atomic<std::int64_t> nodes{0};
+    std::atomic<std::int64_t> edges{0};
+    std::atomic<std::int64_t> via{0};
+    std::atomic<std::int64_t> finalize{0};
+    std::atomic<std::int64_t> calls{0};
+    std::atomic<std::int64_t> nodes_total{0};
+    std::atomic<std::int64_t> edges_total{0};
+};
+BuildPhaseAcc& build_phase_acc() {
+    static BuildPhaseAcc a;
+    return a;
+}
+}  // namespace
+
+SparseBuildPhases sparse_graph_build_phases() {
+    BuildPhaseAcc& a = build_phase_acc();
+    SparseBuildPhases out;
+    out.obstacles_ns = a.obstacles.load(std::memory_order_relaxed);
+    out.bases_ns = a.bases.load(std::memory_order_relaxed);
+    out.nodes_ns = a.nodes.load(std::memory_order_relaxed);
+    out.edges_ns = a.edges.load(std::memory_order_relaxed);
+    out.via_ns = a.via.load(std::memory_order_relaxed);
+    out.finalize_ns = a.finalize.load(std::memory_order_relaxed);
+    out.calls = a.calls.load(std::memory_order_relaxed);
+    out.nodes_total = a.nodes_total.load(std::memory_order_relaxed);
+    out.edges_total = a.edges_total.load(std::memory_order_relaxed);
+    return out;
+}
+
+void sparse_graph_build_phases_reset() {
+    BuildPhaseAcc& a = build_phase_acc();
+    a.obstacles.store(0, std::memory_order_relaxed);
+    a.bases.store(0, std::memory_order_relaxed);
+    a.nodes.store(0, std::memory_order_relaxed);
+    a.edges.store(0, std::memory_order_relaxed);
+    a.via.store(0, std::memory_order_relaxed);
+    a.finalize.store(0, std::memory_order_relaxed);
+    a.calls.store(0, std::memory_order_relaxed);
+    a.nodes_total.store(0, std::memory_order_relaxed);
+    a.edges_total.store(0, std::memory_order_relaxed);
+}
 
 int direction_of(Point from, Point to) {
     if (to.x > from.x) return 0;
@@ -148,12 +200,102 @@ struct ObstacleIndex {
     }
 };
 
+// Issue #21/#23: shared bounded aggregation over per-node probe sets.
+// `expanded` (optional) filters which sets contribute: null = all sets
+// (construction-wide diagnostics), non-null = only nodes A* actually
+// expanded. The result is independent of which sets contribute and in what
+// order: counts are additive and the per-key representative is the min
+// (x, y) hit, while the tail ordering is a strict total order over
+// (count, net, kind, layer, desc). The (net, kind, layer) key is injective
+// after the integer formatting the previous string key used, so keying by
+// tuple is output-identical while dropping a string build+alloc per probe.
+std::vector<GraphFrontierStat> aggregate_probe_sets_filtered(
+    const std::vector<std::vector<SparseRejectedProbe>>& sets,
+    const std::vector<char>* expanded) {
+    struct Agg {
+        std::string kind;
+        std::string desc;
+        Point pos{};
+        int count = 0;
+    };
+    std::map<std::tuple<NetId, std::string, LayerId>, Agg> agg;
+    for (std::size_t si = 0; si < sets.size(); ++si) {
+        if (expanded != nullptr && (si >= expanded->size() || !(*expanded)[si]))
+            continue;  // A* never reached this source: not evidence
+        for (const auto& p : sets[si]) {
+            auto key = std::make_tuple(p.blocker_net, p.kind, p.layer);
+            auto it = agg.find(key);
+            if (it == agg.end()) {
+                Agg a;
+                a.kind = p.kind;
+                a.desc = p.desc;
+                a.pos = p.pos;
+                a.count = 1;
+                agg.emplace(std::move(key), std::move(a));
+            } else {
+                it->second.count++;
+                // Order-independent representative: min (x, y) hit per key.
+                if (p.pos.x < it->second.pos.x ||
+                    (p.pos.x == it->second.pos.x && p.pos.y < it->second.pos.y))
+                    it->second.pos = p.pos;
+            }
+        }
+    }
+    struct Row {
+        NetId net;
+        std::string kind;
+        std::string desc;
+        LayerId layer;
+        Point pos;
+        int count;
+    };
+    std::vector<Row> rows;
+    rows.reserve(agg.size());
+    for (const auto& [key, a] : agg)
+        rows.push_back(Row{std::get<0>(key), a.kind, a.desc, std::get<2>(key), a.pos, a.count});
+    std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
+        if (a.count != b.count) return a.count > b.count;
+        if (a.net != b.net) return a.net < b.net;
+        if (a.kind != b.kind) return a.kind < b.kind;
+        if (a.layer != b.layer) return a.layer < b.layer;
+        return a.desc < b.desc;
+    });
+    std::vector<GraphFrontierStat> out;
+    out.reserve(std::min<std::size_t>(rows.size(), kMaxFrontierStats));
+    for (const auto& r : rows) {
+        if (static_cast<int>(out.size()) >= kMaxFrontierStats) break;
+        GraphFrontierStat s;
+        s.blocker_net = r.net;
+        s.kind = r.kind;
+        s.desc = r.desc;
+        s.layer = r.layer;
+        s.pos = r.pos;
+        s.count = r.count;
+        out.push_back(std::move(s));
+    }
+    return out;
+}
+
 }  // namespace
 
 void SparseRoutingGraph::add_penalties(
     const std::function<Coord(const SparseNode&, const SparseEdge&)>& fn) {
     for (std::size_t i = 0; i < nodes_.size(); ++i)
         for (auto& e : adj_[i]) e.penalty_nm += fn(nodes_[i], e);
+}
+
+SparseRoutingGraph SparseRoutingGraph::clone_for_search() const {
+    SparseRoutingGraph g;
+    g.nodes_ = nodes_;
+    g.adj_ = adj_;
+    // Attribution-only: sized so frontier_stats_for_expanded can index it,
+    // but with no probes copied (the expensive, string-carrying part).
+    g.rejected_.resize(nodes_.size());
+    g.stats_ = stats_;
+    g.src_node_ = src_node_;
+    g.dst_node_ = dst_node_;
+    g.dst_nodes_ = dst_nodes_;
+    return g;
 }
 
 SparseRoutingGraph SparseRoutingGraph::build(const Board& committed, const RuleResolver& resolver,
@@ -175,6 +317,14 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     SparseRoutingGraph g;
     const Coord half_w = route_width_nm / 2;
     (void)dsts.empty();
+    BuildPhaseAcc& bpa = build_phase_acc();
+    auto pt = []() { return std::chrono::steady_clock::now(); };
+    auto tick = [&](std::atomic<std::int64_t>& acc, std::chrono::steady_clock::time_point t0) {
+        acc.fetch_add(std::chrono::duration_cast<std::chrono::nanoseconds>(pt() - t0).count(),
+                      std::memory_order_relaxed);
+    };
+    bpa.calls.fetch_add(1, std::memory_order_relaxed);
+    auto t_obstacles = pt();
 
     // ---- 1. Collect raw obstacles with per-obstacle keep distances ----
     // Clearance is layer-independent (RuleResolver ignores layer/ctx), so one
@@ -278,18 +428,73 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // the index only skips obstacles the bbox precheck would have passed.
     ObstacleIndex obs_index;
     obs_index.build(obstacles, committed.bounds());
+    tick(bpa.obstacles, t_obstacles);
+    auto t_bases = pt();
     std::vector<int> scratch;  // per-build scratch (no sharing across threads:
                                // every build_multi call owns its locals)
+    std::vector<int> query_raw;  // raw bucket hits (duplicates) before dedupe
+    std::vector<int> seen(obstacles.size(), 0);
+    int seen_gen = 0;
+    // Perf (exact): first_blocker(s, layer) depends only on the *unordered*
+    // segment geometry and the layer -- seg_legal_vs is direction-independent
+    // (seg_seg_dist2 / seg_rect_dist2 / plane polygon distance are all
+    // symmetric) and seg_in_bounds is not consulted here. decide_edge probes
+    // every unordered pair from both ends (aligned pairs explicitly in both
+    // directions, K-nearest because each end lists the other), so memoising on
+    // the canonical (min-endpoint, max-endpoint, layer) key removes the second
+    // and every later identical probe while replaying the IDENTICAL blocker
+    // (same obstacle index => same kind/desc/net/pos), so rejected-probe
+    // evidence is bit-identical.
+    struct SegKeyHash {
+        std::size_t operator()(
+            const std::tuple<Coord, Coord, Coord, Coord, LayerId>& k) const {
+            std::uint64_t h = 1469598103934665603ULL;
+            auto mix = [&](std::uint64_t v) {
+                h ^= v;
+                h *= 1099511628211ULL;
+            };
+            mix(static_cast<std::uint64_t>(std::get<0>(k)));
+            mix(static_cast<std::uint64_t>(std::get<1>(k)));
+            mix(static_cast<std::uint64_t>(std::get<2>(k)));
+            mix(static_cast<std::uint64_t>(std::get<3>(k)));
+            mix(static_cast<std::uint64_t>(std::get<4>(k) + 2));
+            return static_cast<std::size_t>(h);
+        }
+    };
+    std::unordered_map<std::tuple<Coord, Coord, Coord, Coord, LayerId>, int, SegKeyHash>
+        blocker_memo;
+    blocker_memo.reserve(4096);
     auto first_blocker = [&](const Segment& s, LayerId layer) -> const Obstacle* {
+        Point a = s.a, b = s.b;
+        if (b.x < a.x || (b.x == a.x && b.y < a.y)) std::swap(a, b);
+        const auto key = std::make_tuple(a.x, a.y, b.x, b.y, layer);
+        auto mit = blocker_memo.find(key);
+        if (mit != blocker_memo.end())
+            return mit->second < 0
+                       ? nullptr
+                       : &obstacles[static_cast<std::size_t>(mit->second)];
+        query_raw.clear();
+        obs_index.query(s.bounds(), query_raw);
+        // Linear dedupe (one hit per covering bucket) before the sort: the
+        // ascending unique set is identical, the sort input is typically
+        // several times smaller.
+        ++seen_gen;
         scratch.clear();
-        obs_index.query(s.bounds(), scratch);
+        for (int oi : query_raw) {
+            if (seen[static_cast<std::size_t>(oi)] == seen_gen) continue;
+            seen[static_cast<std::size_t>(oi)] = seen_gen;
+            scratch.push_back(oi);
+        }
         std::sort(scratch.begin(), scratch.end());
-        scratch.erase(std::unique(scratch.begin(), scratch.end()), scratch.end());
         for (int oi : scratch) {
             const Obstacle& o = obstacles[static_cast<std::size_t>(oi)];
             if (!layer_match(o.layer, layer)) continue;
-            if (!seg_legal_vs(s, o)) return &o;
+            if (!seg_legal_vs(s, o)) {
+                blocker_memo.emplace(key, oi);
+                return &o;
+            }
         }
+        blocker_memo.emplace(key, -1);
         return nullptr;
     };
 
@@ -457,6 +662,8 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         bases = std::move(kept);
     }
 
+    tick(bpa.bases, t_bases);
+    auto t_nodes = pt();
     // ---- 3. Nodes: layer copies, filtered to legal wire positions ----
     // base index -> per-layer node id. Issue #23: point-legality probes for
     // bases that never become nodes are NOT evidence (A* never expands a
@@ -522,6 +729,8 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     for (int i = 0; i < static_cast<int>(g.nodes_.size()); ++i)
         layer_nodes[g.nodes_[i].layer].push_back(i);
 
+    tick(bpa.nodes, t_nodes);
+    auto t_edges = pt();
     // ---- 4. Manhattan edges: aligned pairs + K nearest per node ----
     // Issue #4: K is budget.k_nearest (default 16); <=0 = uncapped (try
     // every same-layer node). Aligned pairs are always tried regardless.
@@ -882,6 +1091,8 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         }
     }
 
+    tick(bpa.edges, t_edges);
+    auto t_via = pt();
     // ---- 5. Via edges between layer copies of the same base ----
     // Bundle-aware gate (issue #5): a transition exists only when the full
     // parallel-via bundle for this net fits legally around the base point
@@ -900,6 +1111,53 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // (styles in order, first feasible wins, last failure kept, no-style
     // fallback preserved), so bundles are bit-identical.
     const NetInfo* task_net = committed.find_net(net);
+    // Perf (exact): via legality (via_pos_legal / stub_seg_legal) scans ALL
+    // board copper per barrel, per layout candidate, per style, and every base
+    // for this task lies inside the (already clipped) corridor. Any bundle or
+    // star stub reaches at most `via_reach` from its centre, so ONE filtered
+    // board covering the corridor expanded by that reach is a conservative
+    // superset for every plan in this build: the same predicates decide on a
+    // strictly smaller candidate set, so bundles are bit-identical.
+    Coord max_via_outer = 0, max_via_extent = 0;
+    if (task_net != nullptr) {
+        for (const auto& s : resolver.via_styles()) {
+            if (s.outer_nm <= 0) continue;
+            ElectricalContext c2 = ctx;
+            int need = resolver.current().vias_required(s, *task_net, committed.defaults, c2);
+            if (need < 1) need = 1;
+            const Coord pitch = s.outer_nm + mm_to_nm(0.15);
+            const Coord ext = (static_cast<Coord>(need) - 1) * pitch / 2 + s.outer_nm;
+            max_via_outer = std::max(max_via_outer, s.outer_nm);
+            max_via_extent = std::max(max_via_extent, ext);
+        }
+    }
+    const Coord via_reach =
+        max_clear + route_width_nm + 2 * max_via_extent + max_via_outer + mm_to_nm(0.5);
+    Board via_board;
+    const Board* via_scan = &committed;
+    if (max_via_extent > 0) {
+        const Rect box = corridor.expanded(via_reach);
+        via_board = committed;  // scalars, nets, defaults, layers, bounds
+        auto keep_rect = [&](const Rect& r) { return r.intersects(box); };
+        via_board.keepouts.clear();
+        for (const auto& k : committed.keepouts)
+            if (keep_rect(k.rect)) via_board.keepouts.push_back(k);
+        via_board.terminals.clear();
+        for (const auto& t : committed.terminals)
+            if (keep_rect(t.pad_rect())) via_board.terminals.push_back(t);
+        via_board.traces.clear();
+        for (const auto& t : committed.traces)
+            if (keep_rect(t.segment().bounds().expanded(t.width_nm / 2)))
+                via_board.traces.push_back(t);
+        via_board.vias.clear();
+        for (const auto& v : committed.vias)
+            if (keep_rect(Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm)))
+                via_board.vias.push_back(v);
+        via_board.planes.clear();
+        for (const auto& z : committed.planes)
+            if (keep_rect(z.bounds())) via_board.planes.push_back(z);
+        via_scan = &via_board;
+    }
     // Perf follow-up (exact): one shared per-net clearance memo for every via
     // bundle plan in this build. Clearances are pure in (board, net pair) —
     // the resolver ignores layer/ctx — so the shared values are identical to
@@ -933,7 +1191,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         bool tried = false;
         for (const auto& [style, need] : styles) {
             tried = true;
-            ViaBundle b = ViaBundlePlanner::plan_with_style(committed, resolver, net, p, span,
+            ViaBundle b = ViaBundlePlanner::plan_with_style(*via_scan, resolver, net, p, span,
                                                             style, need, route_width_nm, ctx,
                                                             shared_cc, exempt_net);
             if (b.feasible) return b;
@@ -977,6 +1235,8 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         }
     }
 
+    tick(bpa.via, t_via);
+    auto t_finalize = pt();
     // Deterministic edge order. Issue #3: parallel elbow edges share
     // (is_via, to, len) (both elbows have identical Manhattan length), so
     // tie-break on elbow/dir to keep the order total and stable.
@@ -995,74 +1255,26 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     for (const auto& vec : g.adj_) edges += static_cast<int>(vec.size());
     g.stats_.node_count = static_cast<int>(g.nodes_.size());
     g.stats_.edge_count = edges;
+    bpa.nodes_total.fetch_add(static_cast<std::int64_t>(g.nodes_.size()),
+                              std::memory_order_relaxed);
+    bpa.edges_total.fetch_add(static_cast<std::int64_t>(edges),
+                              std::memory_order_relaxed);
     g.rejected_ = std::move(rej_per_node);
-    // Issue #21 legacy (diagnostics only): construction-wide aggregation over
-    // all per-node probes. Attribution must use the A*-frontier-only path
-    // (AStarResult::frontier_stats via frontier_stats_for_expanded).
-    // Perf follow-up (exact): aggregate over the per-node sets directly
-    // instead of copying every probe into one flat vector first. Identical
-    // result: the aggregation counts probes per key and keeps the min-(x, y)
-    // representative, both order-independent.
-    g.frontier_stats_ = aggregate_probe_sets(g.rejected_);
+    // Issue #21 legacy aggregation is intentionally NOT computed here: it is
+    // diagnostics-only (production reads the A*-frontier-only path), so it is
+    // computed on demand in frontier_stats(). Previously it ran on every
+    // build and aggregated every string-carrying probe across the whole graph.
+    tick(bpa.finalize, t_finalize);
     return g;
+}
+
+std::vector<GraphFrontierStat> SparseRoutingGraph::frontier_stats() const {
+    return aggregate_probe_sets(rejected_);
 }
 
 std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probe_sets(
     const std::vector<std::vector<SparseRejectedProbe>>& sets) {
-    struct Agg {
-        NetId net = -1;
-        std::string kind;
-        std::string desc;
-        LayerId layer = 0;
-        Point pos{};
-        int count = 0;
-    };
-    std::map<std::string, Agg> agg;
-    auto accum = [&](const SparseRejectedProbe& p) {
-        std::string key =
-            std::to_string(p.blocker_net) + "|" + p.kind + "|" + std::to_string(p.layer);
-        auto it = agg.find(key);
-        if (it == agg.end()) {
-            Agg a;
-            a.net = p.blocker_net;
-            a.kind = p.kind;
-            a.desc = p.desc;
-            a.layer = p.layer;
-            a.pos = p.pos;
-            a.count = 1;
-            agg.emplace(key, std::move(a));
-        } else {
-            it->second.count++;
-            // Order-independent representative: min (x, y) hit per key.
-            if (p.pos.x < it->second.pos.x ||
-                (p.pos.x == it->second.pos.x && p.pos.y < it->second.pos.y))
-                it->second.pos = p.pos;
-        }
-    };
-    for (const auto& set : sets)
-        for (const auto& p : set) accum(p);
-    std::vector<Agg> all;
-    all.reserve(agg.size());
-    for (auto& [k, v] : agg) all.push_back(v);
-    std::sort(all.begin(), all.end(), [](const Agg& a, const Agg& b) {
-        if (a.count != b.count) return a.count > b.count;
-        if (a.net != b.net) return a.net < b.net;
-        if (a.kind != b.kind) return a.kind < b.kind;
-        if (a.layer != b.layer) return a.layer < b.layer;
-        return a.desc < b.desc;
-    });
-    std::vector<GraphFrontierStat> out;
-    for (std::size_t i = 0; i < all.size() && (int)out.size() < kMaxFrontierStats; ++i) {
-        GraphFrontierStat s;
-        s.blocker_net = all[i].net;
-        s.kind = all[i].kind;
-        s.desc = all[i].desc;
-        s.layer = all[i].layer;
-        s.pos = all[i].pos;
-        s.count = all[i].count;
-        out.push_back(s);
-    }
-    return out;
+    return aggregate_probe_sets_filtered(sets, nullptr);
 }
 
 std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
@@ -1072,12 +1284,11 @@ std::vector<GraphFrontierStat> SparseRoutingGraph::aggregate_probes(
 
 std::vector<GraphFrontierStat> SparseRoutingGraph::frontier_stats_for_expanded(
     const std::vector<char>& expanded) const {
-    std::vector<SparseRejectedProbe> probes;
-    for (std::size_t i = 0; i < rejected_.size() && i < expanded.size(); ++i) {
-        if (!expanded[i]) continue;  // A* never reached this source: not evidence
-        for (const auto& p : rejected_[i]) probes.push_back(p);
-    }
-    return aggregate_probes(probes);
+    // #23: aggregate the ledger in place behind the expanded mask instead of
+    // copying every reached probe into a flat vector (and then into a
+    // one-element vector-of-vectors). Output is identical: the aggregation
+    // is order-independent and the final ordering is a strict total order.
+    return aggregate_probe_sets_filtered(rejected_, &expanded);
 }
 
 }  // namespace copperline

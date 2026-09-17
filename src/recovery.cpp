@@ -454,8 +454,10 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
                                             const std::vector<OwnedRoute>& owned,
                                             const HistoryHeuristic& history,
                                             const std::string& pv_key, RecoveryMode mode,
-                                            int max_moves, int max_breadth) {
+                                            int max_moves, int max_breadth,
+                                            std::chrono::steady_clock::time_point deadline) {
     std::vector<RipupMove> moves;
+    const bool bounded = deadline != std::chrono::steady_clock::time_point::max();
     std::set<std::string> seen;  // dedup equivalent owned-route index sets
     auto dedup_key = [](int failed_pos, const std::vector<int>& idx) {
         std::string k = std::to_string(failed_pos) + ":";
@@ -491,6 +493,10 @@ std::vector<RipupMove> generate_ripup_moves(const std::vector<ConnectionTask>& f
     }
     const int over_gen = std::max(1, max_moves * 3);
     for (std::size_t fi = 0; fi < failed_tasks.size(); ++fi) {
+        // Bounded runs: stop enumerating once the global deadline is spent.
+        if (bounded && (fi & 63u) == 0 &&
+            std::chrono::steady_clock::now() > deadline)
+            break;
         const ConnectionTask& failed = failed_tasks[fi];
         auto it = per_failed.find((int)fi);
         if (it == per_failed.end() || it->second.empty()) continue;
@@ -701,11 +707,13 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
                             const std::string& mode_name, const RipupMove& move,
                             const HierarchyConfig& hier_cfg,
                             const HierarchyCache* hier_cache,
-                            double reservation_strength) {
+                            double reservation_strength,
+                            std::chrono::steady_clock::time_point deadline) {
     BranchResult out;
     out.evaluated = true;
     out.mode = mode_name;
     out.move = move;
+    const bool time_bounded = deadline != std::chrono::steady_clock::time_point::max();
     // Order change after stalls is itself a decision: the failed task goes
     // first (it owned nothing and needs the corridor most), then difficulty
     // order with stable (net, a, b) tie-breaks.
@@ -747,6 +755,10 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
     std::vector<CandidateRoute> branch_cands;  // issue #9: scored below for #22
     std::int64_t expansions = 0;
     for (std::size_t k = 0; k < order.size(); ++k) {
+        // Global deadline: a branch reroutes many tasks with O(copper)
+        // legality checks per candidate; stop once the budget is spent rather
+        // than letting one branch overrun the run by minutes.
+        if (time_bounded && std::chrono::steady_clock::now() > deadline) break;
         int ti = order[k];
         // S8: pos is the task's index in the branch order — the loop above
         // iterates k over that same order, so pos == k directly (the old
@@ -788,9 +800,6 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         branch_cands.push_back(cand);
         for (const auto& t : cand.traces) congestion.add_history_segment(t.segment(), 0.25);
     }
-    out.board = work;
-    out.owned = new_owned;
-    out.newly_done = done;
     out.connected_tasks = (int)done.size();
     out.total_tasks = (int)order.size();
     out.expansions = expansions;
@@ -808,20 +817,34 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
     // Issue #19: also fill the explicit global outcome fields so ranking
     // measures the resulting global board, not branch-local work.
     {
-        std::set<int> done_set(done.begin(), done.end());
-        std::set<int> gen_set(gen_remaining.begin(), gen_remaining.end());
-        std::set<int> rest(gen_remaining.begin(), gen_remaining.end());
-        for (int ti : to_route) rest.insert(ti);
+        // O(N) mask passes instead of three std::set builds + lookups: the
+        // output (ascending remaining ids) is identical, the allocation and
+        // comparison churn is gone. Runs once per branch and the remaining
+        // set is large on stalled boards.
+        const std::size_t n = tasks.size();
+        std::vector<char> done_mask(n, 0), gen_mask(n, 0), present(n, 0);
+        for (int ti : done)
+            if (ti >= 0 && static_cast<std::size_t>(ti) < n)
+                done_mask[static_cast<std::size_t>(ti)] = 1;
+        for (int ti : gen_remaining)
+            if (ti >= 0 && static_cast<std::size_t>(ti) < n) {
+                gen_mask[static_cast<std::size_t>(ti)] = 1;
+                present[static_cast<std::size_t>(ti)] = 1;
+            }
+        for (int ti : to_route)
+            if (ti >= 0 && static_cast<std::size_t>(ti) < n)
+                present[static_cast<std::size_t>(ti)] = 1;
         std::vector<int> rem;
-        for (int ti : rest)
-            if (!done_set.count(ti)) rem.push_back(ti);
-        std::sort(rem.begin(), rem.end());
+        for (std::size_t ti = 0; ti < n; ++ti)
+            if (present[ti] && !done_mask[ti]) rem.push_back(static_cast<int>(ti));
         out.remaining_task_ids = rem;
         out.hash = state_hash128(work, tasks, rem);
         out.global_connected_tasks = (int)tasks.size() - (int)rem.size();
         int newly_global = 0;
         for (int ti : done)
-            if (gen_set.count(ti)) ++newly_global;
+            if (ti >= 0 && static_cast<std::size_t>(ti) < n &&
+                gen_mask[static_cast<std::size_t>(ti)])
+                ++newly_global;
         out.newly_connected_global = newly_global;
         out.disrupted_routes = (int)move.owned_idx.size();
         out.hard_violations = 0;  // branch commits only legal-vs-board + conflict-free copper
@@ -848,6 +871,10 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
             out.has_impact = true;
         }
     }
+    // Move the heavy members in (the copies above were the last uses).
+    out.board = std::move(work);
+    out.owned = std::move(new_owned);
+    out.newly_done = std::move(done);
     return out;
 }
 
@@ -1004,7 +1031,7 @@ MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
                 if (max_moves < 1) max_moves = 1;
                 std::vector<RipupMove> moves = generate_ripup_moves(
                     failed_tasks, graph, parent.state.owned, mctx.history,
-                    mctx.pv_key, mctx.mode, max_moves, mctx.max_breadth);
+                    mctx.pv_key, mctx.mode, max_moves, mctx.max_breadth, deadline);
                 if (moves.empty()) {
                     ++pi;
                     continue;
@@ -1027,10 +1054,14 @@ MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
                 for (const auto& m : moves) {
                     ChildSpec s;
                     s.move = m;
-                    std::set<int> rip(m.owned_idx.begin(), m.owned_idx.end());
-                    for (std::size_t i = 0; i < parent.state.owned.size(); ++i)
-                        if (!rip.count(static_cast<int>(i)))
-                            s.surviving.push_back(parent.state.owned[i]);
+                    const std::size_t owned_n = parent.state.owned.size();
+                    std::vector<char> rip(owned_n, 0);
+                    for (int oi : m.owned_idx)
+                        if (oi >= 0 && static_cast<std::size_t>(oi) < owned_n)
+                            rip[static_cast<std::size_t>(oi)] = 1;
+                    s.surviving.reserve(owned_n);
+                    for (std::size_t i = 0; i < owned_n; ++i)
+                        if (!rip[i]) s.surviving.push_back(parent.state.owned[i]);
                     if (m.failed_pos < 0 ||
                         m.failed_pos >= static_cast<int>(prem.size()))
                         continue;
@@ -1098,7 +1129,7 @@ MultiPlyResult multiply_beam_search(const std::vector<RipupMove>& first_moves,
                         *mctx.resolver, *mctx.ectx, *mctx.layer_mult,
                         mctx.astar_cfg, mctx.congestion_tpl, mctx.mode_name,
                         s.move, mctx.hier_cfg, mctx.hier_cache,
-                        mctx.reservation_strength);
+                        mctx.reservation_strength, deadline);
                     wres[static_cast<std::size_t>(c)] = std::move(r);
                 }
             };
