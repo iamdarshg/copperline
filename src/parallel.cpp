@@ -574,9 +574,33 @@ Coord CongestionMap::penalty_for_segment(const Segment& seg) const {
     Rect r = seg.bounds();
     int x0 = cell_of_x(r.x1), x1 = cell_of_x(r.x2);
     int y0 = cell_of_y(r.y1), y1 = cell_of_y(r.y2);
+    // Perf (exact): clip each row to the x-range the segment can reach in that
+    // row's y-band (plus one cell of slack), instead of sweeping the whole
+    // bbox. The seg_intersects_rect gate below is unchanged, so the accumulated
+    // cost -- and every routing decision -- is bit-identical; only the wasted
+    // bbox-corner cells are skipped (quadratic in edge length for long diagonal
+    // edges, which dominate the graph).
+    const bool horizontal = (seg.a.y == seg.b.y);
+    const long double ax = seg.a.x, ay = seg.a.y, bx = seg.b.x, by = seg.b.y;
+    const long double dx = bx - ax, dy = by - ay;
     double cost = 0.0;
     for (int y = y0; y <= y1; ++y) {
-        for (int x = x0; x <= x1; ++x) {
+        int rx0 = x0, rx1 = x1;
+        if (!horizontal) {
+            const long double band0 = bounds_.y1 + (Coord)y * cell_h_;
+            const long double band1 = band0 + cell_h_;
+            long double ta = (band0 - ay) / dy, tb = (band1 - ay) / dy;
+            if (ta > tb) std::swap(ta, tb);
+            if (ta < 0.0L) ta = 0.0L;
+            if (tb > 1.0L) tb = 1.0L;
+            if (ta <= tb) {
+                long double xa = ax + ta * dx, xb = ax + tb * dx;
+                if (xa > xb) std::swap(xa, xb);
+                rx0 = std::max(x0, cell_of_x(static_cast<Coord>(xa)) - 1);
+                rx1 = std::min(x1, cell_of_x(static_cast<Coord>(xb)) + 1);
+            }
+        }
+        for (int x = rx0; x <= rx1; ++x) {
             Rect cell{bounds_.x1 + (Coord)x * cell_w_, bounds_.y1 + (Coord)y * cell_h_,
                       bounds_.x1 + (Coord)(x + 1) * cell_w_,
                       bounds_.y1 + (Coord)(y + 1) * cell_h_};
@@ -710,11 +734,34 @@ Coord ReservationSet::penalty_for_segment(std::size_t self_task, const Segment& 
     cand.clear();
     int x0 = cell_of_x(r.x1), x1 = cell_of_x(r.x2);
     int y0 = cell_of_y(r.y1), y1 = cell_of_y(r.y2);
-    for (int y = y0; y <= y1; ++y)
-        for (int x = x0; x <= x1; ++x) {
+    // Perf (exact): row-clipped gather (see CongestionMap::penalty_for_segment).
+    // The candidate set is a superset of the old bbox sweep, so after the sort
+    // + unique + per-corridor intersects() gate the accumulated cost is
+    // bit-identical; only bbox-corner cells are skipped.
+    const bool horizontal = (seg.a.y == seg.b.y);
+    const long double ax = seg.a.x, ay = seg.a.y, bx = seg.b.x, by = seg.b.y;
+    const long double dx = bx - ax, dy = by - ay;
+    for (int y = y0; y <= y1; ++y) {
+        int rx0 = x0, rx1 = x1;
+        if (!horizontal) {
+            const long double band0 = bounds_.y1 + (Coord)y * cell_h_;
+            const long double band1 = band0 + cell_h_;
+            long double ta = (band0 - ay) / dy, tb = (band1 - ay) / dy;
+            if (ta > tb) std::swap(ta, tb);
+            if (ta < 0.0L) ta = 0.0L;
+            if (tb > 1.0L) tb = 1.0L;
+            if (ta <= tb) {
+                long double xa = ax + ta * dx, xb = ax + tb * dx;
+                if (xa > xb) std::swap(xa, xb);
+                rx0 = std::max(x0, cell_of_x(static_cast<Coord>(xa)) - 1);
+                rx1 = std::min(x1, cell_of_x(static_cast<Coord>(xb)) + 1);
+            }
+        }
+        for (int x = rx0; x <= rx1; ++x) {
             const std::vector<int>& v = cells_[static_cast<std::size_t>(y) * nx_ + x];
             cand.insert(cand.end(), v.begin(), v.end());
         }
+    }
     std::sort(cand.begin(), cand.end());
     cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
     for (int i : cand) {
