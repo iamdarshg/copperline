@@ -153,7 +153,8 @@ EffectiveSearchBudget effective_budget_for_phase(
     const BoardMaturityState& state, const AStarConfig& base_astar,
     const HierarchyConfig& base_hier, const MaturityCaps& caps,
     std::size_t memory_budget_bytes, std::size_t per_task_bytes,
-    int threads_effective, double timeout_remaining_s, int remaining_count) {
+    int threads_effective, double timeout_remaining_s, int remaining_count,
+    bool board_scale) {
     EffectiveSearchBudget b;
     int lvl = static_cast<int>(state.phase);  // 0..3, deterministic
 
@@ -249,7 +250,8 @@ EffectiveSearchBudget effective_budget_for_phase(
     // the exact search it steers. Measured on a 2458-task board, disabling it
     // routed strictly more connections in less wall time. Small boards keep
     // the legacy enabled behaviour exactly (their schedules stay pinned).
-    b.hier_enabled = remaining_count < kGuidanceDisableRemaining;
+    const bool board_scale_active = board_scale && !caps.disable_board_scale_policy;
+    b.hier_enabled = !board_scale_active;
 
     // History growth scales Pathfinder history increments (pressure memory).
     static const double kHist[4] = {1.0, 1.0, 1.5, 2.0};
@@ -297,6 +299,19 @@ EffectiveSearchBudget effective_budget_for_phase(
     if (want_gk < 0) want_gk = 0;
     b.graph_max_bases = want_bases;
     b.graph_k_nearest = want_gk;
+
+    // Board-scale backlog: clamp the phase-escalated graph down (see
+    // kBoardScaleGraphBases). Graph construction dominates at this scale and
+    // A* exhausts whatever it is given, so a smaller default graph buys
+    // throughput for quality -- never correctness, because a miss still gets
+    // the last-resort rebuild before "unreachable". Explicit caps were already
+    // applied above, so this only ever lowers further.
+    if (board_scale_active) {
+        if (b.graph_max_bases > caps.board_scale_graph_bases)
+            b.graph_max_bases = caps.board_scale_graph_bases;
+        if (b.graph_k_nearest <= 0 || b.graph_k_nearest > caps.board_scale_graph_k)
+            b.graph_k_nearest = caps.board_scale_graph_k;
+    }
 
     // Timeout share per remaining task: equal split of the remaining overall
     // deadline (<=0 = no timeout configured = unlimited).
@@ -527,6 +542,12 @@ bool apply_maturity_json(MaturityOptions& out, const JsonValue& node,
         if (!capi("max_graph_k_nearest", v, 0, 1000000)) return false;
         if (c->has("max_graph_k_nearest"))
             cp.max_graph_k_nearest = static_cast<int>(v);
+        if (!capi("board_scale_graph_bases", v, 1, 100000000, false)) return false;
+        if (c->has("board_scale_graph_bases"))
+            cp.board_scale_graph_bases = static_cast<std::size_t>(v);
+        if (!capi("board_scale_graph_k", v, 1, 1000000, false)) return false;
+        if (c->has("board_scale_graph_k"))
+            cp.board_scale_graph_k = static_cast<int>(v);
         double w = 0;
         if (!get_num(*c, "max_weight_factor", w)) {
             err_out = "maturity.caps.max_weight_factor: expected a number";

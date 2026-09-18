@@ -341,6 +341,41 @@ CT_TEST(ripup_reroute_reaches_full_connectivity) {
     CT_CHECK(rep.state_hash.to_hex().size() == 32);
 }
 
+CT_TEST(starved_graph_budget_never_reports_false_unreachable) {
+    // Approximate-budget safety net: a deliberately starved default sparse
+    // graph must not turn a routable board into a false "unreachable". Every
+    // default-graph miss is re-searched at last-resort scale (wide bases,
+    // K=64) before the task is failed, so the verdict stays honest even when
+    // the default graph is tiny; only cost and route quality may differ. This
+    // is the invariant the board-scale graph clamp relies on.
+    Board b = trap_board();
+    RuleResolver r = RuleResolver::defaults_for(b);
+    EngineOptions opt;
+    opt.threads = 1;
+    opt.enable_ripup = true;
+    opt.maturity.caps.max_graph_bases = 16;
+    opt.maturity.caps.max_graph_k_nearest = 1;
+    RouterEngine engine(std::move(b), std::move(r), opt);
+    RouteReport rep = engine.run();
+    CT_CHECK(rep.status == "COMPLETE");       // no false unreachable
+    CT_CHECK(rep.result_category == "COMPLETE");
+    CT_CHECK(rep.connected_terminals == rep.total_terminals);
+    CT_CHECK(rep.verification.ok);            // committed copper is legal
+    // The starved budget must not change the committed outcome, and worker
+    // count must not change it either (determinism under the clamp).
+    Board b4 = trap_board();
+    RuleResolver r4 = RuleResolver::defaults_for(b4);
+    EngineOptions opt4;
+    opt4.threads = 4;
+    opt4.enable_ripup = true;
+    opt4.maturity.caps.max_graph_bases = 16;
+    opt4.maturity.caps.max_graph_k_nearest = 1;
+    RouterEngine engine4(std::move(b4), std::move(r4), opt4);
+    RouteReport rep4 = engine4.run();
+    CT_CHECK(rep4.status == "COMPLETE");
+    CT_CHECK(rep4.board_hash == rep.board_hash);
+}
+
 CT_TEST(recovered_geometry_differs_and_verifies) {
     Board b = trap_board();
     RuleResolver r = RuleResolver::defaults_for(b);

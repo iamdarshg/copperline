@@ -82,30 +82,97 @@ CT_TEST(maturity_easy_board_stays_open_and_cheap) {
     CT_CHECK(b.hier_enabled);
 }
 
-CT_TEST(maturity_guidance_disabled_once_backlog_is_board_scale) {
-    // Board-scale backlogs turn guidance off (it costs more than it steers);
-    // everything below the threshold is untouched. Pure function of the
-    // backlog, so it stays thread- and timing-independent.
+CT_TEST(maturity_board_scale_policy_is_latched_not_draining) {
+    // The board-scale policy keys on a LATCHED run-level judgment, not on the
+    // draining backlog: with board_scale=true guidance stays off and the graph
+    // stays clamped even when remaining_count has drained to almost nothing.
+    // Keying on remaining_count instead flipped both back on exactly as the
+    // board densified (measured: 4 CPU-hours of re-enabled guidance on a
+    // board-scale run, graph sizes back to 2048/64).
     MaturityThresholds th;
     BoardMaturityState st = update_maturity(easy_input(), th, nullptr, 0.10);
     MaturityCaps caps;
-    auto hier_for = [&](int remaining) {
+    auto budget = [&](int remaining, bool board_scale) {
         return effective_budget_for_phase(st, base_astar(), HierarchyConfig{}, caps,
-                                          kRouterMemoryBudgetBytes, kPerCandidateBytes, 16,
-                                          -1.0, remaining)
-            .hier_enabled;
+                                          kRouterMemoryBudgetBytes, kPerCandidateBytes,
+                                          16, -1.0, remaining, board_scale);
     };
-    CT_CHECK(hier_for(8));
-    CT_CHECK(hier_for(512));
-    CT_CHECK(hier_for(kGuidanceDisableRemaining - 1));
-    CT_CHECK(!hier_for(kGuidanceDisableRemaining));
-    CT_CHECK(!hier_for(4096));
-    // JSON surface carries the decision for agents.
-    EffectiveSearchBudget b = effective_budget_for_phase(
-        st, base_astar(), HierarchyConfig{}, caps, kRouterMemoryBudgetBytes,
-        kPerCandidateBytes, 16, -1.0, 4096);
-    JsonValue j = b.to_json();
+    // Not board-scale: guidance on, phase graph, whatever the backlog.
+    EffectiveSearchBudget n0 = budget(8, false);
+    CT_CHECK(n0.hier_enabled);
+    CT_CHECK(n0.graph_max_bases == 384);
+    CT_CHECK(n0.graph_k_nearest == 16);
+    EffectiveSearchBudget n1 = budget(4096, false);
+    CT_CHECK(n1.hier_enabled);
+    // Latched board-scale: guidance off + graph clamped at a huge backlog...
+    EffectiveSearchBudget b0 = budget(4096, true);
+    CT_CHECK(!b0.hier_enabled);
+    CT_CHECK(b0.graph_max_bases == kBoardScaleGraphBases);
+    CT_CHECK(b0.graph_k_nearest == kBoardScaleGraphK);
+    // ...and STILL off/clamped after the backlog has drained to a handful.
+    EffectiveSearchBudget b1 = budget(4, true);
+    CT_CHECK(!b1.hier_enabled);                             // stays off
+    CT_CHECK(b1.graph_max_bases == kBoardScaleGraphBases);  // stays clamped
+    CT_CHECK(b1.graph_k_nearest == kBoardScaleGraphK);
+    // Backlog-adaptive batch width is deliberately NOT latched: it still drains
+    // with the remaining work.
+    CT_CHECK(b1.batch_width <= b0.batch_width);
+    // Escape hatch: the policy can be turned off (A-B testing / opt-out).
+    MaturityCaps off;
+    off.disable_board_scale_policy = true;
+    EffectiveSearchBudget o = effective_budget_for_phase(
+        st, base_astar(), HierarchyConfig{}, off, kRouterMemoryBudgetBytes,
+        kPerCandidateBytes, 16, -1.0, 4, /*board_scale=*/true);
+    CT_CHECK(o.hier_enabled);           // policy bypassed: guidance back on
+    CT_CHECK(o.graph_max_bases == 384);  // phase graph, not the clamp
+    CT_CHECK(o.graph_k_nearest == 16);
+    // JSON surface carries both decisions for agents.
+    JsonValue j = b1.to_json();
     CT_CHECK(j["hier_enabled"].as_bool() == false);
+    CT_CHECK(j["graph_max_bases"].as_number() ==
+             static_cast<double>(kBoardScaleGraphBases));
+    CT_CHECK(j["graph_k_nearest"].as_number() == static_cast<double>(kBoardScaleGraphK));
+}
+
+CT_TEST(maturity_graph_phase_escalation_and_caps_unaffected_by_scale) {
+    // The board-scale clamp only ever lowers and never changes the underlying
+    // phase escalation or the explicit agent caps. Not-board-scale runs (small
+    // boards) are byte-for-byte the legacy schedule.
+    MaturityThresholds th;
+    BoardMaturityState open = update_maturity(easy_input(), th, nullptr, 0.10);
+    BoardMaturityState dense = update_maturity(dense_input(), th, &open, 0.10);
+    MaturityCaps caps;
+    auto budget_for = [&](const BoardMaturityState& st, int remaining,
+                          const MaturityCaps& c, bool board_scale) {
+        return effective_budget_for_phase(st, base_astar(), HierarchyConfig{}, c,
+                                          kRouterMemoryBudgetBytes, kPerCandidateBytes,
+                                          16, -1.0, remaining, board_scale);
+    };
+    // Not board-scale: OPEN keeps the legacy floor; DENSE still escalates.
+    EffectiveSearchBudget bo = budget_for(open, 500, caps, false);
+    CT_CHECK(bo.graph_max_bases == 384);
+    CT_CHECK(bo.graph_k_nearest == 16);
+    EffectiveSearchBudget bd = budget_for(dense, 1024, caps, false);
+    CT_CHECK(bd.graph_max_bases > bo.graph_max_bases);
+    CT_CHECK(bd.graph_k_nearest > bo.graph_k_nearest);
+    // Board-scale depends only on the latch, not on the phase: even a
+    // phase-CLOSURE (uncapped) want is clamped.
+    EffectiveSearchBudget co = budget_for(open, 100, caps, true);
+    CT_CHECK(co.graph_max_bases == kBoardScaleGraphBases);
+    CT_CHECK(co.graph_k_nearest == kBoardScaleGraphK);
+    EffectiveSearchBudget cd = budget_for(dense, 100, caps, true);
+    CT_CHECK(cd.graph_max_bases == kBoardScaleGraphBases);
+    CT_CHECK(cd.graph_k_nearest == kBoardScaleGraphK);
+    // Explicit caps are ceilings and still win, at board scale included.
+    MaturityCaps tiny;
+    tiny.max_graph_bases = 64;
+    tiny.max_graph_k_nearest = 4;
+    EffectiveSearchBudget bt_dense = budget_for(dense, 256, tiny, false);
+    CT_CHECK(bt_dense.graph_max_bases == 64);
+    CT_CHECK(bt_dense.graph_k_nearest == 4);
+    EffectiveSearchBudget bt_scale = budget_for(dense, 4096, tiny, true);
+    CT_CHECK(bt_scale.graph_max_bases == 64);  // cap wins at board scale too
+    CT_CHECK(bt_scale.graph_k_nearest == 4);
 }
 
 CT_TEST(maturity_batch_width_scales_with_backlog_and_is_memory_bounded) {

@@ -91,12 +91,18 @@ inline NetInfo make_net(NetId id, const std::string& name) {
     return n;
 }
 
+inline TermId& term_id_counter() {
+    static TermId next = 0;
+    return next;
+}
+
 inline TermId add_terminal(Board& board, NetId net, double x_mm, double y_mm, LayerId layer = 0,
                            double pad_mm = 0.5, const std::string& comp = "",
                            const std::string& pin = "") {
-    static TermId next = 0;
+    TermId next = term_id_counter();
     Terminal t;
     t.id = next++;
+    term_id_counter() = next;
     t.net = net;
     t.pos = {mm_to_nm(x_mm), mm_to_nm(y_mm)};
     t.layer = layer;
@@ -109,7 +115,10 @@ inline TermId add_terminal(Board& board, NetId net, double x_mm, double y_mm, La
     return t.id;
 }
 
-inline void reset_term_ids() {}
+// Reset the terminal-id counter so a freshly built board has dense ids
+// (0..n-1). Board::find_terminal's O(1) fast path requires terminals[i].id
+// == i, which large synthetic boards in one test binary otherwise break.
+inline void reset_term_ids() { term_id_counter() = 0; }
 
 }  // namespace test
 }  // namespace copperline

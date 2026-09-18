@@ -838,8 +838,19 @@ RouteReport RouterEngine::run() {
                                       static_cast<double>(in.total_tasks);
         return in;
     };
+    // Latched run-level judgment: is the INITIAL backlog board-scale? Computed
+    // once (first refresh_budget, when `remaining` is the full set) and held
+    // for the whole run so the board-scale policies cannot flip back on as the
+    // backlog drains -- see effective_budget_for_phase.
+    bool board_scale_run = false;
+    bool board_scale_latched = false;
     auto refresh_budget = [&](int stalled_epochs, int ripups, int rec_gens,
                               int log_epoch, bool is_rec, int gen) {
+        if (!board_scale_latched) {
+            board_scale_run =
+                static_cast<int>(remaining.size()) >= kGuidanceDisableRemaining;
+            board_scale_latched = true;
+        }
         if (!options_.maturity.enabled) {
             // Legacy fixed budgets: OPEN_BOARD params over the base config.
             MaturityInput in = gather_maturity(0, 0, 0);
@@ -866,7 +877,8 @@ RouteReport RouterEngine::run() {
             maturity_state, options_.astar, options_.hierarchy,
             options_.maturity.caps, options_.memory_budget_bytes,
             options_.per_task_bytes, effective_threads,
-            maturity_timeout_remaining(), static_cast<int>(remaining.size()));
+            maturity_timeout_remaining(), static_cast<int>(remaining.size()),
+            board_scale_run);
         have_budget = true;
         MaturityLogEntry e;
         e.epoch = log_epoch;

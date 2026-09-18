@@ -91,3 +91,5 @@ copperline_test(test_pair_verify)
 copperline_test(test_tuning)
 copperline_test(test_golden)
 copperline_test(test_formats)
+# Opt-in: skipped cheaply unless COPPERLINE_BOARD_SCALE=1 (see the file header).
+copperline_test(test_board_scale)

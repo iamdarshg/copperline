@@ -140,6 +140,32 @@ BoardMaturityState update_maturity(const MaturityInput& in,
 // board area. Deterministic; 0 for degenerate boards.
 double copper_occupancy_frac(const Board& board);
 
+// Board-scale backlog threshold: at or above this many connection tasks the
+// coarse-to-fine guidance grid is itself congested, so its per-task search
+// costs far more than the exact search it steers, and graph construction is
+// the dominant cost (measured ~2900s of edge construction vs ~8s of A* on a
+// 2458-task board). Both board-scale policies are LATCHED from the INITIAL
+// backlog for the whole run (see effective_budget_for_phase): keying on the
+// draining backlog made them flip back off exactly as the board densified.
+// Small boards keep the legacy behaviour exactly.
+inline constexpr int kGuidanceDisableRemaining = 2048;
+
+// Default board-scale graph clamp target: the legacy OPEN/MID floor (384/16),
+// so a board-scale run keeps the well-tested small graph instead of escalating
+// to DENSE 1024/32 and CLOSURE 2048/64 -- the escalation is what dominates the
+// build cost at this scale. The clamp only ever LOWERS the phase budget, and
+// any miss still gets the last-resort rebuild before "unreachable", so this
+// trades quality, never correctness. Tunable via MaturityCaps::board_scale_*.
+//
+// Chosen from a sweep on the 2458-task ESC (14 threads, 2 GB memory budget):
+// 96/4 routed clearly worst; 384/16 matched the best observed count;
+// 1024/32 and 2048/64 were worse (throughput lost faster than quality gained).
+// Fine differences across 256..1024 sit inside run-to-run timing noise (the
+// wall-clock deadline makes A* cuts timing-dependent), so the legacy floor is
+// preferred over over-fitting a noisy surface.
+inline constexpr std::size_t kBoardScaleGraphBases = 384;
+inline constexpr int kBoardScaleGraphK = 16;
+
 // ---- Explicit agent caps (floors/ceilings always win over phase maps) ----
 
 struct MaturityCaps {
@@ -165,14 +191,16 @@ struct MaturityCaps {
     // (an uncapped want of 0 resolves to the cap value).
     std::size_t max_graph_bases = 0;
     int max_graph_k_nearest = 0;
+    // Board-scale graph clamp target (tuning / A-B sweep). The clamp lowers the
+    // phase budget to at most these; shipped defaults are kBoardScaleGraph*.
+    std::size_t board_scale_graph_bases = kBoardScaleGraphBases;
+    int board_scale_graph_k = kBoardScaleGraphK;
+    // Escape hatch / A-B testing: force the legacy (non-latched) board-scale
+    // policy OFF, so guidance and the graph budget follow the phase map even
+    // when the initial backlog is board-scale. Default false = the latched
+    // board-scale policy applies.
+    bool disable_board_scale_policy = false;
 };
-
-// Board-scale backlog: at or above this many unconnected tasks the
-// coarse-to-fine guidance grid is itself congested, so its per-task search
-// costs far more than the exact search it steers. Measured on a 2458-task
-// board: disabling guidance routed strictly MORE connections in LESS wall
-// time. Small boards keep the legacy enabled behaviour exactly.
-inline constexpr int kGuidanceDisableRemaining = 2048;
 
 // ---- Effective search budget: the single consumed object ----
 
@@ -208,11 +236,20 @@ struct EffectiveSearchBudget {
 // threads_effective is passed through (resolved by the caller via
 // resolve_worker_threads: 0/auto -> hardware_concurrency, explicit wins).
 // timeout_remaining_s < 0 means no deadline.
+// `board_scale` is a RUN-LEVEL judgment that this board's backlog is
+// board-scale (see kGuidanceDisableRemaining): the caller must LATCH it once,
+// from the initial backlog, and pass the same value for every epoch. Keying
+// the policy on the draining `remaining_count` instead makes it flip back OFF
+// as work succeeds -- exactly when the board is densest and per-task cost is
+// highest (measured: guidance re-enabled for 4 CPU-hours on a board-scale
+// run, and graph sizes returned to full 2048/64). `remaining_count` is still
+// the input for backlog-adaptive batch width, which SHOULD drain.
 EffectiveSearchBudget effective_budget_for_phase(
     const BoardMaturityState& state, const AStarConfig& base_astar,
     const HierarchyConfig& base_hier, const MaturityCaps& caps,
     std::size_t memory_budget_bytes, std::size_t per_task_bytes,
-    int threads_effective, double timeout_remaining_s, int remaining_count);
+    int threads_effective, double timeout_remaining_s, int remaining_count,
+    bool board_scale = false);
 
 // ---- Engine-facing options ----
 
