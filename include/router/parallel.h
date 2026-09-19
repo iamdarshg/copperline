@@ -59,7 +59,13 @@ inline constexpr std::size_t kMaxStoredInterferencePairs = 8192;
 // Router memory budget (dev default, mirrors build/test cap): 2048MB total.
 // Per-candidate planning overhead estimate used to bound batch width.
 inline constexpr std::size_t kRouterMemoryBudgetBytes = 600ULL * 1024ULL * 1024ULL;
-inline constexpr std::size_t kPerCandidateBytes = 64ULL * 1024ULL * 1024ULL;
+// Per-in-flight-task memory charged by the batch memory bound. Measured on the
+// ESC: peak RSS is transient and essentially independent of the batch width
+// (batch 9 -> 1931 MB, batch 32 -> 2039 MB, i.e. ~5 MB marginal per task), so
+// the previous 64 MB estimate collapsed the batch to floor(budget/64) for no
+// real memory benefit. 16 MB keeps a conservative margin over the measured
+// marginal while letting the batch actually saturate the worker pool.
+inline constexpr std::size_t kPerCandidateBytes = 16ULL * 1024ULL * 1024ULL;
 // Starvation bonus per deferred epoch added to the scheduling value so
 // repeatedly deferred tasks rise to the front deterministically.
 inline constexpr double kStarvationBonusPerEpoch = 1.0;

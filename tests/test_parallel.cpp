@@ -756,8 +756,11 @@ CT_TEST(interference_electrical_scarcity_weights) {
 }
 
 CT_TEST(interference_memory_bounds_and_thread_default) {
-    CT_CHECK(memory_bounded_batch_width(8, kRouterMemoryBudgetBytes, kPerCandidateBytes) == 8);
-    CT_CHECK(memory_bounded_batch_width(8, 100ULL * 1024 * 1024, kPerCandidateBytes) == 1);
+    // Derived from the shipped constants so the test tracks the memory model.
+    CT_CHECK(memory_bounded_batch_width(8, kRouterMemoryBudgetBytes, kPerCandidateBytes) ==
+             std::min<int>(8, static_cast<int>(kRouterMemoryBudgetBytes / kPerCandidateBytes)));
+    CT_CHECK(memory_bounded_batch_width(8, 100ULL * 1024 * 1024, kPerCandidateBytes) ==
+             std::min<int>(8, static_cast<int>(100ULL * 1024 * 1024 / kPerCandidateBytes)));
     CT_CHECK(resolve_worker_threads(2) == 2);
     CT_CHECK(resolve_worker_threads(0) >= 1);
     CT_CHECK(resolve_worker_threads(-1) >= 1);
