@@ -38,7 +38,15 @@ to those two numbers, not a goal.
 | 2026-09-18 | + row-clip penalty, 384/16            | 61     | 1524   | 791 / 2392 | 1246 / 3451 | 0.82 |
 | 2026-09-18 | + 192/8                               | 60     | 1462   | 827 / 2457 | 1260 / 3451 | 0.862 |
 | 2026-09-18 | + route_k=1 at board scale                | 60 | 781  | 827 / 2457 | 1260 / 3451 | 1.613 |
-| 2026-09-18 | **+ exact graph-build opts (current best)** | **60** | **720** | **827 / 2457** | **1260 / 3451** | **1.750** |
+| 2026-09-18 | + exact graph-build opts                  | 60 | 720  | 827 / 2457 | 1260 / 3451 | 1.750 |
+| 2026-09-18 | **+ faster predicates + batch-estimate fix (current best, 8T/600MB)** | **60** | **603** | **995 / 2463** | **1502 / 3451** | **2.493** |
+
+The batch-estimate fix matters most: `kPerCandidateBytes` was 64 MB, which
+capped the epoch batch at `floor(budget/64)` for no real memory benefit (peak
+RSS is transient and batch-independent: batch 9 -> 1931 MB, batch 32 -> 2039 MB,
+~5 MB marginal per task). Correcting it to a still-conservative 16 MB restores
+the batch to 37 at a 600 MB budget, taking 60 epochs from 386 tasks / 873
+terminals to 995 / 1502.
 
 Exact graph-build optimizations (identical graph counters, identical copper):
 inline `DecidedEdge` storage (no heap alloc per probe), row-clipped obstacle
@@ -67,13 +75,17 @@ deadline makes A* cuts timing-dependent, so timeout-based sweeps are noise.
 
 ## Known constraints (measured)
 
-- Peak RSS on the ESC is ~2039 MB, i.e. the 2 GB budget is real and binding.
-  The epoch batch is capped at 32 candidates by `2048 MB / 64 MB`; it cannot be
-  widened without exceeding the cap. Reducing per-graph memory is therefore a
-  *throughput* lever, not just a footprint one.
+- Peak RSS on the ESC is a *transient* ~1.9 GB (43 MB at start -> ~1930 MB peak
+  -> 59 MB at exit) and is essentially independent of the batch width. The
+  memory budget is a batch-width model, NOT a cap on actual RSS: at a 600 MB
+  budget, peak RSS is still ~1.9 GB. So a small budget buys no real footprint
+  reduction, only a smaller batch (hence the estimate fix above).
 - Graph construction is ~70% of CPU (`gb_edges_ms` dominates), and A* exhausts
-  the graph (5712 expansions over 1101 nodes), so lazy/late binding of edges or
-  penalties saves nothing.
+  the graph, so lazy/late binding of edges or penalties saves nothing.
+- Exactness gate: graph counters (`gb_edges_total`, and the aligned/knn/via
+  split) must be byte-identical across a change. The small perf identity hash is
+  NOT sufficient — it missed nothing here, but always confirm on the ESC with an
+  untruncated run (a short `--timeout` truncates and fakes a difference).
 
 ## Rules
 
