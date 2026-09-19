@@ -150,21 +150,22 @@ double copper_occupancy_frac(const Board& board);
 // Small boards keep the legacy behaviour exactly.
 inline constexpr int kGuidanceDisableRemaining = 2048;
 
-// Default board-scale graph clamp target: the legacy OPEN/MID floor (384/16),
-// so a board-scale run keeps the well-tested small graph instead of escalating
-// to DENSE 1024/32 and CLOSURE 2048/64 -- the escalation is what dominates the
-// build cost at this scale. The clamp only ever LOWERS the phase budget, and
-// any miss still gets the last-resort rebuild before "unreachable", so this
-// trades quality, never correctness. Tunable via MaturityCaps::board_scale_*.
+// Default board-scale graph clamp target. The clamp only ever LOWERS the
+// phase-escalated budget, so a board-scale run keeps this small graph instead
+// of escalating to DENSE 1024/32 and CLOSURE 2048/64 -- that escalation is what
+// dominates both build cost and peak memory at this scale. Any miss still gets
+// the last-resort rebuild before "unreachable", so this trades quality, never
+// correctness. Tunable via MaturityCaps::board_scale_graph_*.
 //
-// Chosen from a sweep on the 2458-task ESC (14 threads, 2 GB memory budget):
-// 96/4 routed clearly worst; 384/16 matched the best observed count;
-// 1024/32 and 2048/64 were worse (throughput lost faster than quality gained).
-// Fine differences across 256..1024 sit inside run-to-run timing noise (the
-// wall-clock deadline makes A* cuts timing-dependent), so the legacy floor is
-// preferred over over-fitting a noisy surface.
-inline constexpr std::size_t kBoardScaleGraphBases = 384;
-inline constexpr int kBoardScaleGraphK = 16;
+// Chosen by a FIXED-60-EPOCH sweep on the 2458-task ESC (14 threads, 2 GB
+// budget), scoring connections-at-60-epochs and connections/second (see
+// GOAL.md): 128/8 = 715 tasks / 0.78/s, 192/8 = 827 / 0.862/s (best),
+// 384/16 = 791 / 0.818/s, 1024/32 and 2048/64 worse. A fixed epoch count is
+// used because the wall-clock deadline makes timeout-based runs
+// timing-dependent; the earlier 900s-timeout sweep was noise and pointed at
+// 384/16, which the deterministic sweep disproves.
+inline constexpr std::size_t kBoardScaleGraphBases = 192;
+inline constexpr int kBoardScaleGraphK = 8;
 
 // ---- Explicit agent caps (floors/ceilings always win over phase maps) ----
 

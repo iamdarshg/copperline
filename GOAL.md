@@ -32,14 +32,34 @@ to those two numbers, not a goal.
 
 ## Baselines
 
-| date       | code                                   | epochs | wall s | tasks      | terminals  | terminals/s |
-|------------|----------------------------------------|--------|--------|------------|------------|-------------|
-| 2026-09-18 | 15fd2af (latched, 384/16)              | 54     | 934    | 746 / 2387 | 1208 / 3451 | 1.29 |
-| 2026-09-18 | 15fd2af + row-clip penalty (uncommitted)| 61    | 1524   | 791 / 2392 | 1246 / 3451 | 0.82 |
+| date       | code                                  | epochs | wall s | tasks      | terminals   | terminals/s |
+|------------|---------------------------------------|--------|--------|------------|-------------|-------------|
+| 2026-09-18 | latched 384/16                        | 54     | 934    | 746 / 2387 | 1208 / 3451 | 1.29 |
+| 2026-09-18 | + row-clip penalty, 384/16            | 61     | 1524   | 791 / 2392 | 1246 / 3451 | 0.82 |
+| 2026-09-18 | **+ 192/8 (current best)**            | **60** | **1462** | **827 / 2457** | **1260 / 3451** | **0.862** |
 
-The row-clip improved per-task graph time (~2.67 s -> ~1.75 s per epoch task)
-but the later epochs get slower as the board densifies, so total time rose with
-the extra epochs. The frontier is still graph construction.
+Fixed-60-epoch sweep (14 threads, 2 GB), scoring both metrics:
+
+| bases/k | tasks | terminals | terminals/s |
+|---------|-------|-----------|-------------|
+| 128/8   | 715   | 1181      | 0.78 |
+| **192/8** | **827** | **1260** | **0.862** |
+| 384/16  | 791   | 1246      | 0.818 |
+| 1024/32 | worse | worse     | -   |
+| 2048/64 | worse | worse     | -   |
+
+Method note: sweep at a **fixed epoch count**, not a wall-clock timeout — the
+deadline makes A* cuts timing-dependent, so timeout-based sweeps are noise.
+
+## Known constraints (measured)
+
+- Peak RSS on the ESC is ~2039 MB, i.e. the 2 GB budget is real and binding.
+  The epoch batch is capped at 32 candidates by `2048 MB / 64 MB`; it cannot be
+  widened without exceeding the cap. Reducing per-graph memory is therefore a
+  *throughput* lever, not just a footprint one.
+- Graph construction is ~70% of CPU (`gb_edges_ms` dominates), and A* exhausts
+  the graph (5712 expansions over 1101 nodes), so lazy/late binding of edges or
+  penalties saves nothing.
 
 ## Rules
 
