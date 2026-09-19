@@ -63,11 +63,16 @@ Board bottleneck_board() {
     return b;
 }
 
+// Portfolio-diversity tests exercise the K-alternative planner, not the
+// global memory default, so they pin an explicit roomy budget (the shipped
+// kRouterMemoryBudgetBytes default is intentionally small).
+constexpr std::size_t kTestMemBudget = 2048ULL * 1024ULL * 1024ULL;
+
 PortfolioOptions opts_k(int k) {
     PortfolioOptions o;
     o.requested_k = k;
     o.max_k = kPortfolioMaxK;
-    o.memory_budget_bytes = kRouterMemoryBudgetBytes;
+    o.memory_budget_bytes = kTestMemBudget;
     o.per_task_bytes = kPerCandidateBytes;
     o.per_alt_bytes = kPerPortfolioAltBytes;
     o.batch_width = kParallelBatchSize;
@@ -280,10 +285,10 @@ CT_TEST(portfolio_k_effective_budget_memory_threads) {
     CT_CHECK(clamp_portfolio_k(99) == kPortfolioMaxK);
     CT_CHECK(clamp_portfolio_k(0) == 1);
     // Budget route_k from EffectiveSearchBudget wins over a larger request.
-    CT_CHECK(effective_portfolio_k(12, 15, 3, kRouterMemoryBudgetBytes, 8,
+    CT_CHECK(effective_portfolio_k(12, 15, 3, kTestMemBudget, 8,
                                    kPerCandidateBytes, kPerPortfolioAltBytes) == 3);
-    // No budget: default memory keeps K=12.
-    CT_CHECK(effective_portfolio_k(12, 15, -1, kRouterMemoryBudgetBytes, 8,
+    // No budget: roomy memory keeps K=12.
+    CT_CHECK(effective_portfolio_k(12, 15, -1, kTestMemBudget, 8,
                                    kPerCandidateBytes, kPerPortfolioAltBytes) == 12);
     // Tiny memory budget: K collapses to 1 (bounded overhead, never 0).
     CT_CHECK(effective_portfolio_k(12, 15, -1, 64ULL * 1024 * 1024, 8,

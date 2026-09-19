@@ -8,6 +8,7 @@
 
 #include "helpers.h"
 #include "router/json.h"
+#include "router/parallel.h"
 
 using namespace copperline;
 
@@ -423,7 +424,9 @@ CT_TEST(threads_zero_means_auto) {
     JsonValue v = must_parse(out);
     CT_CHECK(v.get_string("status") == "COMPLETE");
     CT_CHECK(v.find("params")->get_number("threads_effective", 0) >= 1);
-    CT_CHECK(v.find("params")->get_number("memory_budget_mb", 0) == 2048);
+    // Derived from the shipped constant so the assertion tracks the budget.
+    CT_CHECK(v.find("params")->get_number("memory_budget_mb", 0) ==
+             static_cast<double>(kRouterMemoryBudgetBytes / (1024ULL * 1024ULL)));
 }
 
 CT_TEST(dsn_ses_workflow) {

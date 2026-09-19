@@ -191,12 +191,18 @@ CT_TEST(maturity_batch_width_scales_with_backlog_and_is_memory_bounded) {
     CT_CHECK(width_for(32, caps) == 8);
     CT_CHECK(width_for(64, caps) == 8);
     // Larger backlog widens toward the worker count, then the memory bound
-    // (2048MB / 64MB = 32) and the explicit cap, whichever is smaller.
-    CT_CHECK(width_for(128, caps) == 32);
-    CT_CHECK(width_for(4096, caps) == 32);  // 64 wanted, memory-bounded to 32
+    // (kRouterMemoryBudgetBytes / kPerCandidateBytes) and the explicit cap,
+    // whichever is smaller. Derived from the constant so the test tracks the
+    // shipped budget instead of pinning a number.
+    const int mem_bound = static_cast<int>(kRouterMemoryBudgetBytes / kPerCandidateBytes);
+    CT_CHECK(mem_bound >= 1);
+    CT_CHECK(width_for(128, caps) == std::min(32, mem_bound));
+    CT_CHECK(width_for(4096, caps) == std::min(64, mem_bound));
     MaturityCaps capped;
     capped.max_batch_width = 12;
-    CT_CHECK(width_for(4096, capped) == 12);  // explicit cap always wins
+    // The explicit cap wins over the phase want, but the memory bound is still
+    // a floor-of-last-resort beneath it.
+    CT_CHECK(width_for(4096, capped) == std::min(12, mem_bound));
 }
 
 CT_TEST(maturity_same_board_escalates_with_occupancy_and_stalls) {

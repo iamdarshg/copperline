@@ -184,6 +184,8 @@ inline bool seg_intersects_seg(Segment s1, Segment s2) {
 }
 
 inline bool seg_intersects_rect(Segment s, const Rect& r) {
+    // Exact early-out: disjoint bounding boxes cannot intersect.
+    if (!s.bounds().intersects(r)) return false;
     if (r.contains(s.a) || r.contains(s.b)) return true;
     Segment edges[4] = {{{r.x1, r.y1}, {r.x2, r.y1}},
                         {{r.x2, r.y1}, {r.x2, r.y2}},
@@ -222,17 +224,31 @@ inline bool gap_ok_rect(const Rect& a, const Rect& b, Coord need) {
     return rect_gap2(a, b) >= (__int128)need * need;
 }
 
-// Exact squared distance, segment to rect (0 when touching).
+// Exact squared distance, point to rect (0 when inside/touching).
+inline __int128 point_rect_dist2(Point p, const Rect& r) {
+    Coord dx = 0, dy = 0;
+    if (p.x < r.x1) dx = r.x1 - p.x;
+    else if (p.x > r.x2) dx = p.x - r.x2;
+    if (p.y < r.y1) dy = r.y1 - p.y;
+    else if (p.y > r.y2) dy = p.y - r.y2;
+    return (__int128)dx * dx + (__int128)dy * dy;
+}
+
+// Exact squared distance, segment to rect (0 when touching). For two disjoint
+// convex shapes the closest pair is always vertex-to-edge, so the minimum is
+// over the segment endpoints against the rect and the rect corners against the
+// segment: 2 point_rect_dist2 + 4 point_seg_dist2, instead of the previous
+// min-over-4-edges-of-seg_seg_dist2 (4 intersection tests + 16
+// point_seg_dist2). The value is identical: for a point outside the rect,
+// point_rect_dist2 equals the min over the rect's edges of point_seg_dist2,
+// and an endpoint inside the rect means the shapes intersect (early return).
 inline Coord seg_rect_dist2(Segment s, const Rect& r) {
     if (seg_intersects_rect(s, r)) return 0;
-    Coord d = point_seg_dist2(s.a, {{r.x1, r.y1}, {r.x1, r.y1}});
-    // Distance to each rect edge.
-    Segment edges[4] = {{{r.x1, r.y1}, {r.x2, r.y1}},
-                        {{r.x2, r.y1}, {r.x2, r.y2}},
-                        {{r.x2, r.y2}, {r.x1, r.y2}},
-                        {{r.x1, r.y2}, {r.x1, r.y1}}};
-    for (const auto& e : edges) d = std::min(d, seg_seg_dist2(s, e));
-    return d;
+    __int128 d = point_rect_dist2(s.a, r);
+    d = std::min(d, point_rect_dist2(s.b, r));
+    const Point corners[4] = {{r.x1, r.y1}, {r.x2, r.y1}, {r.x2, r.y2}, {r.x1, r.y2}};
+    for (const Point& c : corners) d = std::min(d, (__int128)point_seg_dist2(c, s));
+    return static_cast<Coord>(d);
 }
 
 inline bool seg_ok_rect(const Segment& s, const Rect& raw, Coord need) {
@@ -244,16 +260,6 @@ inline bool seg_ok_rect(const Segment& s, const Rect& raw, Coord need) {
 // Issue #14: via barrels are discs (KiCad annulus), not squares. The square
 // bbox stays as broadphase; these are the exact narrow-phase predicates.
 // All integer-exact (__int128 intermediates, no floating point).
-
-// Exact squared distance, point to rect (0 when inside/touching).
-inline __int128 point_rect_dist2(Point p, const Rect& r) {
-    Coord dx = 0, dy = 0;
-    if (p.x < r.x1) dx = r.x1 - p.x;
-    else if (p.x > r.x2) dx = p.x - r.x2;
-    if (p.y < r.y1) dy = r.y1 - p.y;
-    else if (p.y > r.y2) dy = p.y - r.y2;
-    return (__int128)dx * dx + (__int128)dy * dy;
-}
 
 // Exact disc-vs-segment clearance: center distance from the segment
 // centerline >= via_radius + trace_halfwidth + clear. Full diameters/widths
@@ -285,3 +291,4 @@ inline bool via_disc_ok_disc(Point a, Coord d_a, Point b, Coord d_b,
 }
 
 }  // namespace copperline
+
