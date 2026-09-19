@@ -37,7 +37,14 @@ to those two numbers, not a goal.
 | 2026-09-18 | latched 384/16                        | 54     | 934    | 746 / 2387 | 1208 / 3451 | 1.29 |
 | 2026-09-18 | + row-clip penalty, 384/16            | 61     | 1524   | 791 / 2392 | 1246 / 3451 | 0.82 |
 | 2026-09-18 | + 192/8                               | 60     | 1462   | 827 / 2457 | 1260 / 3451 | 0.862 |
-| 2026-09-18 | **+ route_k=1 at board scale (current best)** | **60** | **781** | **827 / 2457** | **1260 / 3451** | **1.613** |
+| 2026-09-18 | + route_k=1 at board scale                | 60 | 781  | 827 / 2457 | 1260 / 3451 | 1.613 |
+| 2026-09-18 | **+ exact graph-build opts (current best)** | **60** | **720** | **827 / 2457** | **1260 / 3451** | **1.750** |
+
+Exact graph-build optimizations (identical graph counters, identical copper):
+inline `DecidedEdge` storage (no heap alloc per probe), row-clipped obstacle
+query (`gb_edges_ms` 2211s -> 1729s CPU), dense per-build clearance/node
+caches, and resetting only the live edge/probe counts instead of reconstructing
+the struct (avoids 6 string ctor/dtor per `decide_edge`).
 
 The route_k=1 policy (single cheapest legal path instead of the K-corridor
 portfolio + per-alternative future-obstruction scoring) produced **identical

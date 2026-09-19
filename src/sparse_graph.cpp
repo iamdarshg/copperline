@@ -841,7 +841,12 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         SparseRejectedProbe probes[3]{};
     };
     auto decide_edge = [&](int from, int to, DecidedEdge& out) {
-        out = DecidedEdge{};
+        // Reset only the live counts: probes[0..n_probes) and edges[0..n_edges)
+        // are the only entries ever read, so this avoids destroying and
+        // re-constructing up to six std::strings (the probes' kind/desc) on
+        // every call -- decide_edge runs ~10^8 times per board-scale run.
+        out.n_edges = 0;
+        out.n_probes = 0;
         const Point a = g.nodes_[from].p;
         const Point b = g.nodes_[to].p;
         if (g.nodes_[from].layer != g.nodes_[to].layer) return;
