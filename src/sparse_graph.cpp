@@ -29,6 +29,9 @@ struct BuildPhaseAcc {
     std::atomic<std::int64_t> calls{0};
     std::atomic<std::int64_t> nodes_total{0};
     std::atomic<std::int64_t> edges_total{0};
+    std::atomic<std::int64_t> aligned_edges{0};
+    std::atomic<std::int64_t> knn_edges{0};
+    std::atomic<std::int64_t> via_edges{0};
 };
 BuildPhaseAcc& build_phase_acc() {
     static BuildPhaseAcc a;
@@ -48,6 +51,9 @@ SparseBuildPhases sparse_graph_build_phases() {
     out.calls = a.calls.load(std::memory_order_relaxed);
     out.nodes_total = a.nodes_total.load(std::memory_order_relaxed);
     out.edges_total = a.edges_total.load(std::memory_order_relaxed);
+    out.aligned_edges = a.aligned_edges.load(std::memory_order_relaxed);
+    out.knn_edges = a.knn_edges.load(std::memory_order_relaxed);
+    out.via_edges = a.via_edges.load(std::memory_order_relaxed);
     return out;
 }
 
@@ -62,6 +68,9 @@ void sparse_graph_build_phases_reset() {
     a.calls.store(0, std::memory_order_relaxed);
     a.nodes_total.store(0, std::memory_order_relaxed);
     a.edges_total.store(0, std::memory_order_relaxed);
+    a.aligned_edges.store(0, std::memory_order_relaxed);
+    a.knn_edges.store(0, std::memory_order_relaxed);
+    a.via_edges.store(0, std::memory_order_relaxed);
 }
 
 int direction_of(Point from, Point to) {
@@ -860,7 +869,13 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             // congestion/reservation penalties in A* can choose between them.
         }
     };
+    // Diagnostics only: attribute committed edges to the pass that made them
+    // (aligned pairs vs K-nearest vs via bundles) so the edge cost can be
+    // targeted. Never affects the graph.
+    std::int64_t aligned_edges_local = 0, knn_edges_local = 0, via_edges_local = 0;
+    std::int64_t* edge_ctr = nullptr;
     auto apply_edge = [&](int from, const DecidedEdge& d) {
+        if (edge_ctr != nullptr) *edge_ctr += static_cast<std::int64_t>(d.edges.size());
         for (int k = 0; k < d.n_probes; ++k) rej_per_node[from].push_back(d.probes[k]);
         for (const auto& e : d.edges) g.adj_[from].push_back(e);
     };
@@ -1057,6 +1072,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             apply_edge(from, d);
             aligned_outcome.insert(key, d);
         };
+        edge_ctr = &aligned_edges_local;
         for (int i : ids) {
             for (int j : by_x[g.nodes_[i].p.x]) aligned_attempt(i, j);
             for (int j : by_y[g.nodes_[i].p.y]) aligned_attempt(i, j);
@@ -1066,6 +1082,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         // construction (nth_element + resize + sort would cut ties at the
         // boundary arbitrarily and change the tried-pair set on grid
         // layouts with massive distance ties — maze regression).
+        edge_ctr = &knn_edges_local;
         for (int i : ids) {
             std::vector<std::pair<Coord, int>> near;
             near.reserve(ids.size());
@@ -1089,6 +1106,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 }
             }
         }
+        edge_ctr = nullptr;
     }
 
     tick(bpa.edges, t_edges);
@@ -1229,6 +1247,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                     e.dir1 = 4;
                     e.dir2 = -1;
                     e.is_via = true;
+                    ++via_edges_local;
                     g.adj_[copies[i].second].push_back(e);
                 }
             }
@@ -1259,6 +1278,9 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                               std::memory_order_relaxed);
     bpa.edges_total.fetch_add(static_cast<std::int64_t>(edges),
                               std::memory_order_relaxed);
+    bpa.aligned_edges.fetch_add(aligned_edges_local, std::memory_order_relaxed);
+    bpa.knn_edges.fetch_add(knn_edges_local, std::memory_order_relaxed);
+    bpa.via_edges.fetch_add(via_edges_local, std::memory_order_relaxed);
     g.rejected_ = std::move(rej_per_node);
     // Issue #21 legacy aggregation is intentionally NOT computed here: it is
     // diagnostics-only (production reads the A*-frontier-only path), so it is

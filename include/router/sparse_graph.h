@@ -215,8 +215,11 @@ struct SparseBuildPhases {
     std::int64_t via_ns = 0;
     std::int64_t finalize_ns = 0;
     std::int64_t calls = 0;
-    std::int64_t nodes_total = 0;  // summed node_count across builds
-    std::int64_t edges_total = 0;  // summed edge_count across builds
+    std::int64_t nodes_total = 0;    // summed node_count across builds
+    std::int64_t edges_total = 0;    // summed edge_count across builds
+    std::int64_t aligned_edges = 0;  // edges from the aligned-pair pass
+    std::int64_t knn_edges = 0;      // edges from the K-nearest pass
+    std::int64_t via_edges = 0;      // edges from via bundles
 };
 SparseBuildPhases sparse_graph_build_phases();
 void sparse_graph_build_phases_reset();

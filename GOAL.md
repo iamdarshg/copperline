@@ -36,7 +36,14 @@ to those two numbers, not a goal.
 |------------|---------------------------------------|--------|--------|------------|-------------|-------------|
 | 2026-09-18 | latched 384/16                        | 54     | 934    | 746 / 2387 | 1208 / 3451 | 1.29 |
 | 2026-09-18 | + row-clip penalty, 384/16            | 61     | 1524   | 791 / 2392 | 1246 / 3451 | 0.82 |
-| 2026-09-18 | **+ 192/8 (current best)**            | **60** | **1462** | **827 / 2457** | **1260 / 3451** | **0.862** |
+| 2026-09-18 | + 192/8                               | 60     | 1462   | 827 / 2457 | 1260 / 3451 | 0.862 |
+| 2026-09-18 | **+ route_k=1 at board scale (current best)** | **60** | **781** | **827 / 2457** | **1260 / 3451** | **1.613** |
+
+The route_k=1 policy (single cheapest legal path instead of the K-corridor
+portfolio + per-alternative future-obstruction scoring) produced **identical
+connections at +87% throughput**. Same pattern as guidance and the graph clamp:
+a phase-escalated quality feature that costs more than it delivers at board
+scale.
 
 Fixed-60-epoch sweep (14 threads, 2 GB), scoring both metrics:
 

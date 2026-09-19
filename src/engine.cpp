@@ -1096,8 +1096,8 @@ RouteReport RouterEngine::run() {
                 // the legacy 384/16 defaults). Lives outside the worker
                 // lambda body so every thread shares the identical object.
                 SparseGraphBudget epoch_graph_budget;
-                epoch_graph_budget.max_bases = active_budget.graph_max_bases;
-                epoch_graph_budget.k_nearest = active_budget.graph_k_nearest;
+        epoch_graph_budget.max_bases = active_budget.graph_max_bases;
+        epoch_graph_budget.k_nearest = active_budget.graph_k_nearest;
                 if (active_budget.route_k > 1 && !tasks[ti].is_pair_corridor) {
                     PortfolioOptions po;
                     po.requested_k = active_budget.route_k;
@@ -2534,6 +2534,7 @@ RouteReport RouterEngine::run() {
             "\"gb_nodes_ms\":%.3f,\"gb_edges_ms\":%.3f,"
             "\"gb_via_ms\":%.3f,\"gb_final_ms\":%.3f,\"gb_calls\":%lld,"
             "\"gb_nodes_total\":%lld,\"gb_edges_total\":%lld,"
+            "\"gb_aligned_edges\":%lld,\"gb_knn_edges\":%lld,\"gb_via_edges\":%lld,"
             "\"threads\":%d,\"epochs\":%d,\"tasks_total\":%d}\n",
             ms_escape, ms_taskgen, ms_batch, ms_workers, ms_arbiter,
             ms_recovery, ms_materialize, ms_tuning, ms_attribution,
@@ -2549,7 +2550,10 @@ RouteReport RouterEngine::run() {
             gbp.edges_ns / 1e6, gbp.via_ns / 1e6, gbp.finalize_ns / 1e6,
             static_cast<long long>(gbp.calls),
             static_cast<long long>(gbp.nodes_total),
-            static_cast<long long>(gbp.edges_total), effective_threads,
+            static_cast<long long>(gbp.edges_total),
+            static_cast<long long>(gbp.aligned_edges),
+            static_cast<long long>(gbp.knn_edges),
+            static_cast<long long>(gbp.via_edges), effective_threads,
             static_cast<int>(report.epochs.size()), report.stats.tasks_total);
     }
     return report;

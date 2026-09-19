@@ -311,6 +311,14 @@ EffectiveSearchBudget effective_budget_for_phase(
             b.graph_max_bases = caps.board_scale_graph_bases;
         if (b.graph_k_nearest <= 0 || b.graph_k_nearest > caps.board_scale_graph_k)
             b.graph_k_nearest = caps.board_scale_graph_k;
+        // Board-scale throughput: the route-K portfolio (K alternative
+        // corridors on cloned graphs + future-obstruction scoring of every
+        // alternative) did not change the committed outcome on the ESC but
+        // roughly doubled the per-task cost -- measured identical connections
+        // (827 tasks / 1260 terminals at 60 epochs) in 787s vs 1462s, i.e.
+        // 0.862 -> 1.601 terminals/s. At this scale the single cheapest legal
+        // path is used instead.
+        b.route_k = 1;
     }
 
     // Timeout share per remaining task: equal split of the remaining overall
@@ -548,6 +556,7 @@ bool apply_maturity_json(MaturityOptions& out, const JsonValue& node,
         if (!capi("board_scale_graph_k", v, 1, 1000000, false)) return false;
         if (c->has("board_scale_graph_k"))
             cp.board_scale_graph_k = static_cast<int>(v);
+
         double w = 0;
         if (!get_num(*c, "max_weight_factor", w)) {
             err_out = "maturity.caps.max_weight_factor: expected a number";
