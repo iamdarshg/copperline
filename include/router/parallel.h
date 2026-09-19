@@ -58,7 +58,7 @@ inline constexpr int kBatchMaxRelaxSteps = 8;
 inline constexpr std::size_t kMaxStoredInterferencePairs = 8192;
 // Router memory budget (dev default, mirrors build/test cap): 2048MB total.
 // Per-candidate planning overhead estimate used to bound batch width.
-inline constexpr std::size_t kRouterMemoryBudgetBytes = 2048ULL * 1024ULL * 1024ULL;
+inline constexpr std::size_t kRouterMemoryBudgetBytes = 600ULL * 1024ULL * 1024ULL;
 inline constexpr std::size_t kPerCandidateBytes = 64ULL * 1024ULL * 1024ULL;
 // Starvation bonus per deferred epoch added to the scheduling value so
 // repeatedly deferred tasks rise to the front deterministically.
