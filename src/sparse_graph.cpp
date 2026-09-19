@@ -207,6 +207,54 @@ struct ObstacleIndex {
                 out.insert(out.end(), cell.begin(), cell.end());
             }
     }
+
+    // Row-clipped query for a segment: only cells the segment can reach in
+    // each row (its per-row x-extent, expanded by `reach`), instead of the
+    // whole bbox. `reach` must be >= the largest obstacle dist_min so the
+    // result stays a superset of every obstacle whose raw.expanded(dist_min)
+    // can touch the segment; callers still re-check with seg_legal_vs, so the
+    // first blocker is identical. Skips the bbox-corner cells that dominate
+    // long diagonal probes (O(area) -> O(length)).
+    void query_segment(const Segment& s, Coord reach, std::vector<int>& out) const {
+        if (nx <= 0 || ny <= 0) return;
+        Rect r = s.bounds();
+        int x0 = std::clamp(static_cast<int>((r.x1 - bounds.x1) / bucket), 0, nx - 1);
+        int x1 = std::clamp(static_cast<int>((r.x2 - bounds.x1) / bucket), 0, nx - 1);
+        int y0 = std::clamp(static_cast<int>((r.y1 - bounds.y1) / bucket), 0, ny - 1);
+        int y1 = std::clamp(static_cast<int>((r.y2 - bounds.y1) / bucket), 0, ny - 1);
+        const int pad = static_cast<int>(reach / bucket) + 1;
+        const bool horizontal = (s.a.y == s.b.y);
+        const long double ax = s.a.x, ay = s.a.y, bx = s.b.x, by = s.b.y;
+        const long double dx = bx - ax, dy = by - ay;
+        for (int iy = y0; iy <= y1; ++iy) {
+            int rx0 = x0, rx1 = x1;
+            if (!horizontal) {
+                const long double band0 = bounds.y1 + static_cast<Coord>(iy) * bucket;
+                const long double band1 = band0 + bucket;
+                long double ta = (band0 - ay) / dy, tb = (band1 - ay) / dy;
+                if (ta > tb) std::swap(ta, tb);
+                if (ta < 0.0L) ta = 0.0L;
+                if (tb > 1.0L) tb = 1.0L;
+                if (ta <= tb) {
+                    long double xa = ax + ta * dx, xb = ax + tb * dx;
+                    if (xa > xb) std::swap(xa, xb);
+                    int ca = std::clamp(
+                        static_cast<int>((static_cast<Coord>(xa) - bounds.x1) / bucket), 0,
+                        nx - 1);
+                    int cb = std::clamp(
+                        static_cast<int>((static_cast<Coord>(xb) - bounds.x1) / bucket), 0,
+                        nx - 1);
+                    rx0 = std::max(x0, ca - pad);
+                    rx1 = std::min(x1, cb + pad);
+                }
+            }
+            for (int ix = rx0; ix <= rx1; ++ix) {
+                const std::vector<int>& cell =
+                    cells[static_cast<std::size_t>(iy) * nx + ix];
+                out.insert(out.end(), cell.begin(), cell.end());
+            }
+        }
+    }
 };
 
 // Issue #21/#23: shared bounded aggregation over per-node probe sets.
@@ -338,14 +386,22 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // ---- 1. Collect raw obstacles with per-obstacle keep distances ----
     // Clearance is layer-independent (RuleResolver ignores layer/ctx), so one
     // lookup per foreign net is exact and avoids repeat linear scans.
-    std::map<NetId, Coord> clear_cache;
+    // Dense per-net memo (net ids are 0..N-1 on import, matching find_net's
+    // fast path): a vector beats the per-obstacle map probe in this inner
+    // loop. -1 = not yet computed. Clearance is layer-independent by contract,
+    // so the value is identical to the previous per-net map memo. Sparse ids
+    // fall back to a direct (uncached) lookup.
+    std::vector<Coord> clear_cache(committed.nets.size(), -1);
     auto clearance_to = [&](NetId other, LayerId layer) -> Coord {
-        auto it = clear_cache.find(other);
-        if (it != clear_cache.end()) return it->second;
+        if (other >= 0 && static_cast<std::size_t>(other) < clear_cache.size()) {
+            Coord& slot = clear_cache[static_cast<std::size_t>(other)];
+            if (slot >= 0) return slot;
+            std::string cs;
+            slot = resolver.requiredClearance(net, other, layer, ctx, &cs);
+            return slot;
+        }
         std::string cs;
-        Coord c = resolver.requiredClearance(net, other, layer, ctx, &cs);
-        clear_cache[other] = c;
-        return c;
+        return resolver.requiredClearance(net, other, layer, ctx, &cs);
     };
     // Keepout standoff stays worst-case over ALL foreign nets (including a
     // paired sibling): keepouts are net-agnostic and the arbiter's exact
@@ -483,7 +539,12 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                        ? nullptr
                        : &obstacles[static_cast<std::size_t>(mit->second)];
         query_raw.clear();
-        obs_index.query(s.bounds(), query_raw);
+        // Row-clipped (exact superset): obstacles are filed by
+        // raw.expanded(dist_min), so expanding the segment's per-row x-extent
+        // by the worst-case dist_min (max_clear + half_w) keeps every obstacle
+        // that could block it; the seg_legal_vs gate below decides exactly, so
+        // the first blocker and the rejected-probe ledger are unchanged.
+        obs_index.query_segment(s, max_clear + half_w, query_raw);
         // Linear dedupe (one hit per covering bucket) before the sort: the
         // ascending unique set is identical, the sort input is typically
         // several times smaller.
@@ -677,7 +738,11 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // base index -> per-layer node id. Issue #23: point-legality probes for
     // bases that never become nodes are NOT evidence (A* never expands a
     // node that was never built), so they are checked without recording.
-    std::map<int, std::map<LayerId, int>> node_of;
+    // base index -> per-layer node id. Dense vector (base indices are
+    // 0..bases.size()-1) instead of a map: same iteration order (ascending
+    // base) and same per-base layer order, so node/edge construction and the
+    // via pass are unchanged; only the lookups get cheaper.
+    std::vector<std::map<LayerId, int>> node_of(bases.size());
     for (std::size_t bi = 0; bi < bases.size(); ++bi) {
         for (const auto& l : committed.layers) {
             // A wire point is legal when a zero-length segment there is legal.
@@ -706,12 +771,10 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 break;
             }
         }
-        if (bi < 0) return -1;
-        auto it = node_of.find(bi);
-        if (it != node_of.end()) {
-            auto jt = it->second.find(layer);
-            if (jt != it->second.end()) return jt->second;
-        }
+        if (bi < 0 || static_cast<std::size_t>(bi) >= node_of.size()) return -1;
+        auto& per_layer = node_of[static_cast<std::size_t>(bi)];
+        auto jt = per_layer.find(layer);
+        if (jt != per_layer.end()) return jt->second;
         SparseNode n;
         n.p = p;
         n.layer = layer;
@@ -758,15 +821,19 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     // committed node/edge sets are unchanged. All scratch state is per-build
     // (bounded, thread-local) and the memo is only ever queried by key, never
     // iterated, so thread count cannot affect the result.
+    // Issue #3: parallel elbow edges. A diagonal pair can yield up to 3 legal
+    // edges (direct diagonal LOS + both L elbows); an aligned pair yields
+    // exactly 1 (direct == straight). A* picks among them by cost (length +
+    // penalty), so decide_edge must not stop at the first legal elbow.
+    // Adjacency is vector<SparseEdge> per node (multi-edges native): apply_edge
+    // pushes every entry. Fixed inline storage (max 3) instead of a vector:
+    // decide_edge runs ~10^8 times per board-scale run, and a heap allocation
+    // per call (plus the memo table's copies) dominated. Content and order are
+    // identical.
     struct DecidedEdge {
-        // Issue #3: parallel elbow edges. A diagonal pair can yield up to 3
-        // legal edges (direct diagonal LOS + both L elbows); an aligned pair
-        // yields exactly 1 (direct == straight). A* picks among them by cost
-        // (length + penalty), so decide_edge must not stop at the first legal
-        // elbow. Adjacency is vector<SparseEdge> per node, i.e. multi-edges
-        // are native: apply_edge pushes every entry.
-        std::vector<SparseEdge> edges;
-        bool has_edge() const { return !edges.empty(); }
+        SparseEdge edges[3];  // max: direct + both L-elbows
+        int n_edges = 0;
+        bool has_edge() const { return n_edges > 0; }
         int n_probes = 0;
         // Issue #2: <=1 for straight pairs, <=2 with elbows, +1 for the
         // direct diagonal LOS attempt (max 3 total when diagonal fails and
@@ -811,7 +878,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 e.dir2 = -1;
                 e.elbow = Point{};
                 e.is_via = false;
-                out.edges.push_back(e);
+                out.edges[out.n_edges++] = e;
                 if (is_aligned) return;
             }
         }
@@ -864,7 +931,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             e.dir2 = c.has_elbow ? direction_of(c.elbow, b) : -1;
             e.elbow = c.elbow;
             e.is_via = false;
-            out.edges.push_back(e);
+            out.edges[out.n_edges++] = e;
             // Issue #3: no break -- collect BOTH legal elbows so later
             // congestion/reservation penalties in A* can choose between them.
         }
@@ -875,9 +942,9 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
     std::int64_t aligned_edges_local = 0, knn_edges_local = 0, via_edges_local = 0;
     std::int64_t* edge_ctr = nullptr;
     auto apply_edge = [&](int from, const DecidedEdge& d) {
-        if (edge_ctr != nullptr) *edge_ctr += static_cast<std::int64_t>(d.edges.size());
+        if (edge_ctr != nullptr) *edge_ctr += static_cast<std::int64_t>(d.n_edges);
         for (int k = 0; k < d.n_probes; ++k) rej_per_node[from].push_back(d.probes[k]);
-        for (const auto& e : d.edges) g.adj_[from].push_back(e);
+        for (int ei = 0; ei < d.n_edges; ++ei) g.adj_[from].push_back(d.edges[ei]);
     };
     auto try_edge = [&](int from, int to) {
         if (from == to) return;
@@ -1022,7 +1089,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 // inference conservative under any future asymmetry.
                 // Issue #3: aligned chain links carry exactly one edge (direct
                 // == straight), so non-empty is the success test.
-                ch.link_ok[t] = (!duv.edges.empty() && !dvu.edges.empty()) ? 1 : 0;
+                ch.link_ok[t] = (duv.has_edge() && dvu.has_edge()) ? 1 : 0;
                 aligned_outcome.insert(directed_key(u, v), duv);
                 aligned_outcome.insert(directed_key(v, u), dvu);
             }
@@ -1062,7 +1129,7 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
                 ie.dir2 = -1;
                 ie.elbow = Point{};
                 ie.is_via = false;
-                d.edges.push_back(ie);
+                d.edges[d.n_edges++] = ie;
                 apply_edge(from, d);
                 aligned_outcome.insert(key, d);
                 return;
@@ -1083,9 +1150,12 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         // boundary arbitrarily and change the tried-pair set on grid
         // layouts with massive distance ties — maze regression).
         edge_ctr = &knn_edges_local;
+        // Reused across nodes (one allocation per layer instead of one per
+        // node): identical contents and ordering.
+        std::vector<std::pair<Coord, int>> near;
+        near.reserve(ids.size());
         for (int i : ids) {
-            std::vector<std::pair<Coord, int>> near;
-            near.reserve(ids.size());
+            near.clear();
             for (int j : ids) {
                 if (j == i) continue;
                 near.push_back({manhattan(g.nodes_[i].p, g.nodes_[j].p), j});
@@ -1232,7 +1302,8 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
         return via_memo.emplace(key, std::move(bundle)).first->second;
     };
     if (!committed.layers.empty()) {
-        for (const auto& [bi, per_layer] : node_of) {
+        for (const auto& per_layer : node_of) {
+            if (per_layer.empty()) continue;
             std::vector<std::pair<LayerId, int>> copies(per_layer.begin(), per_layer.end());
             for (std::size_t i = 0; i < copies.size(); ++i) {
                 for (std::size_t j = 0; j < copies.size(); ++j) {
