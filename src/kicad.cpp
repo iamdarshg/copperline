@@ -490,9 +490,7 @@ class KicadImport {
         // Filled geometry wins when it names the target layer, else the
         // outline polygon. Collect per-layer filled polygons first.
         std::map<LayerId, const SexprNode*> filled_by_layer;
-        std::vector<const SexprNode*> filled_all;
         for (const SexprNode* fp : z->find_all("filled_polygon")) {
-            filled_all.push_back(fp);
             if (const SexprNode* l = fp->find_child("layer")) {
                 auto a = tail_atoms(l);
                 if (!a.empty()) {
@@ -501,7 +499,6 @@ class KicadImport {
                 }
             }
         }
-        const SexprNode* outline = z->find_child("polygon");
         auto zone_pts = [&](const SexprNode* poly) -> std::vector<Point> {
             std::vector<Point> out;
             if (!poly) return out;
@@ -525,12 +522,21 @@ class KicadImport {
         }
         bool any = false;
         for (LayerId lid : copper) {
-            const SexprNode* src = nullptr;
+            // Only a real copper fill counts as copper. An UNFILLED zone has
+            // no filled_polygon -- its (polygon) is just the boundary. Importing
+            // that outline as a solid pour makes it overlap every other net
+            // inside it and fabricates clearance violations (seen on a KiCad 9
+            // ESC board: a 192x39mm DGND outline became a pour and produced
+            // ~70 fake "clearance 0.000mm" violations). Never fall back to the
+            // outline or to another layer's fill.
             auto fit = filled_by_layer.find(lid);
-            if (fit != filled_by_layer.end()) src = fit->second;
-            if (!src && !filled_all.empty()) src = filled_all.front();
-            if (!src) src = outline;
-            std::vector<Point> poly = zone_pts(src);
+            if (fit == filled_by_layer.end()) {
+                warn("copper zone ignored with warning: unfilled zone (no "
+                     "filled_polygon) on layer '" +
+                     result_.board.layers[lid].name + "'");
+                continue;
+            }
+            std::vector<Point> poly = zone_pts(fit->second);
             if (poly.size() < 3) {
                 warn("copper zone ignored with warning: degenerate polygon or over "
                      "vertex cap (16384) on layer '" +
