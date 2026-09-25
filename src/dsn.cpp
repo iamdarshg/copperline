@@ -767,7 +767,23 @@ std::vector<std::string> merge_routes_file(Board& board, const std::string& path
     return warnings;
 }
 
-void apply_sidecar_nets(Board& board, const JsonValue& config) {    const JsonValue* nets = config.find("nets");
+void apply_sidecar_nets(Board& board, const JsonValue& config) {
+    // Global sidecar defaults complement net-specific metadata. KiCad keeps
+    // project-level netclass defaults in .kicad_pro (not .kicad_pcb), so a
+    // standalone board import otherwise falls back to BoardDefaults' generic
+    // clearance. Allow callers to carry the project clearance alongside the
+    // net sidecar without fabricating per-net overrides.
+    if (const JsonValue* defaults = config.find("defaults")) {
+        if (!defaults->is_object())
+            throw BoardError(InputKind::kRule, "config 'defaults' must be an object");
+        if (defaults->has("clearance_mm")) {
+            double c = defaults->get_number("clearance_mm", -1);
+            if (!(c >= 0))
+                throw BoardError(InputKind::kRule, "defaults.clearance_mm must be >= 0");
+            board.defaults.clearance_nm = mm_to_nm(c);
+        }
+    }
+    const JsonValue* nets = config.find("nets");
     if (!nets) return;
     if (!nets->is_object())
         throw BoardError(InputKind::kRule, "config 'nets' must be an object");

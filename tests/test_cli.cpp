@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "helpers.h"
+#include "router/dsn.h"
 #include "router/json.h"
 #include "router/parallel.h"
 
@@ -109,6 +110,18 @@ std::string temp_path(const std::string& name) {
 }
 
 }  // namespace
+
+CT_TEST(sidecar_defaults_override_board_clearance) {
+    Board b = copperline::test::base_2layer();
+    const Coord old_clearance = b.defaults.clearance_nm;
+    JsonValue cfg = JsonValue::object();
+    JsonValue defaults = JsonValue::object();
+    defaults["clearance_mm"] = 0.125;
+    cfg["defaults"] = defaults;
+    apply_sidecar_nets(b, cfg);
+    CT_CHECK(old_clearance != b.defaults.clearance_nm);
+    CT_CHECK(b.defaults.clearance_nm == mm_to_nm(0.125));
+}
 
 CT_TEST(capabilities_json) {
     int rc = 0;
