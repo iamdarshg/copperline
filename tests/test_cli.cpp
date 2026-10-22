@@ -622,4 +622,58 @@ CT_TEST(route_time_stages_geometry_parity_1_vs_16) {
                 (int)s1.get_number("epochs", -1));
 }
 
+// Phase 3 item 15: declarative strategy files (--strategy) fold stage
+// toggles + budget scalars into the engine; the active strategy name is
+// surfaced in the report.
+CT_TEST(cli_strategy_engine) {
+    // Baseline without a strategy: no name, optimizer on.
+    CliResult base = run_cli_full("route " + fixture("open_2layer.json") +
+                                  " --json --seed 42 --no-board-echo");
+    CT_CHECK(base.rc == 0);
+    JsonValue vb = must_parse(base.out);
+    CT_CHECK(vb.get_string("strategy", "") == "");
+    CT_CHECK(vb.get_string("status") == "COMPLETE");
+
+    // via_miser strategy: name surfaced, same geometry hash, budget scale
+    // 0.75 applied (report carries it via the strategy name).
+    CliResult vm = run_cli_full("route " + fixture("open_2layer.json") +
+                                " --json --seed 42 --no-board-echo"
+                                " --strategy " + fixture("strategies/via_miser.json"));
+    CT_CHECK(vm.rc == 0);
+    JsonValue vv = must_parse(vm.out);
+    CT_CHECK(vv.get_string("strategy") == "via_miser");
+    CT_CHECK(vv.get_string("status") == "COMPLETE");
+
+    // Stage toggles actually disable machinery: no_cleanup_test sets
+    // optimizer/tuning/recovery false and astar_scale 0.5.
+    CliResult off = run_cli_full("route " + fixture("open_2layer.json") +
+                                 " --json --seed 42 --no-board-echo"
+                                 " --strategy " + fixture("strategies/no_cleanup_test.json"));
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    CT_CHECK(vo.get_string("strategy") == "no_cleanup_test");
+    CT_CHECK(vo.get_string("status") == "COMPLETE");
+    JsonValue oo = *vo.find("optimizer");
+    CT_CHECK(oo.get_bool("enabled", true) == false);
+    CT_CHECK(oo.get_bool("ran", true) == false);
+    JsonValue rec = *vo.find("recovery");
+    CT_CHECK(rec.get_number("generations", -1) == 0);
+
+    // Malformed strategy JSON -> malformed_rules exit.
+    std::string bad = win_path(std::string(FIXTURE_DIR) + "/strategies/no_such_file.json");
+    CliResult miss = run_cli_full("route " + fixture("open_2layer.json") +
+                                  " --strategy " + bad + " --json");
+    CT_CHECK(miss.rc == 2);  // invalid input: cannot open file
+    std::string badjson = win_path(std::string(FIXTURE_DIR) + "/strategies/_broken.json");
+    {  // write a broken strategy file into the fixture dir
+        std::ofstream f(badjson);
+        f << "{ not json";
+    }
+    CliResult badr = run_cli_full("route " + fixture("open_2layer.json") +
+                                  " --strategy " + badjson + " --json");
+    CT_CHECK(badr.rc == 3);  // malformed rules: bad strategy JSON
+    CT_CHECK(badr.out.find("malformed_rules") != std::string::npos);
+    std::remove(badjson.c_str());
+}
+
 int main() { return copperline::test::run_all_tests(); }

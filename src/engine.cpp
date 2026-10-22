@@ -56,6 +56,7 @@ JsonValue RouteReport::to_json() const {
     JsonValue r = JsonValue::object();
     r["schema"] = "copperline/route-report/1";
     r["status"] = status;
+    r["strategy"] = strategy;  // Phase 3 item 15: "" = built-in default
     r["result_category"] = result_category;
     r["connected_terminals"] = static_cast<double>(connected_terminals);
     r["total_terminals"] = static_cast<double>(total_terminals);
@@ -337,7 +338,28 @@ RouteReport RouterEngine::run() {
     // long search can overrun --timeout.
     options_.astar.deadline = deadline;
     RouteReport report;
+    report.strategy = options_.strategy;  // Phase 3 item 15
     report.total_terminals = static_cast<int>(board_.terminals.size());
+    // ---- Apply the declarative strategy (Phase 3 item 15) ---------------
+    // A strategy is a pass-policy layer over the existing stages: toggles
+    // and budget scalars are folded into the engine options before any
+    // stage reads them. Defaults (all true / 0 / 1.0) reproduce the built-in
+    // behaviour bit-for-bit, so the strategy only changes what it names.
+    if (!options_.strategy.empty()) {
+        options_.enable_ripup = options_.strategy_recovery;
+        options_.tuning.enabled = options_.strategy_tuning;
+        options_.optimizer.enabled = options_.strategy_optimizer;
+        if (options_.strategy_max_epochs > 0)
+            options_.max_epochs = options_.strategy_max_epochs;
+        if (options_.strategy_recovery_depth > 0)
+            options_.recovery_depth = options_.strategy_recovery_depth;
+        if (options_.strategy_recovery_beam > 0)
+            options_.recovery_beam = options_.strategy_recovery_beam;
+        if (options_.strategy_astar_scale != 1.0) {
+            options_.astar.max_expansions = static_cast<std::int64_t>(
+                options_.astar.max_expansions * options_.strategy_astar_scale);
+        }
+    }
     // ---- Lightweight stage timer (EngineOptions::time_stages) ----
     // One clock read per stage boundary only; accumulators stay zero-cost
     // when the flag is off (the final stderr line is the only output).

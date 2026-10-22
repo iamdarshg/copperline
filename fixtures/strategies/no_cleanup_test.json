@@ -1,0 +1,8 @@
+{
+ "schema": "copperline/strategy/1",
+ "strategy": "no_cleanup_test",
+ "optimizer": false,
+ "tuning": false,
+ "recovery": false,
+ "astar_scale": 0.5
+}

@@ -53,6 +53,7 @@ struct Flags {
     bool time_stages = false;  // stage + CLI wall timings as JSON on stderr
     bool no_board_echo = false;  // S3 (I3): route stdout omits the board object
     std::string config;
+    std::string strategy;  // Phase 3 item 15: strategy JSON file
     unsigned seed = 42;
     int threads = 0;  // Prompt 5: 0 = auto (hardware_concurrency, bounded)
     int route_k = 0;  // issue #8: 0 = auto (maturity route-K), else 1..15 wins
@@ -153,6 +154,10 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
         else if (a == "--config") {
             if (!need_value(i, "--config", v)) return false;
             f.config = v;
+            ++i;
+        } else if (a == "--strategy") {
+            if (!need_value(i, "--strategy", v)) return false;
+            f.strategy = v;
             ++i;
         } else if (a == "--seed") {
             if (!need_value(i, "--seed", v)) return false;
@@ -413,6 +418,72 @@ bool load_shared_config(const Flags& f, SharedConfig& out, std::string& msg) {
         return false;
     }
     out.has = true;
+    return true;
+}
+
+// Phase 3 item 15: load a strategy JSON file and fold it into EngineOptions.
+// Strategy schema (copperline/strategy/1):
+//   {"strategy": "via_miser",
+//    "escape": true, "optimizer": true, "tuning": true, "recovery": true,
+//    "max_epochs": 0, "recovery_depth": 0, "recovery_beam": 0,
+//    "astar_scale": 1.0}
+// Stage toggles default to true (built-in behaviour); zero scalars inherit
+// the engine defaults. Returns false with `msg` on malformed JSON.
+bool load_strategy(const Flags& f, EngineOptions& opt, std::string& msg) {
+    if (f.strategy.empty()) return true;
+    std::string text, err;
+    if (!read_file(f.strategy, text, err)) {
+        msg = err;
+        return false;
+    }
+    JsonValue root;
+    try {
+        root = parse_json(text);
+    } catch (const std::exception& e) {
+        msg = std::string("bad strategy JSON: ") + e.what();
+        return false;
+    }
+    if (!root.is_object()) {
+        msg = "strategy file must be a JSON object";
+        return false;
+    }
+    opt.strategy = root.get_string("strategy", "custom");
+    if (root.has("escape")) opt.strategy_escape = root.get_bool("escape", true);
+    if (root.has("optimizer")) opt.strategy_optimizer = root.get_bool("optimizer", true);
+    if (root.has("tuning")) opt.strategy_tuning = root.get_bool("tuning", true);
+    if (root.has("recovery")) opt.strategy_recovery = root.get_bool("recovery", true);
+    if (root.has("max_epochs")) {
+        double me = root.get_number("max_epochs", 0.0);
+        if (me < 0 || me > 1e9) {
+            msg = "strategy max_epochs out of range";
+            return false;
+        }
+        opt.strategy_max_epochs = static_cast<int>(me);
+    }
+    if (root.has("recovery_depth")) {
+        double rd = root.get_number("recovery_depth", 0.0);
+        if (rd < 0 || rd > 64) {
+            msg = "strategy recovery_depth out of range";
+            return false;
+        }
+        opt.strategy_recovery_depth = static_cast<int>(rd);
+    }
+    if (root.has("recovery_beam")) {
+        double rb = root.get_number("recovery_beam", 0.0);
+        if (rb < 0 || rb > 256) {
+            msg = "strategy recovery_beam out of range";
+            return false;
+        }
+        opt.strategy_recovery_beam = static_cast<int>(rb);
+    }
+    if (root.has("astar_scale")) {
+        double s = root.get_number("astar_scale", 1.0);
+        if (s < 0.05 || s > 100.0) {
+            msg = "strategy astar_scale out of range [0.05, 100]";
+            return false;
+        }
+        opt.strategy_astar_scale = s;
+    }
     return true;
 }
 
@@ -810,6 +881,15 @@ int cmd_route(const Flags& f) {
         if (f.recovery_beam_set) opt.recovery_beam = f.recovery_beam;
         if (f.max_multiply_nodes_set) opt.max_multiply_nodes = f.max_multiply_nodes;
     }
+    // Phase 3 item 15: declarative strategy file folds stage toggles +
+    // budget scalars into the options before the engine reads them.
+    {
+        std::string serr;
+        if (!load_strategy(f, opt, serr))
+            return fail(f, serr.find("cannot open") != std::string::npos
+                               ? kInvalidInput : kBadRules,
+                        "malformed_rules", serr);
+    }
     if (f.progress) {
         opt.progress = [](const JsonValue& ev) {
             std::cerr << serialize_json(ev) << "\n";
@@ -1179,6 +1259,7 @@ int run(const std::vector<std::string>& args) {
                       "  router verify <board> [--json] [--config cfg.json] [--routes routed.ses]\n"
                       "  router route <board> [--json] [--config cfg.json] [--seed N]\n"
                       "                       [--threads N] [--timeout S] [--max-search-nodes N]\n"
+                      "                       [--strategy strat.json] [--report report.json]\n"
                       "                       [--max-epochs N] [--max-ripup-generations N]\n"
                       "                       [--route-k K]\n"
                       "                       [--output routed.ses] [--report report.json]\n"

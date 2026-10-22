@@ -153,6 +153,8 @@ struct EscapeStageInfo {
 struct RouteReport {
     // COMPLETE | INCOMPLETE | BUDGET_EXHAUSTED | TIMEOUT
     std::string status = "INCOMPLETE";
+    // Phase 3 item 15: active strategy id ("" = built-in default).
+    std::string strategy = "";
     // Agent-stable category: COMPLETE |
     // SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS |
     // UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET | TIMEOUT
@@ -190,6 +192,23 @@ struct EngineOptions {
     int threads = 0;  // issue #3: 0 = auto (all CPUs via hardware_concurrency)
     double timeout_s = 0;  // 0 = none
     int max_epochs = 4096;
+    // Phase 3 item 15: declarative routing strategy (Situs-style pass
+    // policy). A strategy selects stages and search budgets from a JSON
+    // file (`--strategy` or a "strategy" block in --config); it maps onto
+    // the existing machinery — it never invents a parallel engine. The
+    // active strategy name is surfaced in the report for agents.
+    // Defaults are the classic Situs strategy families:
+    //   default_2layer / default_multilayer / via_miser / general_orthogonal
+    std::string strategy = "";  // active strategy id ("" = built-in default)
+    // Stage toggles a strategy may set (defaults = current engine behavior).
+    bool strategy_escape = true;       // fine-pitch escape stage
+    bool strategy_optimizer = true;    // transactional cleanup
+    bool strategy_tuning = true;       // post-route diff-pair tuning
+    bool strategy_recovery = true;     // rip-up meta-search
+    int strategy_max_epochs = 0;       // 0 = engine default (4096)
+    int strategy_recovery_depth = 0;   // 0 = engine default (2)
+    int strategy_recovery_beam = 0;    // 0 = engine default (4)
+    double strategy_astar_scale = 1.0; // multiplies A* expansion budget
     ProgressCallback progress;  // optional per-epoch NDJSON events
     bool enable_ripup = true;
     int max_ripup_generations = 6;
