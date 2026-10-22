@@ -242,6 +242,130 @@ CT_TEST(dsn_polygon_boundary) {
     CT_CHECK(!has_warning(ir2.warnings, "non-rectangular board outline"));
 }
 
+// ---- FreeRouting / classic SES dialects ------------------------------------
+// The session payload (wires + vias per net) is the same everywhere; only the
+// nesting and the coordinate declaration differ. These tests pin both.
+
+namespace {
+
+// Minimal routed-pad board: two pads of net N at (2,2) and (18,2) mm.
+Board ses_base_board() {
+    static const char* kDsn =
+        "(pcb \"ses_base\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place P 2 2 front 0))\n"
+        "             (component U2 (place P 18 2 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network (net N (pins U1-1 U2-1))))\n";
+    DsnImporter dsn;
+    return std::move(dsn.import_text(kDsn, "ses_base.dsn").board);
+}
+
+}  // namespace
+
+// FreeRouting nesting: (resolution um 10) + library_out/network_out, with the
+// wire width in a sibling node and padstacks wrapped in an image. F.Cu/B.Cu
+// resolve onto the board's outer layers rather than being dropped.
+CT_TEST(ses_freerouting_dialect) {
+    static const char* kSes =
+        "(session \"free.ses\"\n"
+        "  (base_design \"ses_base.dsn\")\n"
+        "  (resolution um 10)\n"
+        "  (library_out\n"
+        "    (image \"Via[0-1]_800:400_um\"\n"
+        "      (padstack \"Via[0-1]_800:400_um\"\n"
+        "        (shape (circle F.Cu 800))\n"
+        "        (shape (circle B.Cu 800))\n"
+        "        (hole 400))))\n"
+        "  (network_out\n"
+        "    (net \"N\"\n"
+        "      (wire (path F.Cu 2000 2000 18000 2000) (width 200) (type route))\n"
+        "      (via \"Via[0-1]_800:400_um\" 18000 2000))))\n";
+    Board b = ses_base_board();
+    std::vector<std::string> warns = ses_merge_into(b, kSes, "free.ses");
+    CT_CHECK(b.traces.size() == 1);
+    // Integer micrometres next to `(resolution um 10)`: the declared decade is
+    // a precision, not a quantum, and the merge must say it switched.
+    CT_CHECK(has_warning(warns, "used the unit scale"));
+    CT_CHECK(b.traces[0].a.x == mm_to_nm(2.0));
+    CT_CHECK(b.traces[0].a.y == mm_to_nm(2.0));
+    CT_CHECK(b.traces[0].b.x == mm_to_nm(18.0));
+    CT_CHECK(b.traces[0].width_nm == mm_to_nm(0.2));
+    CT_CHECK(b.traces[0].layer == b.layers.front().id);
+    CT_CHECK(has_warning(warns, "matched outer layer 'Top'"));
+    // Via geometry comes from the library_out shape + hole, not from defaults.
+    CT_CHECK(b.vias.size() == 1);
+    CT_CHECK(b.vias[0].pos.x == mm_to_nm(18.0));
+    CT_CHECK(b.vias[0].outer_d_nm == mm_to_nm(0.8));
+    CT_CHECK(b.vias[0].hole_d_nm == mm_to_nm(0.4));
+    CT_CHECK(b.vias[0].via_class == "Via[0-1]_800:400_um");
+    CT_CHECK(!has_warning(warns, "unknown padstack"));
+}
+
+// Classic nesting: (unit mm), route/library/network, (wires ...) and
+// (vias ...) containers, width as the last path number, numeric padstack
+// form. A dotted/lower-case layer name resolves through normalization.
+CT_TEST(ses_classic_dialect) {
+    static const char* kSes =
+        "(session \"classic.ses\"\n"
+        "  (base_design \"ses_base.dsn\")\n"
+        "  (unit mm)\n"
+        "  (route\n"
+        "    (library (padstack \"STD\" 0.7 0.35))\n"
+        "    (network\n"
+        "      (net \"N\"\n"
+        "        (wires (wire (path \"TOP\" 2 2 18 2 0.25)))\n"
+        "        (vias (via \"STD\" 18 2))))))\n";
+    Board b = ses_base_board();
+    std::vector<std::string> warns = ses_merge_into(b, kSes, "classic.ses");
+    CT_CHECK(b.traces.size() == 1);
+    CT_CHECK(b.traces[0].width_nm == mm_to_nm(0.25));
+    CT_CHECK(b.traces[0].a.x == mm_to_nm(2.0));
+    CT_CHECK(b.traces[0].b.y == mm_to_nm(2.0));
+    CT_CHECK(b.traces[0].layer == b.layers.front().id);
+    CT_CHECK(b.vias.size() == 1);
+    CT_CHECK(b.vias[0].outer_d_nm == mm_to_nm(0.7));
+    CT_CHECK(b.vias[0].hole_d_nm == mm_to_nm(0.35));
+    CT_CHECK(has_warning(warns, "coordinates scaled by 1 mm per file count"));
+    // No aliasing happened: the layer name normalized exactly.
+    CT_CHECK(!has_warning(warns, "matched outer layer"));
+}
+
+// A session that names a padstack it never defined keeps the via but says so;
+// nothing is silently invented.
+CT_TEST(ses_unknown_padstack_warns) {
+    static const char* kSes =
+        "(session \"missing.ses\"\n"
+        "  (unit mm)\n"
+        "  (library (padstack \"STD\" 0.7 0.35))\n"
+        "  (network (net \"N\" (via \"GHOST\" 10 10))))\n";
+    Board b = ses_base_board();
+    std::vector<std::string> warns = ses_merge_into(b, kSes, "missing.ses");
+    CT_CHECK(b.vias.size() == 1);
+    CT_CHECK(b.vias[0].outer_d_nm == b.defaults.via_outer_nm);
+    CT_CHECK(b.vias[0].hole_d_nm == b.defaults.via_hole_nm);
+    CT_CHECK(has_warning(warns, "unknown padstack 'GHOST'"));
+}
+
+// Padstack shape with no (hole) fallback: half the outer diameter, reported.
+CT_TEST(ses_padstack_without_hole_warns) {
+    static const char* kSes =
+        "(session \"nohole.ses\"\n"
+        "  (unit mm)\n"
+        "  (library_out (padstack \"P1\" (shape (circle Top 0.9))))\n"
+        "  (network_out (net \"N\" (via \"P1\" 10 10))))\n";
+    Board b = ses_base_board();
+    std::vector<std::string> warns = ses_merge_into(b, kSes, "nohole.ses");
+    CT_CHECK(b.vias.size() == 1);
+    CT_CHECK(b.vias[0].outer_d_nm == mm_to_nm(0.9));
+    CT_CHECK(b.vias[0].hole_d_nm == mm_to_nm(0.45));
+    CT_CHECK(has_warning(warns, "has no (hole ...); assumed half the outer diameter"));
+}
+
 CT_TEST(dsn_pour_imports_as_plane) {
     DsnImporter dsn;
     ImportResult ir = dsn.import_file(fixture("pour_test.dsn"));

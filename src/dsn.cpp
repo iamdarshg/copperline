@@ -11,6 +11,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
+#include <initializer_list>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -978,87 +980,340 @@ std::vector<std::string> ses_merge_into(Board& board, const std::string& text,
         throw BoardError(InputKind::kInvalid, std::string("bad SES: ") + e.what());
     }
     // parse_sexpr returns a wrapper root holding all top-level forms.
+    // Two session dialects are in the wild (docs/reverse/circuitmaker/
+    // autorouter_modules.md M2):
+    //   classic:     (session (unit ..) (route (library ..) (network ..)))
+    //   FreeRouting: (session (resolution ..) (library_out ..) (network_out ..))
+    // and some writers wrap the FreeRouting payload in (routes ..). The payload
+    // itself - wires and vias per net - is identical, so accept every
+    // placement instead of failing on nesting.
     const SexprNode* session = root->find_child("session");
-    if (!session)
-        throw BoardError(InputKind::kInvalid, "SES: missing (session ...) root");
-    const SexprNode* route = session->find_child("route");
-    if (!route) throw BoardError(InputKind::kInvalid, "SES: missing (route ...)");
-    const SexprNode* network = route->find_child("network");
-    if (!network) throw BoardError(InputKind::kInvalid, "SES: missing (route (network ...))");
-    std::map<std::string, LayerId> layer_by_name;
-    for (const auto& l : board.layers) layer_by_name[l.name] = l.id;
-    std::map<std::string, std::pair<Coord, Coord>> padstacks;
-    if (const SexprNode* lib = route->find_child("library")) {
-        for (const SexprNode* ps : lib->find_all("padstack")) {
-            std::string name = atom_str(ps, 1, "STD");
-            padstacks[name] = {mm_to_nm(atom_num(ps, 2, 0.6)), mm_to_nm(atom_num(ps, 3, 0.3))};
+    const SexprNode* top = session ? session : root.get();
+    const SexprNode* routes = top->find_child("route");
+    if (!routes) routes = top->find_child("routes");
+    auto find_payload = [&](std::initializer_list<const char*> heads) -> const SexprNode* {
+        for (const char* head : heads) {
+            if (routes)
+                if (const SexprNode* n = routes->find_child(head)) return n;
+            if (const SexprNode* n = top->find_child(head)) return n;
+        }
+        return nullptr;
+    };
+    const SexprNode* network = find_payload({"network", "network_out"});
+    if (!network)
+        throw BoardError(InputKind::kInvalid,
+                         "SES: missing (route (network ...)) or (network_out ...)");
+    const SexprNode* library = find_payload({"library", "library_out"});
+
+    // ---- coordinate scale --------------------------------------------------
+    // (resolution <unit> [<digits>]) wins over (unit <unit> [<digits>]) - the
+    // same rule as the DSN importer. The chosen scale is always reported.
+    const SexprNode* decl = nullptr;
+    std::string decl_head;
+    for (const char* head : {"resolution", "unit"}) {
+        if (routes)
+            if ((decl = routes->find_child(head))) {
+                decl_head = head;
+                break;
+            }
+        if ((decl = top->find_child(head))) {
+            decl_head = head;
+            break;
         }
     }
+    double unit_scale_mm = 1.0;
+    double decl_scale_mm = 1.0;
+    if (decl) {
+        std::string uname = atom_str(decl, 1, "mm");
+        if (uname.empty()) uname = "mm";
+        double unit_mm = unit_to_mm(uname);
+        if (unit_mm < 0)
+            throw BoardError(InputKind::kInvalid, "SES: unknown (" + decl_head + " " + uname + ")");
+        unit_scale_mm = unit_mm;
+        decl_scale_mm = unit_mm;
+        double digits = 0.0;
+        if (decl->children.size() > 2 && parse_number(atom_str(decl, 2, ""), digits))
+            decl_scale_mm = unit_mm * std::pow(10.0, -std::clamp(digits, 0.0, 18.0));
+    } else {
+        warnings.push_back(
+            "ses: no (resolution ...) or (unit ...) declared; coordinates read as millimetres");
+    }
+
+    std::map<std::string, LayerId> layer_by_norm;
+    for (const auto& l : board.layers) layer_by_norm[norm_name(l.name)] = l.id;
+    auto lookup_layer = [&](const std::string& raw) -> LayerId {
+        auto it = layer_by_norm.find(norm_name(raw));
+        if (it != layer_by_norm.end()) return it->second;
+        // FreeRouting/KiCad name the outer layers F.Cu/B.Cu. Map those aliases
+        // onto this board's outer layers and say so rather than dropping
+        // copper on a layer-name technicality.
+        const std::string n = norm_name(raw);
+        const bool front = (n == "F.CU" || n == "FCU" || n == "FRONT" || n == "TOP");
+        const bool back = (n == "B.CU" || n == "BCU" || n == "BACK" || n == "BOTTOM");
+        if (front || back) {
+            const Layer& l = front ? board.layers.front() : board.layers.back();
+            warnings.push_back("ses: layer '" + raw + "' matched outer layer '" + l.name + "'");
+            return l.id;
+        }
+        throw BoardError(InputKind::kInvalid, "SES: unknown layer '" + raw + "'");
+    };
+
+    // ---- padstacks ---------------------------------------------------------
+    // Shape form:   (padstack "ps" (shape (circle <layer> <dia>)) (hole <dia>))
+    // Numeric form: (padstack "ps" <outer> <hole>)      [classic library]
+    // FreeRouting nests its padstacks inside (image ...) elements. Geometry is
+    // kept in file counts; conversion happens once the scale is settled.
+    struct SesPadstack {
+        double outer = 0.0;  // file counts; <= 0 means "no usable shape"
+        double hole = 0.0;
+    };
+    std::map<std::string, SesPadstack> padstacks;  // norm_name -> geometry
+    if (library) {
+        std::vector<const SexprNode*> defs;
+        std::function<void(const SexprNode*, int)> walk = [&](const SexprNode* n, int depth) {
+            for (const auto& ch : n->children) {
+                if (!ch || ch->is_atom) continue;
+                const std::string head = ch->head();
+                if (head == "padstack") {
+                    defs.push_back(ch.get());
+                } else if ((head == "image" || head == "library") && depth < 3) {
+                    walk(ch.get(), depth + 1);
+                }
+            }
+        };
+        walk(library, 0);
+        for (const SexprNode* ps : defs) {
+            const std::string name = atom_str(ps, 1, "STD");
+            SesPadstack g;
+            bool shaped = false;
+            for (const SexprNode* shape : ps->find_all("shape")) {
+                const SexprNode* geom = (shape->children.size() > 1 && !shape->children[1]->is_atom)
+                                            ? shape->children[1].get()
+                                            : nullptr;
+                if (!geom) continue;
+                const std::string gh = geom->head();
+                double extent = 0.0;
+                if (gh == "circle") {
+                    extent = atom_num(geom, 2, 0.0);
+                } else if (gh == "rect" || gh == "octagon" || gh == "polygon") {
+                    // Enclosing extent of the shape's vertex bbox.
+                    std::size_t i = first_numeric_atom(geom);
+                    double x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+                    bool first = true;
+                    for (; i + 1 < geom->children.size(); i += 2) {
+                        if (!is_number_atom(geom->children[i].get())) break;
+                        const double x = atom_num(geom, i), y = atom_num(geom, i + 1);
+                        if (first) {
+                            x1 = x2 = x;
+                            y1 = y2 = y;
+                            first = false;
+                        }
+                        x1 = std::min(x1, x);
+                        y1 = std::min(y1, y);
+                        x2 = std::max(x2, x);
+                        y2 = std::max(y2, y);
+                    }
+                    if (!first) extent = std::max(std::fabs(x2 - x1), std::fabs(y2 - y1));
+                }
+                if (extent > 0) {
+                    g.outer = std::max(g.outer, extent);
+                    shaped = true;
+                }
+            }
+            if (const SexprNode* h = ps->find_child("hole")) {
+                const double hv = atom_num(h, 1, 0.0);
+                if (hv > 0) g.hole = hv;
+            }
+            if (!shaped) {
+                // Classic numeric padstack: (padstack "STD" <outer> <hole>).
+                double o = 0.0, h = 0.0;
+                if (parse_number(atom_str(ps, 2, ""), o)) g.outer = o;
+                if (parse_number(atom_str(ps, 3, ""), h)) g.hole = h;
+            }
+            if (g.outer <= 0) {
+                warnings.push_back("ses: padstack '" + name +
+                                   "' declares no usable shape; board default via geometry used");
+            } else if (g.hole <= 0) {
+                warnings.push_back("ses: padstack '" + name +
+                                   "' has no (hole ...); assumed half the outer diameter");
+                g.hole = g.outer * 0.5;
+            }
+            padstacks[norm_name(name)] = g;
+        }
+    }
+
+    // ---- payload: wires + vias per net, still in file counts ---------------
+    // Collect everything before scaling so the scale can be chosen from the
+    // geometry itself (see below).
+    struct RawWire {
+        NetId net = -1;
+        LayerId layer = 0;
+        double ax = 0, ay = 0, bx = 0, by = 0, w = 0;
+    };
+    struct RawVia {
+        NetId net = -1;
+        std::string ps;
+        double x = 0, y = 0;
+    };
+    std::vector<RawWire> wires;
+    std::vector<RawVia> raw_vias;
+    // Both dialects group per net as (wire ...) / (via ...); classic routers
+    // additionally wrap them in (wires ...) / (vias ...) containers.
+    auto collect = [](const SexprNode* net, const char* head, const char* group) {
+        std::vector<const SexprNode*> out = net->find_all(head);
+        for (const SexprNode* g : net->find_all(group)) {
+            for (const SexprNode* n : g->find_all(head)) out.push_back(n);
+        }
+        return out;
+    };
     for (const SexprNode* nn : network->find_all("net")) {
-        std::string name = atom_str(nn, 1, "");
+        const std::string name = atom_str(nn, 1, "");
         const NetInfo* ni = board.find_net_by_name(name);
         if (!ni)
             throw BoardError(InputKind::kInvalid,
                              "SES: net '" + name + "' not in board " + path);
-        for (const SexprNode* w : nn->find_all("wire")) {
+        for (const SexprNode* w : collect(nn, "wire", "wires")) {
+            // Width may ride inside the path (classic) or in a sibling
+            // (width ...) node (FreeRouting).
+            const SexprNode* width_node = w->find_child("width");
+            const double w_count = width_node ? atom_num(width_node, 1, 0.0) : 0.0;
             for (const SexprNode* p : w->find_all("path")) {
-                std::string lname = atom_str(p, 1, "");
-                auto lit = layer_by_name.find(lname);
-                if (lit == layer_by_name.end())
-                    throw BoardError(InputKind::kInvalid,
-                                     "SES: unknown layer '" + lname + "'");
-                // (path layer x1 y1 x2 y2 ... width): even count incl. width.
+                const std::string lname = atom_str(p, 1, "");
+                const LayerId layer = lookup_layer(lname);
                 std::vector<double> nums;
                 for (std::size_t i = 2; i < p->children.size(); ++i) {
                     if (!p->children[i]->is_atom)
                         throw BoardError(InputKind::kInvalid, "SES: bad path coordinates");
-                    try {
-                        nums.push_back(std::stod(p->children[i]->atom));
-                    } catch (...) {
+                    double v = 0.0;
+                    if (!parse_number(p->children[i]->atom, v))
                         throw BoardError(InputKind::kInvalid, "SES: bad path number");
-                    }
+                    nums.push_back(v);
                 }
-                if (nums.size() < 5 || (nums.size() % 2) == 0)
-                    throw BoardError(InputKind::kInvalid, "SES: path needs x1 y1 x2 y2 width");
-                double w_mm = nums.back();
-                nums.pop_back();
-                if (w_mm <= 0)
+                double width = w_count;
+                if (!width_node) {
+                    // (path layer x1 y1 x2 y2 ... width): even count incl. width.
+                    if (nums.size() < 5 || (nums.size() % 2) == 0)
+                        throw BoardError(InputKind::kInvalid, "SES: path needs x1 y1 x2 y2 width");
+                    width = nums.back();
+                    nums.pop_back();
+                }
+                if (width <= 0)
                     throw BoardError(InputKind::kRule, "SES: path width must be positive");
-                // Coordinate list is a chained polyline p0..pk; emit the
-                // consecutive pairs (p0,p1), (p1,p2), ... as segments.
-                std::size_t npts = nums.size() / 2;
-                if (npts < 2)
+                if (nums.size() < 4 || (nums.size() % 2) != 0)
                     throw BoardError(InputKind::kInvalid, "SES: path needs >= 2 points");
+                // Coordinate list is a chained polyline p0..pk; keep the
+                // consecutive pairs (p0,p1), (p1,p2), ... as segments.
+                const std::size_t npts = nums.size() / 2;
                 for (std::size_t pi = 0; pi + 1 < npts; ++pi) {
-                    TraceSeg s;
-                    s.net = ni->id;
-                    s.layer = lit->second;
-                    s.a = {mm_to_nm(nums[2 * pi]), mm_to_nm(nums[2 * pi + 1])};
-                    s.b = {mm_to_nm(nums[2 * pi + 2]), mm_to_nm(nums[2 * pi + 3])};
-                    s.width_nm = mm_to_nm(w_mm);
-                    board.traces.push_back(s);
+                    RawWire rw;
+                    rw.net = ni->id;
+                    rw.layer = layer;
+                    rw.ax = nums[2 * pi];
+                    rw.ay = nums[2 * pi + 1];
+                    rw.bx = nums[2 * pi + 2];
+                    rw.by = nums[2 * pi + 3];
+                    rw.w = width;
+                    wires.push_back(rw);
                 }
-            }
-            for (const SexprNode* v : w->find_all("via")) {
-                std::string vs = atom_str(v, 1, "STD");
-                Via via;
-                via.net = ni->id;
-                via.pos = {mm_to_nm(atom_num(v, 2)), mm_to_nm(atom_num(v, 3))};
-                via.top_layer = board.layers.front().id;
-                via.bottom_layer = board.layers.back().id;
-                auto pit = padstacks.find(vs);
-                if (pit != padstacks.end()) {
-                    via.outer_d_nm = pit->second.first;
-                    via.hole_d_nm = pit->second.second;
-                } else {
-                    via.outer_d_nm = board.defaults.via_outer_nm;
-                    via.hole_d_nm = board.defaults.via_hole_nm;
-                    warnings.push_back("ses: unknown padstack '" + vs + "'; used defaults");
-                }
-                via.via_class = vs;
-                board.vias.push_back(via);
             }
         }
+        for (const SexprNode* v : collect(nn, "via", "vias")) {
+            RawVia rv;
+            rv.net = ni->id;
+            rv.ps = atom_str(v, 1, "STD");
+            rv.x = atom_num(v, 2);
+            rv.y = atom_num(v, 3);
+            raw_vias.push_back(rv);
+        }
+    }
+
+    // ---- scale selection ---------------------------------------------------
+    // A declared decade that misses this board by orders of magnitude is a
+    // dialect trap (real writers emit integer micrometres next to a
+    // `(resolution um 10)` header), not a routing fact. Choose between the
+    // declared scale and the plain unit scale by asking which one lands the
+    // session's copper on this board, and report the choice.
+    double lo_x = 0, hi_x = 0, lo_y = 0, hi_y = 0;
+    bool have_geo = false;
+    auto note = [&](double x, double y) {
+        if (!have_geo) {
+            lo_x = hi_x = x;
+            lo_y = hi_y = y;
+            have_geo = true;
+        }
+        lo_x = std::min(lo_x, x);
+        hi_x = std::max(hi_x, x);
+        lo_y = std::min(lo_y, y);
+        hi_y = std::max(hi_y, y);
+    };
+    for (const auto& w : wires) {
+        note(w.ax, w.ay);
+        note(w.bx, w.by);
+    }
+    for (const auto& v : raw_vias) note(v.x, v.y);
+    double scale_mm = decl ? decl_scale_mm : unit_scale_mm;
+    if (decl && have_geo) {
+        const double board_mm = std::max(nm_to_mm(board.width_nm), nm_to_mm(board.height_nm));
+        const double span = std::max(hi_x - lo_x, hi_y - lo_y);
+        auto fits = [&](double s) {
+            const double mm = span * s;
+            return mm <= board_mm * 100.0 && mm >= board_mm / 1000.0;
+        };
+        if (board_mm > 0 && span > 0 && !fits(decl_scale_mm) && fits(unit_scale_mm)) {
+            char buf[220];
+            std::snprintf(buf, sizeof(buf),
+                          "ses: (%s ...) puts this session's copper %.6g mm across; used the "
+                          "unit scale (%.6g mm per count) instead",
+                          decl_head.c_str(), span * decl_scale_mm, unit_scale_mm);
+            warnings.push_back(buf);
+            scale_mm = unit_scale_mm;
+        }
+    }
+    if (decl) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "ses: coordinates scaled by %.6g mm per file count (from (%s ...))",
+                      scale_mm, decl_head.c_str());
+        warnings.push_back(buf);
+    }
+    auto s2nm = [&](double v) { return mm_to_nm(v * scale_mm); };
+
+    // ---- commit ------------------------------------------------------------
+    bool width_warned = false;
+    for (const auto& rw : wires) {
+        TraceSeg s;
+        s.net = rw.net;
+        s.layer = rw.layer;
+        s.a = {s2nm(rw.ax), s2nm(rw.ay)};
+        s.b = {s2nm(rw.bx), s2nm(rw.by)};
+        s.width_nm = s2nm(rw.w);
+        if (s.width_nm <= 0) {
+            s.width_nm = board.defaults.trace_width_nm;
+            if (!width_warned) {
+                warnings.push_back(
+                    "ses: wire widths round to 0nm at this resolution; board default width used");
+                width_warned = true;
+            }
+        }
+        board.traces.push_back(s);
+    }
+    for (const auto& rv : raw_vias) {
+        Via via;
+        via.net = rv.net;
+        via.pos = {s2nm(rv.x), s2nm(rv.y)};
+        via.top_layer = board.layers.front().id;
+        via.bottom_layer = board.layers.back().id;
+        auto pit = padstacks.find(norm_name(rv.ps));
+        if (pit != padstacks.end() && pit->second.outer > 0) {
+            via.outer_d_nm = s2nm(pit->second.outer);
+            via.hole_d_nm = pit->second.hole > 0 ? s2nm(pit->second.hole) : via.outer_d_nm / 2;
+        } else {
+            via.outer_d_nm = board.defaults.via_outer_nm;
+            via.hole_d_nm = board.defaults.via_hole_nm;
+            warnings.push_back("ses: unknown padstack '" + rv.ps +
+                               "'; used board default via geometry");
+        }
+        via.via_class = rv.ps;
+        board.vias.push_back(via);
     }
     return warnings;
 }
