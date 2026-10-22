@@ -366,6 +366,47 @@ CT_TEST(ses_padstack_without_hole_warns) {
     CT_CHECK(has_warning(warns, "has no (hole ...); assumed half the outer diameter"));
 }
 
+// (direction ...) / (grid on|off) are soft layer hints: recorded verbatim,
+// folded into preferred_horizontal, round-tripped through JSON, and reported
+// as not-yet-honoured instead of pretending the router applied them.
+CT_TEST(dsn_layer_direction_and_grid) {
+    static const char* kDsn =
+        "(pcb \"dir_demo\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal) (direction horizontal) (grid on))\n"
+        "    (layer Bottom (type signal) (direction 45) (grid off))\n"
+        "    (layer Weird (type signal) (direction sideways))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place P 2 2 front 0))\n"
+        "             (component U2 (place P 18 2 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network (net N (pins U1-1 U2-1))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "dir.dsn");
+    CT_CHECK(ir.board.layers.size() == 3);
+    CT_CHECK(ir.board.layers[0].direction == "horizontal");
+    CT_CHECK(ir.board.layers[0].preferred_horizontal);
+    CT_CHECK(ir.board.layers[0].grid_on);
+    CT_CHECK(ir.board.layers[1].direction == "45");
+    CT_CHECK(!ir.board.layers[1].preferred_horizontal);
+    CT_CHECK(!ir.board.layers[1].grid_on);
+    // Unknown tokens are kept verbatim and named, never fatal.
+    CT_CHECK(ir.board.layers[2].direction == "sideways");
+    CT_CHECK(has_warning(ir.warnings, "unknown (direction sideways)"));
+    CT_CHECK(has_warning(ir.warnings, "the router does not bias step cost by axis yet"));
+
+    // Native JSON keeps the hints so `route --output` cannot silently drop them.
+    JsonBoardImporter imp;
+    ImportResult rt = imp.import_value(board_to_json(ir.board), "dir_roundtrip");
+    CT_CHECK(rt.board.layers.size() == 3);
+    CT_CHECK(rt.board.layers[0].direction == "horizontal");
+    CT_CHECK(rt.board.layers[0].preferred_horizontal);
+    CT_CHECK(rt.board.layers[0].grid_on);
+    CT_CHECK(rt.board.layers[1].direction == "45");
+    CT_CHECK(rt.board.layers[2].direction == "sideways");
+}
+
 CT_TEST(dsn_pour_imports_as_plane) {
     DsnImporter dsn;
     ImportResult ir = dsn.import_file(fixture("pour_test.dsn"));

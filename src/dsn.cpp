@@ -230,6 +230,17 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             if (const SexprNode* d = ln->find_child("direction")) {
                 layer.direction = atom_str(d, 1, "");
                 if (layer.direction == "horizontal") layer.preferred_horizontal = true;
+                // Specctra's direction vocabulary. Anything else is still
+                // recorded verbatim (never fatal) but named, so a dialect
+                // surprise cannot look like a hint the router honoured.
+                static const char* kDirections[] = {"horizontal", "vertical", "45", "in", "out", "any"};
+                bool known = false;
+                for (const char* k : kDirections)
+                    if (layer.direction == k) known = true;
+                if (!known)
+                    result.warnings.push_back("dsn: unknown (direction " + layer.direction +
+                                              ") on layer '" + layer.name +
+                                              "'; recorded verbatim");
             }
             if (const SexprNode* g = ln->find_child("grid"))
                 layer.grid_on = atom_str(g, 1, "off") == "on";
@@ -247,6 +258,19 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             layer_by_norm = {{"TOP", 0}, {"BOTTOM", 1}};
             result.warnings.push_back("dsn: no (structure (layer ...)) entries; assumed Top/Bottom");
         }
+    }
+    // Direction/grid are soft hints: recorded and round-tripped, but the A*
+    // step cost is still axis-neutral, so name the gap instead of implying the
+    // file's preference was applied.
+    {
+        std::size_t directed = 0;
+        for (const auto& l : board.layers)
+            if (!l.direction.empty()) ++directed;
+        if (directed > 0)
+            result.warnings.push_back(
+                "dsn: " + std::to_string(directed) +
+                " layer(s) declare a routing direction; recorded as a soft preference "
+                "(the router does not bias step cost by axis yet)");
     }
     auto find_layer = [&](const std::string& name) -> LayerId {
         auto it = layer_by_norm.find(norm_name(name));
