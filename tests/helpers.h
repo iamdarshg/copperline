@@ -79,8 +79,14 @@ inline Board base_2layer(double w_mm = 20.0, double h_mm = 20.0) {
     b.source_format = "test";
     b.width_nm = mm_to_nm(w_mm);
     b.height_nm = mm_to_nm(h_mm);
-    b.layers.push_back({0, "Top"});
-    b.layers.push_back({1, "Bottom"});
+    Layer top;
+    top.id = 0;
+    top.name = "Top";
+    Layer bottom;
+    bottom.id = 1;
+    bottom.name = "Bottom";
+    b.layers.push_back(top);
+    b.layers.push_back(bottom);
     return b;
 }
 

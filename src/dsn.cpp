@@ -6,8 +6,10 @@
 #include "router/dsn.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -23,13 +25,59 @@ double unit_to_mm(const std::string& unit) {
     if (unit == "mm") return 1.0;
     if (unit == "um") return 0.001;
     if (unit == "mil") return 0.0254;
-    if (unit == "inch") return 25.4;
+    if (unit == "inch" || unit == "in") return 25.4;
+    if (unit == "cm") return 10.0;
     return -1.0;
 }
 
 bool ends_with(const std::string& s, const std::string& suf) {
     return s.size() >= suf.size() &&
            s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
+}
+
+// Strict numeric atom: integers, floats and the trailing-dot forms Altium
+// emits ("10." / "0."). Anything else (layer names, reserved tokens) is not a
+// number, which is how the parsers below tell `(rect pcb 0 0 20 20)` from
+// `(rect 0 0 20 20)` without a grammar table.
+bool parse_number(const std::string& s, double& out) {
+    if (s.empty()) return false;
+    const char* begin = s.c_str();
+    char* end = nullptr;
+    double v = std::strtod(begin, &end);
+    if (end == begin || (end && *end != '\0')) return false;
+    out = v;
+    return true;
+}
+
+bool is_number_atom(const SexprNode* n) {
+    double v = 0.0;
+    return n && n->is_atom && parse_number(n->atom, v);
+}
+
+// Cross-dialect identifier matching: Altium/FreeRouting quote human names
+// ("Top Layer") while canonical Specctra uses reserved upper-case tokens
+// (TOP). Separators (space/tab/underscore/dash) are dropped and the result is
+// upper-cased, so `"Top Layer"`, `TopLayer` and `TOP` are one layer.
+// Applied to LAYER and PADSTACK identifiers only: net names stay exact so a
+// board never silently merges `VCC-1` with `VCC1`.
+std::string norm_name(const std::string& s) {
+    std::string out;
+    out.reserve(s.size());
+    for (char c : s) {
+        if (c == ' ' || c == '\t' || c == '_' || c == '-') continue;
+        out += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+// First atom that parses as a number. Specctra list shapes carry an optional
+// leading layer token (`(rect pcb 0 0 20 20)`, `(polygon Bottom 1 8 ...)`);
+// older writers omit it. Detect it per shape instead of assuming either form.
+std::size_t first_numeric_atom(const SexprNode* n, std::size_t start = 1) {
+    if (!n) return start;
+    for (std::size_t i = start; i < n->children.size(); ++i)
+        if (is_number_atom(n->children[i].get())) return i;
+    return start;
 }
 
 double atom_num(const SexprNode* n, std::size_t idx, double fallback = 0.0) {
@@ -100,14 +148,60 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
         throw BoardError(InputKind::kInvalid, "DSN: missing (pcb ...) root");
     std::string design = atom_str(pcb, 1, "dsn_design");
 
-    double unit_mm = 1.0;  // mm per file unit
-    if (const SexprNode* u = pcb->find_child("unit")) {
-        std::string name = atom_str(u, 1, "mm");
-        double s = unit_to_mm(name);
-        if (s < 0) throw BoardError(InputKind::kInvalid, "DSN: unknown (unit " + name + ")");
-        unit_mm = s;
+    // ---- unit / resolution -------------------------------------------------
+    // Specctra declares the coordinate quantum twice in the wild:
+    //   (resolution <unit> [<digits>])   ; one file count = unit * 10^-digits
+    //   (unit <unit> [<digits>])         ; older/alternate writer form
+    // When both appear the resolution wins (docs/reverse/circuitmaker/
+    // autorouter_modules.md M1). Every numeric literal below flows through
+    // u2mm, so the two declarations are the only place a scale can enter.
+    struct UnitDecl {
+        bool present = false;
+        std::string unit;
+        bool has_digits = false;
+        double digits = 0.0;
+    };
+    auto read_unit_decl = [&](const char* head) {
+        UnitDecl d;
+        const SexprNode* n = pcb->find_child(head);
+        if (!n) return d;
+        d.present = true;
+        d.unit = atom_str(n, 1, "");
+        double dv = 0.0;
+        if (n->children.size() > 2 && parse_number(atom_str(n, 2, ""), dv)) {
+            d.has_digits = true;
+            d.digits = dv;
+        }
+        return d;
+    };
+    const UnitDecl res_decl = read_unit_decl("resolution");
+    const UnitDecl unit_decl = read_unit_decl("unit");
+    // digit decade -> count scale; clamped so a hostile literal cannot
+    // underflow to zero (18 decades is already sub-femtometre).
+    auto decl_scale = [](const UnitDecl& d, double unit_mm) {
+        if (!d.has_digits) return unit_mm;
+        double digits = std::clamp(d.digits, 0.0, 18.0);
+        return unit_mm * std::pow(10.0, -digits);
+    };
+
+    double unit_scale_mm = 1.0;
+    std::string unit_name = "mm";
+    if (unit_decl.present) {
+        unit_name = unit_decl.unit.empty() ? "mm" : unit_decl.unit;
+        double s = unit_to_mm(unit_name);
+        if (s < 0)
+            throw BoardError(InputKind::kInvalid, "DSN: unknown (unit " + unit_name + ")");
+        unit_scale_mm = decl_scale(unit_decl, s);
     }
-    auto u2mm = [&](double v) { return v * unit_mm; };
+    double res_scale_mm = unit_scale_mm;
+    if (res_decl.present) {
+        std::string rname = res_decl.unit.empty() ? unit_name : res_decl.unit;
+        double s = unit_to_mm(rname);
+        if (s < 0)
+            throw BoardError(InputKind::kInvalid,
+                             "DSN: unknown (resolution " + rname + " ...)");
+        res_scale_mm = decl_scale(res_decl, s);
+    }
 
     ImportResult result;
     Board& board = result.board;
@@ -118,7 +212,7 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
     // ---- structure: layers / boundary / vias / rules / copper ----
     const SexprNode* structure = pcb->find_child("structure");
     if (!structure) throw BoardError(InputKind::kInvalid, "DSN: missing (structure ...)");
-    std::map<std::string, LayerId> layer_by_name;
+    std::map<std::string, LayerId> layer_by_norm;  // norm_name -> layer id
     {
         LayerId next_id = 0;
         for (const SexprNode* ln : structure->find_all("layer")) {
@@ -127,9 +221,18 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             layer.name = atom_str(ln, 1, "L" + std::to_string(layer.id));
             std::string type = "signal";
             if (const SexprNode* t = ln->find_child("type")) type = atom_str(t, 1, "signal");
-            layer.layer_type = (type == "plane") ? "plane" : "signal";
+            layer.layer_type = (type == "plane" || type == "power") ? "plane" : "signal";
+            // Specctra routing direction is a soft preference (never DRC):
+            // record it verbatim so reports can show what the file asked for,
+            // and fold horizontal/vertical into the Layer cost hint.
+            if (const SexprNode* d = ln->find_child("direction")) {
+                layer.direction = atom_str(d, 1, "");
+                if (layer.direction == "horizontal") layer.preferred_horizontal = true;
+            }
+            if (const SexprNode* g = ln->find_child("grid"))
+                layer.grid_on = atom_str(g, 1, "off") == "on";
             board.layers.push_back(layer);
-            layer_by_name[layer.name] = layer.id;
+            layer_by_norm[norm_name(layer.name)] = layer.id;
         }
         if (board.layers.empty()) {
             // Permissive default: a 2-layer board so minimal DSNs still route.
@@ -139,56 +242,125 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             b.id = 1;
             b.name = "Bottom";
             board.layers = {a, b};
-            layer_by_name = {{"Top", 0}, {"Bottom", 1}};
+            layer_by_norm = {{"TOP", 0}, {"BOTTOM", 1}};
             result.warnings.push_back("dsn: no (structure (layer ...)) entries; assumed Top/Bottom");
         }
     }
-    if (const SexprNode* bound = structure->find_child("boundary")) {
-        if (const SexprNode* rc = bound->find_child("rect")) {
-            double x1 = u2mm(atom_num(rc, 1)), y1 = u2mm(atom_num(rc, 2));
-            double x2 = u2mm(atom_num(rc, 3)), y2 = u2mm(atom_num(rc, 4));
-            board.width_nm = mm_to_nm(std::fabs(x2 - x1));
-            board.height_nm = mm_to_nm(std::fabs(y2 - y1));
-        } else if (const SexprNode* pg = bound->find_child("polygon")) {
-            double x0 = 1e18, y0 = 1e18, x9 = -1e18, y9 = -1e18;
-            for (std::size_t i = 1; i + 1 < pg->children.size(); i += 2) {
-                double x = u2mm(atom_num(pg, i)), y = u2mm(atom_num(pg, i + 1));
-                x0 = std::min(x0, x);
-                y0 = std::min(y0, y);
-                x9 = std::max(x9, x);
-                y9 = std::max(y9, y);
-            }
-            if (x9 > x0 && y9 > y0) {
-                board.width_nm = mm_to_nm(x9 - x0);
-                board.height_nm = mm_to_nm(y9 - y0);
-            }
-        }
-    }
-    if (board.width_nm <= 0 || board.height_nm <= 0)
-        throw BoardError(InputKind::kInvalid, "DSN: missing (structure (boundary ...)) extents");
-    // Board origin: DSN coordinates may start anywhere; translate to (0,0).
-    // Keep the offset to shift pads/pours into board space. The rect/polygon
-    // minimum corner is the natural origin.
-    double origin_x_mm = 0.0, origin_y_mm = 0.0;
-    if (const SexprNode* bound = structure->find_child("boundary")) {
-        if (const SexprNode* rc = bound->find_child("rect")) {
-            origin_x_mm = std::min(u2mm(atom_num(rc, 1)), u2mm(atom_num(rc, 3)));
-            origin_y_mm = std::min(u2mm(atom_num(rc, 2)), u2mm(atom_num(rc, 4)));
-        } else if (const SexprNode* pg = bound->find_child("polygon")) {
+    auto find_layer = [&](const std::string& name) -> LayerId {
+        auto it = layer_by_norm.find(norm_name(name));
+        return it == layer_by_norm.end() ? -1 : it->second;
+    };
+
+    // ---- boundary: (rect ...) or (polygon ...) in FILE COUNTS ------------
+    // Parsed before the scale is finalized because a resolution decade that
+    // cannot describe these coordinates must be rejected up front (below).
+    struct Boundary {
+        bool ok = false;
+        bool is_rect = false;
+        bool non_rect_outline = false;
+        double x1 = 0, y1 = 0, x2 = 0, y2 = 0;  // bbox in file counts
+    } bound;
+    if (const SexprNode* bnode = structure->find_child("boundary")) {
+        if (const SexprNode* rc = bnode->find_child("rect")) {
+            std::size_t i = first_numeric_atom(rc);
+            double x1 = atom_num(rc, i), y1 = atom_num(rc, i + 1);
+            double x2 = atom_num(rc, i + 2), y2 = atom_num(rc, i + 3);
+            bound.is_rect = true;
+            bound.ok = (x1 != x2 && y1 != y2);
+            bound.x1 = std::min(x1, x2);
+            bound.y1 = std::min(y1, y2);
+            bound.x2 = std::max(x1, x2);
+            bound.y2 = std::max(y1, y2);
+        } else if (const SexprNode* pg = bnode->find_child("polygon")) {
+            std::size_t i = first_numeric_atom(pg);
             bool first = true;
-            for (std::size_t i = 1; i + 1 < pg->children.size(); i += 2) {
-                double x = u2mm(atom_num(pg, i)), y = u2mm(atom_num(pg, i + 1));
+            std::size_t pts = 0;
+            for (; i + 1 < pg->children.size(); i += 2) {
+                if (!is_number_atom(pg->children[i].get())) break;
+                double x = atom_num(pg, i), y = atom_num(pg, i + 1);
                 if (first) {
-                    origin_x_mm = x;
-                    origin_y_mm = y;
+                    bound.x1 = bound.x2 = x;
+                    bound.y1 = bound.y2 = y;
                     first = false;
                 } else {
-                    origin_x_mm = std::min(origin_x_mm, x);
-                    origin_y_mm = std::min(origin_y_mm, y);
+                    bound.x1 = std::min(bound.x1, x);
+                    bound.y1 = std::min(bound.y1, y);
+                    bound.x2 = std::max(bound.x2, x);
+                    bound.y2 = std::max(bound.y2, y);
+                }
+                ++pts;
+            }
+            bound.ok = pts >= 3 && bound.x2 > bound.x1 && bound.y2 > bound.y1;
+            // A 4-point polygon whose bbox area matches its own area is a
+            // rectangle; anything else is a real outline the rect board model
+            // can only approximate.
+            double area = 0.0;
+            std::vector<std::pair<double, double>> v;
+            for (std::size_t k = first_numeric_atom(pg); k + 1 < pg->children.size(); k += 2) {
+                if (!is_number_atom(pg->children[k].get())) break;
+                v.push_back({atom_num(pg, k), atom_num(pg, k + 1)});
+            }
+            for (std::size_t k = 0; k < v.size(); ++k) {
+                const auto& a = v[k];
+                const auto& b = v[(k + 1) % v.size()];
+                area += a.first * b.second - b.first * a.second;
+            }
+            double bbox = (bound.x2 - bound.x1) * (bound.y2 - bound.y1);
+            bound.non_rect_outline = v.size() > 4 || std::fabs(std::fabs(area) / 2.0 - bbox) > bbox * 1e-6;
+        }
+    }
+
+    // ---- scale selection ---------------------------------------------------
+    double scale_mm = res_decl.present ? res_scale_mm : unit_scale_mm;
+    if (res_decl.present) {
+        // A plausible PCB is 0.05 mm .. 5 m. When the resolution decade cannot
+        // describe the file's own coordinates (real files that declare um-10
+        // while writing coarser integers) the unit scale is the honest
+        // fallback; the dialect notes document exactly this rule.
+        auto plausible = [](double mm) { return mm >= 0.05 && mm <= 5000.0; };
+        if (bound.ok) {
+            double span = std::max(bound.x2 - bound.x1, bound.y2 - bound.y1);
+            if (!plausible(span * scale_mm)) {
+                if (plausible(span * unit_scale_mm)) {
+                    char buf[220];
+                    std::snprintf(buf, sizeof(buf),
+                                  "dsn: (resolution %s) does not fit these coordinates "
+                                  "(boundary would span %.6g mm); used the unit scale "
+                                  "(%.6g mm per count) instead",
+                                  res_decl.unit.c_str(), span * scale_mm, unit_scale_mm);
+                    result.warnings.push_back(buf);
+                    scale_mm = unit_scale_mm;
+                } else {
+                    char buf[220];
+                    std::snprintf(buf, sizeof(buf),
+                                  "dsn: (resolution %s) puts the boundary at %.6g mm, which "
+                                  "is not a plausible board; coordinates imported as declared",
+                                  res_decl.unit.c_str(), span * scale_mm);
+                    result.warnings.push_back(buf);
                 }
             }
         }
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "dsn: resolution scale = %.6g mm per file count", scale_mm);
+        result.warnings.push_back(buf);
     }
+    auto u2mm = [&](double v) { return v * scale_mm; };
+
+    if (!bound.ok)
+        throw BoardError(InputKind::kInvalid, "DSN: missing (structure (boundary ...)) extents");
+    board.width_nm = mm_to_nm(u2mm(bound.x2) - u2mm(bound.x1));
+    board.height_nm = mm_to_nm(u2mm(bound.y2) - u2mm(bound.y1));
+    if (board.width_nm <= 0 || board.height_nm <= 0)
+        throw BoardError(InputKind::kInvalid, "DSN: missing (structure (boundary ...)) extents");
+    if (bound.non_rect_outline)
+        result.warnings.push_back(
+            "dsn: non-rectangular board outline approximated by its bounding box "
+            "(the board model is rect-bounded)");
+    // Board origin: DSN coordinates may start anywhere; translate to (0,0).
+    // Keep the offset to shift pads/pours into board space. The boundary
+    // minimum corner is the natural origin.
+    const double origin_x_mm = u2mm(bound.x1);
+    const double origin_y_mm = u2mm(bound.y1);
     std::map<std::string, std::pair<Coord, Coord>> via_geom;  // name -> (outer, hole)
     for (const SexprNode* vn : structure->find_all("via")) {
         std::string name = atom_str(vn, 1, "");
@@ -343,12 +515,19 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
     // (no declared stitching across pours): overlapping pours still bridge
     // geometrically in the verifier, disjoint same-net pours need copper.
     int next_plane = 0;
+    // Shape -> polygon. Specctra list shapes may lead with a layer token
+    // (`(polygon Bottom 1 8 19 8 ...)`, `(rect pcb 0 0 20 20)`); the numeric
+    // start is detected, and a shape-carried layer name is reported back so a
+    // pour resolves its layer from either `(layer ...)` or the shape itself.
     auto shape_to_poly = [&](const SexprNode* shape, const std::string& what,
-                             std::vector<Point>& out) -> bool {
+                             std::vector<Point>& out, std::string* shape_layer) -> bool {
+        if (shape_layer) shape_layer->clear();
         if (const SexprNode* pg = shape->find_child("polygon")) {
-            if (pg->children.size() < 7) return false;
-            if ((pg->children.size() - 1) / 2 > kMaxPourVertices) return false;
-            for (std::size_t i = 1; i + 1 < pg->children.size(); i += 2) {
+            std::size_t i0 = first_numeric_atom(pg);
+            if (i0 > 1 && shape_layer) *shape_layer = atom_str(pg, 1, "");
+            std::size_t nverts = i0 < pg->children.size() ? (pg->children.size() - i0) / 2 : 0;
+            if (nverts < 3 || nverts > kMaxPourVertices) return false;
+            for (std::size_t i = i0; i + 1 < pg->children.size(); i += 2) {
                 double x = u2mm(atom_num(pg, i)) - origin_x_mm;
                 double y = u2mm(atom_num(pg, i + 1)) - origin_y_mm;
                 out.push_back({mm_to_nm(x), mm_to_nm(y)});
@@ -356,10 +535,12 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             return out.size() >= 3;
         }
         if (const SexprNode* rc = shape->find_child("rect")) {
-            double x1 = u2mm(atom_num(rc, 1)) - origin_x_mm;
-            double y1 = u2mm(atom_num(rc, 2)) - origin_y_mm;
-            double x2 = u2mm(atom_num(rc, 3)) - origin_x_mm;
-            double y2 = u2mm(atom_num(rc, 4)) - origin_y_mm;
+            std::size_t i = first_numeric_atom(rc);
+            if (i > 1 && shape_layer) *shape_layer = atom_str(rc, 1, "");
+            double x1 = u2mm(atom_num(rc, i)) - origin_x_mm;
+            double y1 = u2mm(atom_num(rc, i + 1)) - origin_y_mm;
+            double x2 = u2mm(atom_num(rc, i + 2)) - origin_x_mm;
+            double y2 = u2mm(atom_num(rc, i + 3)) - origin_y_mm;
             out = {{mm_to_nm(std::min(x1, x2)), mm_to_nm(std::min(y1, y2))},
                    {mm_to_nm(std::max(x1, x2)), mm_to_nm(std::min(y1, y2))},
                    {mm_to_nm(std::max(x1, x2)), mm_to_nm(std::max(y1, y2))},
@@ -368,9 +549,11 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
         }
         if (const SexprNode* ci = shape->find_child("circle")) {
             // Octagon approximation of a round pour/cutout (documented).
-            double cx = u2mm(atom_num(ci, 1)) - origin_x_mm;
-            double cy = u2mm(atom_num(ci, 2)) - origin_y_mm;
-            double r = u2mm(atom_num(ci, 3)) / 2.0;
+            std::size_t i = first_numeric_atom(ci);
+            if (i > 1 && shape_layer) *shape_layer = atom_str(ci, 1, "");
+            double cx = u2mm(atom_num(ci, i)) - origin_x_mm;
+            double cy = u2mm(atom_num(ci, i + 1)) - origin_y_mm;
+            double r = u2mm(atom_num(ci, i + 2)) / 2.0;
             if (!(r > 0)) return false;
             for (int k = 0; k < 8; ++k) {
                 double a = k * 3.141592653589793 / 4.0;
@@ -382,8 +565,15 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
         }
         if (const SexprNode* pa = shape->find_child("path")) {
             // A path is a polyline, not a region: close it into a polygon.
+            // `(path <layer> x1 y1 ...)`; the width token (if any) is the
+            // first numeric that is followed by a non-numeric or the list end.
+            std::size_t i0 = first_numeric_atom(pa);
+            if (i0 > 1 && shape_layer) *shape_layer = atom_str(pa, 1, "");
             std::vector<Point> pts;
-            for (std::size_t i = 2; i + 1 < pa->children.size(); i += 2) {
+            for (std::size_t i = i0; i + 1 < pa->children.size(); i += 2) {
+                if (!is_number_atom(pa->children[i].get()) ||
+                    !is_number_atom(pa->children[i + 1].get()))
+                    break;
                 double x = u2mm(atom_num(pa, i)) - origin_x_mm;
                 double y = u2mm(atom_num(pa, i + 1)) - origin_y_mm;
                 pts.push_back({mm_to_nm(x), mm_to_nm(y)});
@@ -410,22 +600,29 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             if (n.name == name) return &n;
         return nullptr;
     };
-    auto resolve_pour_layer = [&](const SexprNode* node, bool& present) -> LayerId {
+    auto resolve_pour_layer = [&](const SexprNode* node, bool& present,
+                                  const std::string& shape_layer) -> LayerId {
         present = false;
         const SexprNode* ln = node->find_child("layer");
-        if (!ln) return top_layer;
-        present = true;
-        std::string lname = atom_str(ln, 1, "");
-        auto lit = layer_by_name.find(lname);
-        if (lit == layer_by_name.end()) return -1;
-        return lit->second;
+        if (ln) {
+            present = true;
+            return find_layer(atom_str(ln, 1, ""));
+        }
+        // Specctra also names the layer on the shape itself
+        // (`(polygon Bottom 1 8 ...)`); either spelling resolves the pour.
+        if (!shape_layer.empty()) {
+            present = true;
+            return find_layer(shape_layer);
+        }
+        return top_layer;
     };
     auto parse_one_pour = [&](const SexprNode* node, const std::string& what) {
         const NetInfo* ni = resolve_pour_net(node);
-        bool layer_present = false;
-        LayerId layer = resolve_pour_layer(node, layer_present);
         std::vector<Point> poly;
-        bool shape_ok = shape_to_poly(node, what, poly);
+        std::string shape_layer;
+        bool shape_ok = shape_to_poly(node, what, poly, &shape_layer);
+        bool layer_present = false;
+        LayerId layer = resolve_pour_layer(node, layer_present, shape_layer);
         if (!ni || (layer_present && layer < 0) || !shape_ok || poly.size() < 3) {
             result.warnings.push_back(
                 "dsn: (" + what + " " + atom_str(node, 1, "?") +
@@ -463,21 +660,23 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
         for (const char* kind : kinds) {
             for (const SexprNode* ko : structure->find_all(kind)) {
                 std::vector<Point> poly;
-                if (!shape_to_poly(ko, kind, poly) || poly.empty()) {
+                std::string shape_layer;
+                if (!shape_to_poly(ko, kind, poly, &shape_layer) || poly.empty()) {
                     result.warnings.push_back(std::string("dsn: (") + kind +
                                               " ...) ignored with warning: no usable shape");
                     continue;
                 }
                 const SexprNode* ln = ko->find_child("layer");
                 LayerId layer = kAllLayers;
-                if (ln) {
-                    auto lit = layer_by_name.find(atom_str(ln, 1, ""));
-                    if (lit == layer_by_name.end()) {
+                std::string lname = ln ? atom_str(ln, 1, "") : shape_layer;
+                if (!lname.empty()) {
+                    LayerId resolved = find_layer(lname);
+                    if (resolved < 0) {
                         result.warnings.push_back(std::string("dsn: (") + kind +
                                                   " ...) ignored with warning: unknown layer");
                         continue;
                     }
-                    layer = lit->second;
+                    layer = resolved;
                 }
                 Coord x1 = poly[0].x, y1 = poly[0].y, x2 = poly[0].x, y2 = poly[0].y;
                 for (const auto& p : poly) {

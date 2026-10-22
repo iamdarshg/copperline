@@ -45,6 +45,54 @@ struct TermKey {
 
 }  // namespace
 
+// ---- issue: DSN (resolution <unit> <digits>) scaling -----------------------
+// One file count = unit_size * 10^-digits (docs/reverse DSN dialect notes).
+// um-10 => 1e-13 mm per count => 1 count per 0.0001 nm, so a 10 mm pin span is
+// written as 1e14 counts and must land on exactly 10,000,000 nm.
+CT_TEST(dsn_resolution_scaling) {
+    static const char* kDsn =
+        "(pcb \"res_demo\"\n"
+        "  (parser (string_quote \") (space_in_quoted_tokens on))\n"
+        "  (resolution um 10)\n"
+        "  (unit mm)\n"                      // both present: resolution wins
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect pcb 0 0 200000000000000 200000000000000))\n"  // 20 mm
+        "    (via STD 6000000000000 3000000000000))\n"
+        "  (placement\n"
+        "    (component U1 (place P 0 100000000000000 front 0))\n"          // 10 mm
+        "    (component U2 (place P 100000000000000 100000000000000 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network (net N1 (pins U1-1 U2-1))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "res_um10.dsn");
+    CT_CHECK(ir.board.width_nm == mm_to_nm(20.0));
+    CT_CHECK(ir.board.height_nm == mm_to_nm(20.0));
+    CT_CHECK(ir.board.terminals.size() == 2);
+    Coord span = std::llabs(ir.board.terminals[0].pos.x - ir.board.terminals[1].pos.x);
+    CT_CHECK(span == mm_to_nm(10.0));  // 10,000,000 nm
+    CT_CHECK(has_warning(ir.warnings, "resolution scale"));
+
+    // Resolution decade that cannot describe the file's own coordinates falls
+    // back to the unit scale with an explicit warning (never a silent
+    // sub-nanometre board).
+    static const char* kFallback =
+        "(pcb \"res_fallback\"\n"
+        "  (resolution um 10)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place P 1 1 front 0))\n"
+        "             (component U2 (place P 19 1 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network (net N1 (pins U1-1 U2-1))))\n";
+    ImportResult fb = dsn.import_text(kFallback, "res_fallback.dsn");
+    CT_CHECK(fb.board.width_nm == mm_to_nm(20.0));
+    CT_CHECK(has_warning(fb.warnings, "used the unit scale"));
+}
+
 CT_TEST(dsn_pour_imports_as_plane) {
     DsnImporter dsn;
     ImportResult ir = dsn.import_file(fixture("pour_test.dsn"));

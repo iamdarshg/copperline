@@ -456,6 +456,10 @@ ImportResult JsonBoardImporter::import_value(const JsonValue& root, const std::s
             layer.name = l.get_string("name", "L" + std::to_string(layer.id));
             layer.preferred_horizontal = l.get_bool("preferred_horizontal", false);
             layer.cost_multiplier = l.get_number("cost_multiplier", 1.0);
+            // Soft routing-direction hints imported from DSN (round-trip so
+            // `route --output` keeps what the file declared).
+            layer.direction = l.get_string("direction", "");
+            layer.grid_on = l.get_bool("grid_on", false);
             if (l.has("copper_weight_oz")) {
                 double oz = l.get_number("copper_weight_oz", -1);
                 if (oz <= 0)
@@ -823,6 +827,11 @@ JsonValue board_to_json(const Board& board) {
         if (l.has_copper_thickness)
             o["copper_thickness_mm"] = nm_to_mm(l.copper_thickness_nm);
         if (!l.impedance_model.empty()) o["impedance_model"] = l.impedance_model;
+        // Soft direction hints (DSN `(direction ...)` / `(grid ...)`).
+        if (!l.direction.empty()) o["direction"] = l.direction;
+        if (l.grid_on) o["grid_on"] = true;
+        if (l.preferred_horizontal) o["preferred_horizontal"] = true;
+        if (l.cost_multiplier != 1.0) o["cost_multiplier"] = l.cost_multiplier;
         layers.as_array().push_back(o);
     }
     root["layers"] = layers;

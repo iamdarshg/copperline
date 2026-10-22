@@ -51,6 +51,13 @@ struct Layer {
     // Per-layer estimator override: "" = auto (outer -> microstrip, inner ->
     // stripline), else "microstrip" | "stripline".
     std::string impedance_model;
+    // Specctra/Altium layer hints imported as SOFT preferences, never DRC:
+    // `direction` is the file's verbatim token ("horizontal", "vertical",
+    // "45", "in", "out"; empty = any) and `grid_on` records `(grid on|off)`.
+    // preferred_horizontal folds horizontal/vertical so the router can bias
+    // ordering without ever rejecting a vertical run on a horizontal layer.
+    std::string direction;
+    bool grid_on = false;
 };
 
 struct Terminal {

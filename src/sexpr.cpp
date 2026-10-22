@@ -43,6 +43,18 @@ class Lexer {
             return true;
         }
         if (c == '"') {
+            // Specctra's parser directive names the quote character itself:
+            //   (parser (string_quote ") (space_in_quoted_tokens on))
+            // A `"` that closes straight into `)` (optionally after spaces) is
+            // therefore the quote CHARACTER, not an unterminated string.
+            std::size_t look = pos_ + 1;
+            while (look < s_.size() && (s_[look] == ' ' || s_[look] == '\t')) ++look;
+            if (look < s_.size() && s_[look] == ')') {
+                token = "\"";
+                is_paren = false;
+                ++pos_;
+                return true;
+            }
             token = parse_quoted();
             is_paren = false;
             return true;
