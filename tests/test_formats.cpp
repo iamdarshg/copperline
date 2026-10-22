@@ -197,6 +197,51 @@ CT_TEST(dsn_quoted_name_normalization) {
     CT_CHECK(ir.board.terminals.size() == 4);
 }
 
+// (boundary (polygon pcb ...)): a real outline becomes the board extents. The
+// rect board model can only keep the bounding box, so a non-rectangular
+// outline must say so. A polygon that *is* a rectangle is exact and stays
+// silent.
+CT_TEST(dsn_polygon_boundary) {
+    static const char* kPentagon =
+        "(pcb \"poly_demo\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (polygon pcb 0 0 20 0 20 10 10 14 0 10)))\n"
+        "  (placement (component U1 (place SO8 0 0 front 0))\n"
+        "             (component U2 (place SO8 18 4 front 0)))\n"
+        "  (library (image SO8 (pin 1 0 0)))\n"
+        "  (network (net N (pins U1-1 U2-1))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kPentagon, "pentagon.dsn");
+    // bbox of the pentagon: 20 mm x 14 mm.
+    CT_CHECK(ir.board.width_nm == mm_to_nm(20.0));
+    CT_CHECK(ir.board.height_nm == mm_to_nm(14.0));
+    CT_CHECK(has_warning(ir.warnings, "non-rectangular board outline approximated by its bounding box"));
+    // A pad placed on the polygon's min corner lands on the board origin.
+    CT_CHECK(ir.board.terminals.size() == 2);
+    CT_CHECK(ir.board.terminals[0].pos.x == 0);
+    CT_CHECK(ir.board.terminals[0].pos.y == 0);
+    CT_CHECK(ir.board.terminals[1].pos.x == mm_to_nm(18.0));
+
+    // A four-vertex polygon that is axis-aligned is an exact rectangle.
+    static const char* kRectPoly =
+        "(pcb \"rect_poly\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (boundary (polygon pcb 0 0 30 0 30 12 0 12)))\n"
+        "  (placement (component U1 (place SO8 0 0 front 0))\n"
+        "             (component U2 (place SO8 10 6 front 0)))\n"
+        "  (library (image SO8 (pin 1 0 0)))\n"
+        "  (network (net N (pins U1-1 U2-1))))\n";
+    ImportResult ir2 = dsn.import_text(kRectPoly, "rect_poly.dsn");
+    CT_CHECK(ir2.board.width_nm == mm_to_nm(30.0));
+    CT_CHECK(ir2.board.height_nm == mm_to_nm(12.0));
+    CT_CHECK(!has_warning(ir2.warnings, "non-rectangular board outline"));
+}
+
 CT_TEST(dsn_pour_imports_as_plane) {
     DsnImporter dsn;
     ImportResult ir = dsn.import_file(fixture("pour_test.dsn"));
