@@ -202,7 +202,10 @@ shapes become rect keepouts with the matching enforcement kind — a
 `via_keepout` blocks vias only (wires stay legal), a `place_keepout` flags
 pads only, `wire`/`bend`/`elongate` block wires, and the bare `keepout`
 blocks everything; polygons by bbox, warned. `(wiring ...)`
-pre-routes are re-routed from pads (warned).
+pre-routes are re-routed from pads (warned). `(microvia ...)` /
+`(via_rule ...)` declarations are parsed and recorded by name in the
+import warnings, never converted into through-via copper (blind/buried/
+micro spans are not modeled; warned).
 
 Gerber honest limits: no embedded netlist exists in RS-274X, so ALL dark
 copper lands on a single net (`COPPER`, id 0) — flashes become pads, draws

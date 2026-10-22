@@ -900,6 +900,55 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
         result.warnings.push_back(
             "dsn: (wiring ...) pre-routes ignored on import; the router re-routes from pads");
 
+    // ---- microvia / via_rule: parse + record + warn (honest subset) ------
+    // Specctra declares micro-vias and via rotation/offset rules inside
+    // `(structure ...)`:
+    //   (microvia <name> <layer1> <layer2> <diameter> <hole> ...)
+    //   (via_rule <name> (rotate <deg>) (offset <dx> <dy>) ...)
+    // The Board model has only through vias, so these declarations are
+    // parsed and RECORDED (names listed in the import warnings) but never
+    // silently converted into through-via copper: a blind/buried/micro span
+    // materialized as a through via would fabricate copper the file did not
+    // declare. Never fatal. Some writers nest the rule under a via node
+    // (`(via_rule (via <name> ...) ...)`); both dialects are accepted.
+    std::vector<std::string> microvia_names, viarule_names;
+    for (const SexprNode* mv : structure->find_all("microvia")) {
+        std::string name = atom_str(mv, 1, "");
+        microvia_names.push_back(name.empty() ? "<unnamed>" : name);
+    }
+    for (const SexprNode* vr : structure->find_all("via_rule")) {
+        std::string name = atom_str(vr, 1, "");
+        if (name.empty()) {
+            for (const SexprNode* v : vr->find_all("via")) {
+                std::string vname = atom_str(v, 1, "");
+                if (!vname.empty()) viarule_names.push_back(vname);
+            }
+        } else {
+            viarule_names.push_back(name);
+        }
+    }
+    if (!microvia_names.empty() || !viarule_names.empty()) {
+        std::string detail;
+        auto append_list = [&](const char* what, const std::vector<std::string>& names) {
+            if (names.empty()) return;
+            if (!detail.empty()) detail += "; ";
+            detail += std::string(what) + ":";
+            for (const auto& n : names) detail += " " + n;
+        };
+        append_list("microvia", microvia_names);
+        append_list("via_rule", viarule_names);
+        result.warnings.push_back(
+            "dsn: recorded " + detail +
+            " (blind/buried/micro spans are not modeled; parsed and recorded, "
+            "no via copper fabricated)");
+    }
+    // Blind/buried spans also ride on ordinary via declarations in some
+    // writers (a `(blind ...)`/`(buried ...)` property on the via); the
+    // keyword scan below catches those without a grammar table.
+    if (text.find("blind") != std::string::npos || text.find("buried") != std::string::npos)
+        result.warnings.push_back(
+            "dsn: blind/buried via spans are not modeled and were ignored");
+
     // Default via geometry note for agents.
     if (!via_geom.empty()) {
         std::string names;
@@ -926,9 +975,6 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
                                   "' references unknown padstack(s) " + names +
                                   "; those pads assumed 0.3mm squares");
     }
-    // Micro-via / blind-buried spans are out of scope: record honestly.
-    if (text.find("microvia") != std::string::npos || text.find("blind") != std::string::npos)
-        result.warnings.push_back("dsn: micro/blind/buried vias are not modeled and were ignored");
     (void)design;
     return result;
 }

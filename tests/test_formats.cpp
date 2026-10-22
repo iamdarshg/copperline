@@ -419,6 +419,42 @@ CT_TEST(keepout_kind_enforcement) {
     CT_CHECK(keepout_kind_from_name("") == KeepoutKind::kAll);
 }
 
+// (microvia ...) and (via_rule ...) declarations are parsed and recorded
+// (their names appear in the import warnings) but never silently converted
+// into through-via copper: blind/buried/micro spans are out of the Board
+// model, so importing them as through vias would fabricate spans the file
+// did not declare. Never fatal.
+CT_TEST(dsn_microvia_via_rule_recorded) {
+    static const char* kDsn =
+        "(pcb \"mv_demo\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Mid (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20))\n"
+        "    (microvia MV_1_2 Top Mid 0.3 0.15)\n"
+        "    (via_rule STD (rotate 45) (offset 0 0))\n"
+        "    (via_rule (via MV_1_2 (rotate 0) (offset 0 0))))\n"
+        "  (placement (component U1 (place P 2 2 front 0))\n"
+        "             (component U2 (place P 18 2 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network (net N (pins U1-1 U2-1))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "mv_demo.dsn");
+    // The import succeeds, the board is usable, and the declarations are
+    // recorded by name in the warnings (never silent, never fatal).
+    CT_CHECK(ir.board.layers.size() == 3);
+    CT_CHECK(ir.board.nets.size() == 1);
+    CT_CHECK(has_warning(ir.warnings, "recorded"));
+    CT_CHECK(has_warning(ir.warnings, "microvia"));
+    CT_CHECK(has_warning(ir.warnings, "MV_1_2"));
+    CT_CHECK(has_warning(ir.warnings, "via_rule"));
+    CT_CHECK(has_warning(ir.warnings, "STD"));
+    // No fabricated via copper for the micro span.
+    CT_CHECK(ir.board.vias.empty());
+}
+
 // ---- FreeRouting / classic SES dialects ------------------------------------
 // The session payload (wires + vias per net) is the same everywhere; only the
 // nesting and the coordinate declaration differ. These tests pin both.
