@@ -455,6 +455,76 @@ CT_TEST(dsn_microvia_via_rule_recorded) {
     CT_CHECK(ir.board.vias.empty());
 }
 
+// ---- width min/pref/max triplets -------------------------------------
+// The Specctra router routes at the Preferred width with Min as the floor
+// (M9). All three DSN spellings — single value, positional min-pref-max,
+// and the labelled (min ...)/(pref ...) fragment — must land on the net's
+// min AND preferred width, and the chosen source must be reported.
+CT_TEST(dsn_width_triplets) {
+    static const char* kDsn =
+        "(pcb \"w_triplets\"\n"
+        "  (unit mm)\n"
+        "  (structure (layer Top (type signal)) (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place P 2 2 front 0))\n"
+        "             (component U2 (place P 18 2 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network\n"
+        "    (class SINGLE (rule (width 0.2) (clearance 0.15)))\n"
+        "    (class POS (rule (width 0.15 0.25 0.4) (clearance 0.15)))\n"
+        "    (class LAB (rule (width (min 0.1) (pref 0.3)) (clearance 0.15)))\n"
+        "    (net A (pins U1-1 U2-1) (class SINGLE))\n"
+        "    (net B (pins U1-1 U2-1) (class POS))\n"
+        "    (net C (pins U1-1 U2-1) (class LAB))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "w_triplets.dsn");
+    // Single value: min == pref == value, source reported as the plain value.
+    const NetInfo* a = ir.board.find_net_by_name("A");
+    CT_CHECK(a != nullptr && a->has_min_width);
+    CT_CHECK(a->min_width_nm == mm_to_nm(0.2));
+    CT_CHECK(!a->has_pref_width || a->pref_width_nm == mm_to_nm(0.2));
+    // Positional triplet: min = 0.15, pref = 0.25 (max 0.4 recorded, unused).
+    const NetInfo* b = ir.board.find_net_by_name("B");
+    CT_CHECK(b != nullptr && b->has_min_width);
+    CT_CHECK(b->min_width_nm == mm_to_nm(0.15));
+    CT_CHECK(b->has_pref_width);
+    CT_CHECK(b->pref_width_nm == mm_to_nm(0.25));
+    CT_CHECK(has_warning(ir.warnings, "uses the preferred value"));
+    // Labelled fragment: min = 0.1, pref = 0.3.
+    const NetInfo* c = ir.board.find_net_by_name("C");
+    CT_CHECK(c != nullptr && c->has_min_width);
+    CT_CHECK(c->min_width_nm == mm_to_nm(0.1));
+    CT_CHECK(c->has_pref_width);
+    CT_CHECK(c->pref_width_nm == mm_to_nm(0.3));
+    // The resolver routes at the preferred width (floored by min/current).
+    RuleResolver r = RuleResolver::defaults_for(ir.board);
+    ElectricalContext ctx;
+    TraceRule tb = r.traceRule(b->id, 0, 0);
+    CT_CHECK(tb.pref_width_nm == mm_to_nm(0.25));
+    CT_CHECK(tb.pref_width_nm >= tb.min_width_nm);
+    // Preferred below min: still routes at min and says so.
+    static const char* kBadPref =
+        "(pcb \"w_badpref\"\n"
+        "  (unit mm)\n"
+        "  (structure (layer Top (type signal)) (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place P 2 2 front 0))\n"
+        "             (component U2 (place P 18 2 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network\n"
+        "    (class BAD (rule (width 0.3 0.2) (clearance 0.15)))\n"
+        "    (net X (pins U1-1 U2-1) (class BAD))))\n";
+    ImportResult ib = dsn.import_text(kBadPref, "w_badpref.dsn");
+    const NetInfo* x = ib.board.find_net_by_name("X");
+    CT_CHECK(x != nullptr && x->has_min_width);
+    CT_CHECK(x->min_width_nm == mm_to_nm(0.3));
+    CT_CHECK(x->has_pref_width);  // recorded, but the router floors at min
+    CT_CHECK(has_warning(ib.warnings, "preferred below min"));
+    RuleResolver rb = RuleResolver::defaults_for(ib.board);
+    TraceRule tx = rb.traceRule(x->id, 0, 0);
+    CT_CHECK(tx.pref_width_nm == mm_to_nm(0.3));  // max(pref, min) = min
+}
+
 // ---- FreeRouting / classic SES dialects ------------------------------------
 // The session payload (wires + vias per net) is the same everywhere; only the
 // nesting and the coordinate declaration differ. These tests pin both.

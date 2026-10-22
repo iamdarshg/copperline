@@ -116,10 +116,66 @@ struct DsnClassRule {
     std::string name;
     bool has_width = false;
     Coord width_nm = 0;
+    bool has_pref_width = false;
+    Coord pref_width_nm = 0;
+    std::string width_source;  // "single" | "pref" | "min" (M9: preferred else min)
     bool has_clearance = false;
     Coord clearance_nm = 0;
     std::vector<std::string> use_via;
 };
+
+// Parse a (width ...) rule the way the Specctra router reads it (M9):
+// the preferred value drives routing, the minimum is the floor, and the
+// maximum is out of scope (recorded, never enforced). Three spellings are
+// accepted because exporters disagree:
+//   (width 0.2)                    - single value: min = pref = 0.2
+//   (width 0.15 0.2 0.3)           - positional: min pref max
+//   (width (min 0.15) (pref 0.2))   - labelled fragment
+// `scale_mm` is the file's coordinate quantum (mm per count).
+struct WidthTriplet {
+    Coord min_nm = 0;
+    Coord pref_nm = 0;
+    bool has_pref = false;
+    std::string source;
+};
+WidthTriplet parse_width_rule(const SexprNode* w, double scale_mm) {
+    WidthTriplet out;
+    if (!w) return out;
+    auto u2mm_local = [&](double v) { return v * scale_mm; };
+    // Labelled form: (width (min x) (pref y) (max z)).
+    const SexprNode* mn = w->find_child("min");
+    const SexprNode* pf = w->find_child("pref");
+    if (mn || pf) {
+        double minv = mn ? atom_num(mn, 1, 0.0) : 0.0;
+        double prefv = pf ? atom_num(pf, 1, 0.0) : 0.0;
+        if (pf && prefv > 0) {
+            out.min_nm = mm_to_nm(u2mm_local(minv));
+            out.pref_nm = mm_to_nm(u2mm_local(prefv));
+            out.has_pref = true;
+            out.source = "pref";
+        } else {
+            out.min_nm = mm_to_nm(u2mm_local(minv));
+            out.source = "min";
+        }
+        return out;
+    }
+    // Positional form: collect leading numeric atoms.
+    std::vector<double> nums;
+    for (std::size_t i = 1; i < w->children.size(); ++i) {
+        if (!is_number_atom(w->children[i].get())) break;
+        nums.push_back(atom_num(w, i));
+    }
+    if (nums.empty()) return out;  // caller reports a default
+    out.min_nm = mm_to_nm(u2mm_local(nums[0]));
+    if (nums.size() >= 2) {
+        out.pref_nm = mm_to_nm(u2mm_local(nums[1]));
+        out.has_pref = true;
+        out.source = "pref";
+    } else {
+        out.source = "single";
+    }
+    return out;
+}
 
 // Memory bound (router <= 2048MB total): no pour/keepout polygon may carry
 // more vertices than this; larger shapes are skipped with an explicit
@@ -411,8 +467,20 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
         if (cr.name.empty()) continue;
         if (const SexprNode* rule = cn->find_child("rule")) {
             if (const SexprNode* w = rule->find_child("width")) {
-                cr.has_width = true;
-                cr.width_nm = mm_to_nm(u2mm(atom_num(w, 1, 0.2)));
+                WidthTriplet wt = parse_width_rule(w, scale_mm);
+                if (wt.min_nm > 0) {
+                    cr.has_width = true;
+                    cr.width_nm = wt.min_nm;
+                    cr.width_source = wt.source;
+                } else {
+                    result.warnings.push_back(
+                        "dsn: class '" + cr.name +
+                        "' (width ...) rule carries no usable value; class width ignored");
+                }
+                if (wt.has_pref) {
+                    cr.has_pref_width = true;
+                    cr.pref_width_nm = wt.pref_nm;
+                }
             }
             if (const SexprNode* c = rule->find_child("clearance")) {
                 cr.has_clearance = true;
@@ -630,6 +698,24 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             if (cr.has_width) {
                 net.has_min_width = true;
                 net.min_width_nm = cr.width_nm;
+            }
+            if (cr.has_pref_width) {
+                net.has_pref_width = true;
+                net.pref_width_nm = cr.pref_width_nm;
+                // M9: the router routes at the preferred width (fallback:
+                // min). Say which value drives routing so agents can see
+                // the choice, and floor the preferred by the min (a file
+                // with pref < min is a defect; prefer is still >= min).
+                if (cr.width_source == "pref" && cr.pref_width_nm >= cr.width_nm) {
+                    result.warnings.push_back(
+                        "dsn: class '" + cr.name + "' width rule uses the preferred value "
+                        + std::to_string(nm_to_mm(cr.pref_width_nm)) + "mm (min " +
+                        std::to_string(nm_to_mm(cr.width_nm)) + "mm)");
+                } else if (cr.width_source != "single") {
+                    result.warnings.push_back(
+                        "dsn: class '" + cr.name + "' width rule preferred below min; "
+                        "routing at min " + std::to_string(nm_to_mm(cr.width_nm)) + "mm");
+                }
             }
             if (cr.has_clearance) {
                 net.has_min_clearance = true;
