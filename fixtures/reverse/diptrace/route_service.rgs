@@ -1,0 +1,44 @@
+; RouteService.exe embedded .rgs registration script (observed string dump, clean-room).
+; Recovered verbatim from the binary at file offset ~0x1F5C0. Registers the
+; COM local server that hosts router.dll (Electra shape-based autorouter engine).
+; Register with: RouteService.exe /RegServer; unregister: /UnregServer.
+; (see RouteServiceChecker.vbs in this directory)
+
+HKCR
+{
+	NoRemove AppID
+	{
+		'%APPID%' = s 'RouteService'
+		'RouteService.EXE'
+		{
+			val AppID = s '%APPID%'
+		}
+	}
+}
+
+HKCR
+{
+	RouteService.RouterObject.1 = s 'RouterObject Class'
+	{
+		CLSID = s '{5BDF40FD-F1A5-47C4-A52D-171ABE029342}'
+	}
+	RouteService.RouterObject = s 'RouterObject Class'
+	{
+		CurVer = s 'RouteService.RouterObject.1'
+	}
+	NoRemove CLSID
+	{
+		ForceRemove {5BDF40FD-F1A5-47C4-A52D-171ABE029342} = s 'RouterObject Class'
+		{
+			ProgID = s 'RouteService.RouterObject.1'
+			VersionIndependentProgID = s 'RouteService.RouterObject'
+			ForceRemove Programmable
+			LocalServer32 = s '%MODULE%'
+			{
+				val ServerExecutable = s '%MODULE_RAW%'
+			}
+			TypeLib = s '{E917AEE4-D143-4E20-B930-6D47FE655016}'
+			Version = s '1.0'
+		}
+	}
+}

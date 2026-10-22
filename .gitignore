@@ -7,3 +7,9 @@ gmon.out
 *.user
 .vs/
 .idea/
+__pycache__/
+*.pyc
+em_openems/
+em_openems_test/
+routed_probe.json
+probe_report.json

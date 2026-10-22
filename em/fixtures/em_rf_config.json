@@ -1,0 +1,22 @@
+{
+  "schema": "copperline/em-config/1",
+  "stackup": {
+    "dielectric_mm": 1.6,
+    "eps_r": 4.4,
+    "tan_d": 0.02,
+    "copper_weight_oz": 1.0,
+    "plating_um": 25.0,
+    "internal_layers": []
+  },
+  "rf": {
+    "freq_ghz": 2.45,
+    "temp_rise_c": 20.0,
+    "default_target_z0_ohm": 50.0,
+    "max_s11_db": -10.0,
+    "min_s21_db": -1.5,
+    "targets": {
+      "ANT": {"z0_ohm": 50.0, "max_s11_db": -10.0, "min_s21_db": -1.5, "current_a": 1.0},
+      "GND": {"z0_ohm": 50.0, "max_s11_db": -10.0, "min_s21_db": -1.5, "current_a": 0.2}
+    }
+  }
+}

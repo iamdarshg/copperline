@@ -90,6 +90,47 @@ and file stay consistent). Default stdout is unchanged. Saves ~29KB per
 call on `bga_8x8` (~0.7KB on `open_2layer`); the routed board is already on
 disk when `--output` is used.
 
+## EM / RF validation
+
+Routed copper is validated against the physics of the stackup in `em/`:
+
+- **Analytical tier (zero dependencies)** — `python em/validate_rf.py <board> --config em/fixtures/em_rf_config.json --json`
+  computes characteristic impedance (microstrip/stripline closed forms),
+  return/insertion loss at frequency, **RF-derated ampacity** (the DC
+  IPC-2221 `CurrentCapacityModel` capacity scaled by the AC/DC skin
+  cross-section ratio — a 1 A net at 2.45 GHz needs much wider copper
+  than DC-only ampacity implies), via capacity and first-order crosstalk.
+  Emits schema `copperline/em-report/1`; exit 0 only when all RF nets pass.
+- **Full-wave tier (openEMS FDTD)** — `python em/gen_openems.py <board> --config <cfg> --out out/`
+  writes a runnable openEMS driver (substrate, plane, trace, mesh, lumped
+  ports, Gaussian excitation, S-parameter sweep) per RF net. Run
+  `python out/ANT_sim.py` on a machine with openEMS installed. openEMS is
+  GPL-3 and is NOT bundled; copperline only generates clean-room drivers.
+- Clean-room: all analytical models restated from Pozar / IPC-2141A /
+  IPC-2221; nothing copied from any proprietary or GPL implementation.
+- Tests: `python tests/test_em.py` (29 assertions) or via ctest `test_em`.
+
+## DipTrace / Altium reverse-engineering (docs + tools)
+
+`docs/reverse/` holds clean-room reports for the two PCB-EDA installers
+found in Downloads (Altium CircuitMaker stub, Novarm DipTrace trial):
+
+- **DipTrace's built-in autorouter = Electra**: `router.dll` exports the
+  classic `electra_init/sethost/load/dofile/command/abort` API; it runs as
+  an x86 COM local server (`RouteService.exe`) and speaks **Specctra DSN
+  in / SES out** — the same dialect copperline already routes
+  (`fixtures/golden_demo.dsn`). See `docs/reverse/diptrace/router_engine.md`.
+- **Native `.dip` binary format**: partial clean-room decoder delivered as
+  `tools/diptrace_import.py` (u16-len UTF-16LE string framing, component/
+  pin records, net names → copperline board JSON; trace/via payloads
+  located but not field-decoded — see `dip_binary_format.md`). The
+  extracted DipTrace example boards sit in `fixtures/reverse/diptrace/`.
+- **Altium `.PcbDoc`/`.CMPcbDoc`**: CFB/OLE2 container + text-prop/binary
+  record layouts documented in `docs/reverse/circuitmaker/` — the map for
+  a future `src/cmpcb.cpp` import adapter.
+- All reports are **clean-room**: observed byte facts + public specs only,
+  no copied vendor code. Tests: `python tests/test_diptrace_import.py`.
+
 ## Exit codes
 
 | Code | Meaning |

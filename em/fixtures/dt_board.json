@@ -1,0 +1,272 @@
+{
+ "schema": "copperline/board/1",
+ "board": {
+  "width_mm": 100.0,
+  "height_mm": 100.0
+ },
+ "layers": [
+  {
+   "id": 0,
+   "name": "Top"
+  },
+  {
+   "id": 1,
+   "name": "Bottom"
+  }
+ ],
+ "defaults": {
+  "trace_width_mm": 0.2,
+  "clearance_mm": 0.15,
+  "via_outer_mm": 0.6,
+  "via_hole_mm": 0.3,
+  "default_current_a": 0.5
+ },
+ "nets": [
+  {
+   "id": 0,
+   "name": "BAT",
+   "terminals": []
+  },
+  {
+   "id": 1,
+   "name": "5V",
+   "terminals": []
+  },
+  {
+   "id": 2,
+   "name": "CAP100RP",
+   "terminals": []
+  },
+  {
+   "id": 3,
+   "name": "22uF",
+   "terminals": []
+  },
+  {
+   "id": 4,
+   "name": "LED",
+   "terminals": []
+  },
+  {
+   "id": 5,
+   "name": "2N4401",
+   "terminals": []
+  },
+  {
+   "id": 6,
+   "name": "C",
+   "terminals": []
+  },
+  {
+   "id": 7,
+   "name": "RES400",
+   "terminals": []
+  },
+  {
+   "id": 8,
+   "name": "47k",
+   "terminals": []
+  },
+  {
+   "id": 9,
+   "name": "SKEL_B1",
+   "terminals": [
+    {
+     "id": 0,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 1,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 2,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "name": "SKEL_C1",
+   "terminals": [
+    {
+     "id": 3,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 4,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 11,
+   "name": "SKEL_C2",
+   "terminals": [
+    {
+     "id": 5,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 6,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "name": "SKEL_LED1",
+   "terminals": [
+    {
+     "id": 7,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 13,
+   "name": "SKEL_LED2",
+   "terminals": [
+    {
+     "id": 8,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 14,
+   "name": "SKEL_Q1",
+   "terminals": [
+    {
+     "id": 9,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 10,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "name": "SKEL_Q2",
+   "terminals": [
+    {
+     "id": 11,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 12,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "name": "SKEL_R1",
+   "terminals": [
+    {
+     "id": 13,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 14,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 17,
+   "name": "SKEL_R2",
+   "terminals": [
+    {
+     "id": 15,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 16,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "name": "SKEL_R3",
+   "terminals": [
+    {
+     "id": 17,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 18,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  },
+  {
+   "id": 19,
+   "name": "SKEL_R4",
+   "terminals": [
+    {
+     "id": 19,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    },
+    {
+     "id": 20,
+     "x_mm": 0.0,
+     "y_mm": 0.0,
+     "layer": 0
+    }
+   ]
+  }
+ ],
+ "planes": [],
+ "traces": [],
+ "vias": [],
+ "import_warnings": [
+  "PARTIAL import: record framing, components and net names only.",
+  "Trace/via coordinates are not decoded (binary payloads need a",
+  "full decoder). Use the DSN/SES flow for routed copper."
+ ],
+ "component_count": 11
+}

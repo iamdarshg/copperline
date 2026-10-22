@@ -1,0 +1,22 @@
+# DipTrace autorouter exports (clean-room, observed via PE export directory).
+# Binary | ordinal | name | RVA | notes
+router.dll	1	electra_abort	0x17770	Stop current autoroute run
+router.dll	2	electra_command	0x176f0	Execute a router command string (DSN-style commands, e.g. set/cost/route)
+router.dll	3	electra_dofile	0x175f0	Execute a router command file
+router.dll	4	electra_init	0x17620	Initialize the Electra engine
+router.dll	5	electra_load	0x175c0	Load a design file (Specctra DSN) into the engine
+router.dll	6	electra_sethost	0x175a0	Install host-callback vtable (file transport, display, log, status, via)
+RouteLayer.dll	1	Abort_Route	0x24a0	Host-side: abort current route
+RouteLayer.dll	2	Destroy	0x24e0	Host-side: teardown
+RouteLayer.dll	3	Do_File	0x22c0	Host-side: run a command file
+RouteLayer.dll	4	Init_Host	0x2060	Host-side: register host callbacks
+RouteLayer.dll	5	Init_Route	0x1e50	Host-side: init routing subsystem
+RouteLayer.dll	6	Init_display	0x1e30	Host-side: display callback hook
+RouteLayer.dll	7	Init_log	0x1df0	Host-side: log callback hook
+RouteLayer.dll	8	Init_mark	0x1e20	Host-side: marker/point callback hook
+RouteLayer.dll	9	Init_path	0x1e10	Host-side: path drawing callback hook
+RouteLayer.dll	10	Init_status	0x1e40	Host-side: status callback hook
+RouteLayer.dll	11	Init_via	0x1e00	Host-side: via rendering callback hook
+RouteLayer.dll	12	Load_File	0x21a0	Host-side: load design file
+RouteLayer.dll	13	Send_Comm	0x23b0	Host-side: send command to engine
+RouteLayer.dll	14	SetTempPath	0x2580	Host-side: set temp-file directory for the host transport (pfile channel)

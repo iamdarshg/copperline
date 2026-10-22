@@ -1,0 +1,39 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 40, "height_mm": 30},
+  "layers": [
+    {"id": 0, "name": "Top"},
+    {"id": 1, "name": "Bottom"}
+  ],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "planes": [
+    {"id": 0, "layer": 1, "net": 1, "polygon": [[0,0],[40,0],[40,30],[0,30]]}
+  ],
+  "nets": [
+    {
+      "id": 0, "name": "ANT", "current_a": 1.0, "voltage_v": 3.3,
+      "terminals": [
+        {"id": 0, "x_mm": 3, "y_mm": 15, "layer": 0},
+        {"id": 1, "x_mm": 37, "y_mm": 15, "layer": 0}
+      ]
+    },
+    {
+      "id": 1, "name": "GND", "current_a": 0.2, "voltage_v": 0,
+      "terminals": [
+        {"id": 2, "x_mm": 3, "y_mm": 24, "layer": 0},
+        {"id": 3, "x_mm": 37, "y_mm": 24, "layer": 0}
+      ]
+    }
+  ],
+  "traces": [
+    {"layer": 0, "net": 0, "width_mm": 3.0, "x1_mm": 3, "x2_mm": 37, "y1_mm": 15, "y2_mm": 15},
+    {"layer": 0, "net": 1, "width_mm": 1.0, "x1_mm": 3, "x2_mm": 37, "y1_mm": 24, "y2_mm": 24}
+  ],
+  "vias": []
+}

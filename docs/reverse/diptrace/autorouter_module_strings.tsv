@@ -1,0 +1,389 @@
+# DipTrace autorouter module evidence (clean-room string table).
+# Binary | file offset | string | evidenced modules
+# Offsets are file offsets in the scratch shadow copies:
+#   router.dll = extract_test/1726_router.dll, RouteService.exe = 1727_,
+#   RouteLayer.dll = 1725_, Pcb_full.exe = extract_test/Pcb_full.exe
+router.dll	0x002e211c	Adaptive Shape-based AutoRouter	M0
+router.dll	0x0039f8b2	Adaptive Shape-Based AutoRouting Software	M0
+router.dll	0x0039f8df	www.konekt.com	M0
+router.dll	0x002e1fa0	Usage: <application> [-design <design_file>] [-do <do_file>] [-w <routes_file>] [-nog] [-quit]	M0 M11
+router.dll	0x003b1204	Loading design file..., press Esc to cancel...	M1
+router.dll	0x003b1234	Loading routes file..., press Esc to cancel...	M1
+router.dll	0x003b1264	Loading placement file..., press Esc to cancel...	M1
+router.dll	0x003b1298	Opening quote not closed	M1
+router.dll	0x003b12b4	Line too long	M1
+router.dll	0x003b12d0	Parsing error at line:	M1
+router.dll	0x003b12e8	Coordinate out of boundary	M1
+router.dll	0x003b1338	Undefined Net in routes section	M1
+router.dll	0x003b1368	Undefined layer: %s at line: %ld	M1
+router.dll	0x003b1394	Undefined Net in wire section	M1
+router.dll	0x003b13d8	Undefined padstack for Via	M1 M4
+router.dll	0x003b1400	Undefined padstack	M1
+router.dll	0x003b1414	Undefined part	M1
+router.dll	0x003b1454	Undefined pin id	M1
+router.dll	0x003b1468	Undefined refdes	M1
+router.dll	0x003b1479	If Component name contains '-', type in dash_cmp before reading design	M1
+router.dll	0x003b14c1	If Pin name contains '-', type in dash_pin before reading design	M1
+router.dll	0x003b1504	No '-' delimiter found	M1
+router.dll	0x003b1424	Warning reading file on line %ld!	M1
+router.dll	0x003b16b0	Warning - No placement data found !	M1
+router.dll	0x003b1730	Instance definition not supported	M1
+router.dll	0x003b16d8	Wrong syntax for net pair	M1
+router.dll	0x003b16f4	Undefined fromto pin pair	M1
+router.dll	0x003b1710	Undefined net in first net pair	M1
+router.dll	0x003b1798	Undefined net in second net pair	M1
+router.dll	0x003b17d8	property	M1
+router.dll	0x003b17e4	position	M1
+router.dll	0x003b17f0	lock_type	M1
+router.dll	0x003b1820	logical_part_mapping	M1
+router.dll	0x003b1840	component	M1
+router.dll	0x003b184c	layer_rule	M1 M3
+router.dll	0x003b1858	terminal	M1
+router.dll	0x003b1864	component back	M1
+router.dll	0x003b1874	component front	M1
+router.dll	0x003b1884	grid wiring	M1
+router.dll	0x003b18a8	set_color	M1
+router.dll	0x003b18bc	mirror_first	M1
+router.dll	0x003b18cc	rotate_first	M1
+router.dll	0x003b18dc	flip_style	M1
+router.dll	0x003b18f8	absolute	M1
+router.dll	0x003b1904	padstack	M1 M2
+router.dll	0x003b1920	place_keepout	M1 M2
+router.dll	0x003b1930	bend_keepout	M1 M2 M3
+router.dll	0x003b1940	wire_keepout	M1 M2 M3
+router.dll	0x003b1950	conductor	M1
+router.dll	0x003b1964	via_keepout	M1 M2 M3
+router.dll	0x003b19a8	host_cad	M1
+router.dll	0x003b19b4	resolution	M1
+router.dll	0x003b19c8	network_out	M1
+router.dll	0x003b19d4	part_library	M1
+router.dll	0x003b19e4	floor_plan	M1
+router.dll	0x003b19f8	placement	M1
+router.dll	0x003b1a04	structure	M1
+router.dll	0x003b1a18	constant	M1
+router.dll	0x003b1c28	Parsing Error: Base Design %s not found	M1 M10
+router.dll	0x003b1c60	base_design	M1 M10
+router.dll	0x002e8428	(parser%s	M1 M10
+router.dll	0x002e8728	(resolution %s %d)%s	M1 M10
+router.dll	0x002e8558	(library_out%s	M1 M10
+router.dll	0x002e86f4	(structure_out%s	M1 M10
+router.dll	0x002e86e0	(network_out%s	M1 M10
+router.dll	0x002e8740	 (routes %s	M10
+router.dll	0x002e874c	 (base_design %c%s%c)%s	M10
+router.dll	0x002e8764	(session %c%s%c%s	M10
+router.dll	0x002e8260	(qarc %s %s %s %s	M2 M10
+router.dll	0x002e831c	(rect %s %s %s %s %s)	M2 M10
+router.dll	0x002e8308	(circ %s %s %s %s)	M2 M10
+router.dll	0x002e833c	(poly %s %s 	M2 M10
+router.dll	0x002e834c	(path %s %s 	M2 M10
+router.dll	0x002e83c0	   (wire 	M2 M10
+router.dll	0x002e83ec	   (via %s 	M2 M4 M10
+router.dll	0x002e8400	   (shape 	M2 M10
+router.dll	0x002e8414	  (padstack %s%s	M2 M4 M10
+router.dll	0x002e839c	 (terminal wire)	M2 M10
+router.dll	0x002e83d0	 (contact %s)	M2 M10
+router.dll	0x002e83e0	 (net %s )	M2 M10
+router.dll	0x002e83b0	%s    (connect	M2 M10
+router.dll	0x002e861c	    (tjunction 	M2
+router.dll	0x002e8578	VIA %s round 1-16	M4
+router.dll	0x002e82b4	%s    (type protect)	M2 M10
+router.dll	0x002e82cc	%s    (type soft)	M2 M8 M10
+router.dll	0x002e82e0	%s    (type route)	M2 M8 M10
+router.dll	0x002e82f4	%s    (type fix)	M2 M10
+router.dll	0x002e828c	%s    (attr bus)	M2 M10
+router.dll	0x002e82a0	%s    (attr fanout)	M2 M7 M10
+router.dll	0x002e1b80	Net %s is protected against deletion	M2
+router.dll	0x002e1ba8	ProtectedFreePad	M2
+router.dll	0x002e1b14	Wire width is too small	M2 M3
+router.dll	0x002e1b50	Wire width is too big	M2 M3
+router.dll	0x002e1b2c	Wire to Wire Clearance is too small	M2 M3
+router.dll	0x002e1cb8	Shape Outside Board Boundary	M2
+router.dll	0x002e1d10	Found unconnected shape	M2
+router.dll	0x002e1d38	Nets shorting at pin	M2
+router.dll	0x003a0e44	Via_to_Keepout	M2 M3
+router.dll	0x003a0e54	Via_to_Via	M2 M3
+router.dll	0x003a0e60	Wire_to_Keepout	M2 M3
+router.dll	0x003a0e70	Wire_to_Via	M2 M3
+router.dll	0x003a0e7c	Wire_to_Wire	M2 M3
+router.dll	0x003a0e8c	Pin_to_Keepout	M2 M3
+router.dll	0x003a0e9c	Pin_to_Via	M2 M3
+router.dll	0x003a0ea8	Pin_to_Wire	M2 M3
+router.dll	0x003a0eb8	Pin_to_Pin	M2 M3
+router.dll	0x003a0ec4	Wire_to_Pin	M2 M3
+router.dll	0x002e8434	    (clearance %s (type %s_area))%s	M3 M10
+router.dll	0x002e8458	    (clearance %s (type %s_wire))%s	M3 M10
+router.dll	0x002e847c	    (clearance %s (type %s_via))%s	M3 M10
+router.dll	0x002e84a0	    (clearance %s (type %s_smd))%s	M3 M10
+router.dll	0x002e84c4	    (clearance %s (type %s_pin))%s	M3 M10
+router.dll	0x002e862c	    (clearance %s (type smd_via_same_net))%s	M3 M10
+router.dll	0x002e865c	    (clearance %s (type via_via_same_net))%s	M3 M10
+router.dll	0x002e868c	    (clearance %s)%s	M3 M10
+router.dll	0x002e86a4	    (width %s)%s	M3 M10
+router.dll	0x002e86b8	   (rule%s	M3 M10
+router.dll	0x003a0864	rule pcb (via_at_smd on	M3 M4 M10
+router.dll	0x003a0894	rule pcb (via_at_smd off	M3 M4 M10
+router.dll	0x003a0808	 (via_share on)	M3 M4
+router.dll	0x003a0818	 (pin_share on)	M3 M4
+router.dll	0x003a0828	 (direction out)	M3 M5
+router.dll	0x003a083c	 (direction in)	M3 M5
+router.dll	0x003a0858	 (grid off)	M3 M5
+router.dll	0x003a087c	 (grid on)	M3 M5
+router.dll	0x003a0888	 (fit on)	M3 M4
+router.dll	0x003b151c	limit_bend	M3 M5 M9
+router.dll	0x003b1528	limit_cross	M3 M5
+router.dll	0x003b1534	limit_via	M3 M5 M9
+router.dll	0x003b154c	smd_to_via_gap	M3 M4
+router.dll	0x003b155c	via_to_via_gap	M3 M4
+router.dll	0x003b156c	testpoint_testpoint	M3
+router.dll	0x003b1580	wire_testpoint	M3
+router.dll	0x003b1590	via_testpoint	M3 M4
+router.dll	0x003b15a0	smd_testpoint	M3
+router.dll	0x003b15b0	area_testpoint	M3
+router.dll	0x003b15c0	pin_testpoint	M3
+router.dll	0x003b15d0	smd_to_turn_gap	M3
+router.dll	0x003b15e0	pin_to_turn_gap	M3
+router.dll	0x003b15f0	pad_to_turn_gap	M3
+router.dll	0x003b1600	drill_gap	M3
+router.dll	0x003b160c	antipad_gap	M3
+router.dll	0x003b1618	non_planar_via_gap	M3 M4
+router.dll	0x003b162c	buried_via_gap	M3 M4
+router.dll	0x003b163c	via_via_same_net	M3
+router.dll	0x003b1650	smd_via_same_net	M3
+router.dll	0x0039e860	max_total_vias	M4 M5
+router.dll	0x0039e878	limit_bends	M3 M5 M9
+router.dll	0x0039e88c	limit_crossings	M3 M5
+router.dll	0x0039e8a0	limit_vias	M3 M5 M9
+router.dll	0x0039e8b0	limit_way	M3 M5 M8
+router.dll	0x0039e8c4	starburst	M3
+router.dll	0x0039e8d0	daisy_chain	M3
+router.dll	0x0039e8f0	term_only	M3
+router.dll	0x0039e904	max_stub	M3
+router.dll	0x0039e920	junction_type	M3
+router.dll	0x0039e930	joint_type	M3
+router.dll	0x0039e944	tjunction	M3
+router.dll	0x0039e958	max_stagger	M3
+router.dll	0x0039e964	via_on_pin	M4
+router.dll	0x0039e970	via_at_smd	M4
+router.dll	0x0039f154	side_exit	M3 M4
+router.dll	0x0039f160	off_center	M3 M4
+router.dll	0x0039f16c	off_grid	M3 M4
+router.dll	0x0039f2ec	use_layer	M3 M5
+router.dll	0x0039f2f8	priority	M3 M5
+router.dll	0x0039eedc	Priority ranges from 1 to 255	M3 M5
+router.dll	0x0039f568	direction	M3 M5
+router.dll	0x0039f544	ORTHOGONAL	M3 M5
+router.dll	0x0039f550	VERTICAL	M3 M5
+router.dll	0x0039f55c	HORIZONTAL	M3 M5
+router.dll	0x0039f494	via_share	M4
+router.dll	0x0039f4a0	pin_share	M4
+router.dll	0x0039f488	share_len	M4
+router.dll	0x0039f6fc	sharing_via	M4 M5 M7
+router.dll	0x0039f708	sharing_pin	M4 M5 M7
+router.dll	0x0039f6ac	share_dist	M4 M5 M7
+router.dll	0x0039f714	via_at_smd_fit	M4
+router.dll	0x0039f724	via_at_smd_grid	M4 M7
+router.dll	0x0039e97c	clearance	M3
+router.dll	0x0039efe4	Wrong clearance	M3
+router.dll	0x0039ef80	Syntax: add region <layer> <width> <clearance> <xlo> <ylo> <xhi> <yhi>	M2 M3
+router.dll	0x0039f1a0	Unknown via name	M4
+router.dll	0x0039eefc	Undefined Via Type	M4
+router.dll	0x002e8106	.ARouting with undefined Via	M4
+router.dll	0x003b1664	Unknown via	M4
+router.dll	0x0039f178	Unknown net class	M3
+router.dll	0x003b1778	Bad class definition	M3
+router.dll	0x00317ce0	cost <= total_cost	M5
+router.dll	0x0039e98e	C@Max cost	M5
+router.dll	0x0039e9b8	Using default cost	M5
+router.dll	0x0039ee58	Missing cost argument	M5
+router.dll	0x0039f358	cost	M5
+router.dll	0x002e85e8	SET WIRE_BEND 3%s	M5 M9
+router.dll	0x002e85d4	SET OPTIMIZING ON%s	M5 M9
+router.dll	0x003652a4	Opened temporary file %s	M5 M11
+router.dll	0x003652c0	Closed temporary file %s	M5 M11
+router.dll	0x003658e4	Failed to create temporary file %s	M5 M11
+router.dll	0x0036586c	Write failed on temporary file --- out of disk space?	M5 M11
+router.dll	0x003658a4	Seek failed on temporary file	M5 M11
+router.dll	0x003658c4	Read failed on temporary file	M5 M11
+router.dll	0x003657a8	Write to XMS failed	M5
+router.dll	0x003657bc	Read from XMS failed	M5
+router.dll	0x00365d60	Write to EMS failed	M5
+router.dll	0x00365d74	Read from EMS failed	M5
+router.dll	0x0039f630	autoroute	M6
+router.dll	0x0039f63c	filter_passes	M6 M9
+router.dll	0x0039f64c	fanout_passes	M6 M7
+router.dll	0x0039f65c	final_clean_passes	M6 M9
+router.dll	0x0039f670	final_route_passes	M6
+router.dll	0x0039f684	init_clean_passes	M6 M9
+router.dll	0x0039f698	init_route_passes	M6
+router.dll	0x0039f734	run_miter	M6 M9
+router.dll	0x0039f740	run_filter	M6 M9
+router.dll	0x0039f74c	run_final_clean	M6 M9
+router.dll	0x0039f75c	run_final_route	M6
+router.dll	0x0039f76c	run_init_clean	M6 M9
+router.dll	0x0039f77c	run_init_route	M6
+router.dll	0x0039f78c	run_fanout	M6 M7
+router.dll	0x0039f798	run_memory	M6
+router.dll	0x0039ee20	Passes ranges from 1 to 1000	M6
+router.dll	0x0039f04c	Start_pass ranges from 1 to 1000	M6
+router.dll	0x0039e31f	@Routing...	M6
+router.dll	0x0039f364	Fanout Routing...	M6 M7
+router.dll	0x0039f51c	Cleaning...	M6 M9
+router.dll	0x0039f504	Filtering...	M6 M9
+router.dll	0x0039f4f8	Checking...	M6
+router.dll	0x0039f4cc	Bus Routing...	M6
+router.dll	0x0039f228	Chamfering Corners...	M6 M9
+router.dll	0x0039eaa8	 Fanout   	M6 M7
+router.dll	0x0039eab8	 Recorner 	M6 M9
+router.dll	0x0039eac4	 Bus      	M6
+router.dll	0x0039ead0	 Clean    	M6 M9
+router.dll	0x0039eaec	MbP? Filter   	M6 M9
+router.dll	0x0039eafc	 DRoute   	M6
+router.dll	0x0039eb08	 Route    	M6
+router.dll	0x0039eb80	|  #  |   Algo   | Shorts |DRC Errs|Failures|Unwired |  Vias  |  %Red  |  Time   |  Total  |	M6 M8 M9
+router.dll	0x0039ec40	Routing Time  =	M6 M9
+router.dll	0x0039ec50	Unroutes      =	M6 M8
+router.dll	0x0039ec6c	Completion    =	M6
+router.dll	0x0039ec7c	Total Pins    =	M6
+router.dll	0x0039ec8c	Power Layers  =	M6
+router.dll	0x0039ec9c	Signal Layers =	M6
+router.dll	0x0039ecac	Routed Length =	M6 M9
+router.dll	0x0039ecbc	Vias          =	M6
+router.dll	0x0039eccc	Connections   =	M6
+router.dll	0x0039ecdc	Components    =	M6
+router.dll	0x0039ecf4	Nets          =	M6
+router.dll	0x0039f9c8	  Pass: 	M6
+router.dll	0x003a67a4	setStatusPass(int,int)	M6 M11
+router.dll	0x003a67f8	setStatusConnect(int,int)	M6 M11
+router.dll	0x003a6854	setStatusConflict(int)	M6 M11
+router.dll	0x003a689c	setStatusCompletion(double)	M6 M11
+router.dll	0x003a7658	Autoroute Strategy	M6
+router.dll	0x003a764c	Pre-Route	M6
+router.dll	0x003a7608	Init Route	M6
+router.dll	0x003a7614	Initial Routing	M6
+router.dll	0x003a75d8	Post-Route	M6
+router.dll	0x003a75e4	Final Route	M6
+router.dll	0x003a75f0	Final Routing	M6
+router.dll	0x003a7624	SMD Fanout	M6 M7
+router.dll	0x003a7630	Bus Router (colinear pins)	M6
+router.dll	0x003a75b0	Schedule	M6
+router.dll	0x003a75bc	Miter corners to 45	M6 M9
+router.dll	0x003a78bc	chkMemoryRoute	M6
+router.dll	0x003a78a4	spinFanout	M6 M7
+router.dll	0x003a78b0	chkFanout	M6 M7
+router.dll	0x003a7868	spinInitRoute	M6
+router.dll	0x003a7878	chkInitRoute	M6
+router.dll	0x003a7848	spinInitClean	M6 M9
+router.dll	0x003a7858	chkInitClean	M6 M9
+router.dll	0x003a77c0	spinFilter	M6 M9
+router.dll	0x003a77cc	chkFilter	M6 M9
+router.dll	0x003a77e4	spinFinalClean	M6 M9
+router.dll	0x003a77f4	chkFinalClean	M6 M9
+router.dll	0x003a7810	spinFinalRoute	M6
+router.dll	0x003a7820	chkFinalRoute	M6 M9
+router.dll	0x003a77b4	chkMiter	M6 M9
+router.dll	0x003a77d8	CleanGroup	M6 M9
+router.dll	0x003a783c	FinalGroup	M6
+router.dll	0x003a7894	InitialGroup	M6
+router.dll	0x003a78cc	grpPreRoute	M6
+router.dll	0x003a76bc	edShareWithinDist	M6 M7
+router.dll	0x003a7708	edFanoutMaxLength	M6 M7
+router.dll	0x003a7734	cbFanoutDir	M6 M7
+router.dll	0x003a7758	chkFitInside	M6 M7
+router.dll	0x003a7768	chkViaAtSMDGrid	M6 M7
+router.dll	0x003a7778	bgrpViaAtSMD	M6 M7
+router.dll	0x003a7788	chkViaAtSMD	M6 M7
+router.dll	0x003a76dc	chkSharingVia	M6 M4
+router.dll	0x003a76ec	chkSharingPin	M6 M4
+router.dll	0x0039f6b8	fanout_dist	M7
+router.dll	0x0039f6c4	fanout_dir	M7
+router.dll	0x002e86d4	@temp_net	M7 M10
+router.dll	0x002e1c10	@temp_net%d	M7 M10
+router.dll	0x002e820c	@ALONE_PIN_NETS@	M7
+router.dll	0x002e8220	@UNUSED_PINS@	M7
+router.dll	0x0039f260	recorner	M9
+router.dll	0x0039f240	orthogonal	M9
+router.dll	0x002e81d0	Recorner 	M9
+router.dll	0x002e81e4	Clean 	M9
+router.dll	0x002e81ec	Filter 	M9
+router.dll	0x002e87d0	Found Unconnected Wire	M8 M10
+router.dll	0x0039e408	Do you want to save to the following session file ?	M10
+router.dll	0x0039e246	N@Saving aborted	M10
+router.dll	0x0039e258	Session Files (*.ses *.SES);;All Files (*)	M10
+router.dll	0x002e1efc	Unable to open Sts file: "%s"	M11
+router.dll	0x002e1f28	Unable to open Log file: "%s"	M11
+RouteService.exe	0x00020224	IRouterObject	M11
+RouteService.exe	0x00020240	GetVersion	M11
+RouteService.exe	0x00020268	Electra_Init	M11
+RouteService.exe	0x000202a2	kSElectra_SetHost	M11
+RouteService.exe	0x000202be	LNapi_version	M11
+RouteService.exe	0x000202d8	Electra_Load	M11
+RouteService.exe	0x000202f0	design_file	M11
+RouteService.exe	0x00020307	]Electra_DoFile	M11
+RouteService.exe	0x00020324	do_file	M11
+RouteService.exe	0x00020338	Electra_Command	M11
+RouteService.exe	0x00020364	Electra_Abort	M11
+RouteService.exe	0x0002037f	lSetTempPath	M11
+RouteService.exe	0x0001ff18	AddViaChanging	M11
+RouteService.exe	0x0001ff34	netName	M11
+RouteService.exe	0x0001ff47	9pstkName	M11
+RouteService.exe	0x0001ff5b	fprotect	M11
+RouteService.exe	0x0001ff90	AddPathChanging	M11
+RouteService.exe	0x0001ffac	layerName	M11
+RouteService.exe	0x0001ffc2	hNwidth	M11
+RouteService.exe	0x00020018	AddMarkChanging	M11
+RouteService.exe	0x00020063	ZUpdateStatusChanging	M11
+RouteService.exe	0x00020094	currentPass	M11
+RouteService.exe	0x000200ac	totalPass	M11
+RouteService.exe	0x000200c4	totalWire	M11
+RouteService.exe	0x000200dc	succeedWire	M11
+RouteService.exe	0x000200f4	conflicts	M11
+RouteService.exe	0x0002010c	completion	M11
+RouteService.exe	0x00020122	Q8UpdateDisplayChanging	M11
+RouteService.exe	0x00020158	DeleteAllViasChanging	M11
+RouteService.exe	0x0002017c	DeleteAllPathsChanging	M11
+RouteService.exe	0x000201a0	DeleteAllMarksChanging	M11
+RouteService.exe	0x000201c4	LogMessageChanging	M11
+RouteService.exe	0x000201e4	mType	M11
+RouteService.exe	0x000201f8	message	M11
+RouteService.exe	0x0001f632	RouteService.RouterObject.1 = s 'RouterObject Class'	M11
+RouteService.exe	0x0001f66e	CLSID = s '{5BDF40FD-F1A5-47C4-A52D-171ABE029342}'	M11
+RouteService.exe	0x0001f85f	TypeLib = s '{E917AEE4-D143-4E20-B930-6D47FE655016}'	M11
+RouteService.exe	0x0001ce70	electra_init	M11
+RouteService.exe	0x0001ce80	electra_sethost	M11
+RouteService.exe	0x0001ce92	electra_load	M11
+RouteService.exe	0x0001cea2	electra_dofile	M11
+RouteService.exe	0x0001ceb4	electra_command	M11
+RouteService.exe	0x0001cec6	electra_abort	M11
+RouteService.exe	0x0001ced4	router.dll	M11
+RouteLayer.dll	0x00016ca3	Abort_Route	M11
+RouteLayer.dll	0x00016cb7	Do_File	M11
+RouteLayer.dll	0x00016cbf	Init_Host	M11
+RouteLayer.dll	0x00016cc9	Init_Route	M11
+RouteLayer.dll	0x00016cd4	Init_display	M11
+RouteLayer.dll	0x00016ce1	Init_log	M11
+RouteLayer.dll	0x00016cea	Init_mark	M11
+RouteLayer.dll	0x00016cf4	Init_path	M11
+RouteLayer.dll	0x00016cfe	Init_status	M11
+RouteLayer.dll	0x00016d0a	Init_via	M11
+RouteLayer.dll	0x00016d13	Load_File	M11
+RouteLayer.dll	0x00016d1d	Send_Comm	M11
+RouteLayer.dll	0x00016d27	SetTempPath	M11
+RouteLayer.dll	0x00015758	C:\Users\sslav\Desktop\Router\_Release\Win64\bin\RouteLayer.pdb	M11
+RouteLayer.dll	0x00018d58	.?AVCRouterEventSink@@	M11
+RouteLayer.dll	0x00018da8	.?AVIElectraHostDerived@@	M11
+RouteLayer.dll	0x00018dd8	.?AVIElectraHost@@	M11
+RouteLayer.dll	0x00017434	WriteFile	M11
+RouteLayer.dll	0x000174be	FlushFileBuffers	M11
+RouteLayer.dll	0x00017528	CloseHandle	M11
+RouteLayer.dll	0x00017536	CreateFileW	M11
+RouteLayer.dll	0x00017504	SetFilePointerEx	M11
+RouteLayer.dll	0x000170a8	CoCreateInstance	M11
+RouteLayer.dll	0x000170e0	OleRun	M11
+Pcb_full.exe	0x027466f6	Grid Router	M12
+Pcb_full.exe	0x028ed411	 Grid Router	M12
+Pcb_full.exe	0x0272c147	 Shape Router	M12
+Pcb_full.exe	0x02246464	SBAutoRoute	M12
+Pcb_full.exe	0x01539668	    (rule (via_at_smd on	M3
+Pcb_full.exe	0x001e845f	FMinWidth	M3
+Pcb_full.exe	0x001e842c	FMaxWidth	M3
+Pcb_full.exe	0x00dfdf7f	Check_Jumpers	M12

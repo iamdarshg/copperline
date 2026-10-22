@@ -54,6 +54,36 @@ target_compile_definitions(router PRIVATE COPPERLINE_VERSION="${PROJECT_VERSION}
 
 enable_testing()
 
+# EM validation module (Python, clean-room quasi-static + openEMS generator).
+# Registered as a ctest when Python3 is available; the Python script itself
+# depends only on the standard library, so no third-party packages are needed.
+find_program(PYTHON3_EXECUTABLE python3)
+if(NOT PYTHON3_EXECUTABLE)
+  find_program(PYTHON3_EXECUTABLE python)
+endif()
+if(PYTHON3_EXECUTABLE)
+  add_test(NAME test_em
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_em.py")
+  set_tests_properties(test_em PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  add_test(NAME test_diptrace_import
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_diptrace_import.py")
+  set_tests_properties(test_diptrace_import PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  add_test(NAME test_thermal
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_thermal.py")
+  set_tests_properties(test_thermal PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  add_test(NAME test_relief_research
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_relief_research.py")
+  set_tests_properties(test_relief_research PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+endif()
+
 function(copperline_test name)
   add_executable(${name} tests/${name}.cpp tests/helpers.h)
   target_link_libraries(${name} PRIVATE router_core)

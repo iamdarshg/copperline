@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Source Type="DipTrace_CompEdit_Plugin" Name="Convert Selected Shapes to Dash/Dot (.NET 8.0 required)" ExeFile="DashDotLine.exe">
+	<Settings>
+		<!-- Export mode -->
+		<ExpMode>Part Partial</ExpMode>
+		<!-- Import mode -->
+		<ImpMode>Edit</ImpMode>
+		<!-- Object settings -->
+		<Comp>Selected</Comp>
+		<Shape>Selected</Shape>
+		<!-- Group scope: the Groups registry travels both ways (needed for the next free group Id and for the new groups) -->
+		<Group>All</Group>
+		<Pin>None</Pin>
+		<Pattern>None</Pattern>
+		<Attributes>No</Attributes>
+	</Settings>
+</Source>
