@@ -42,6 +42,7 @@ bool via_pos_legal(const Board& board, NetId net, Point pos, LayerSpan span,
     }
     Coord max_clear = cc.max_clear();
     for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_via()) continue;  // wire/place-only keepout is not a via wall
         bool hit = ko.layer == kAllLayers || span_hits(ko.layer, span);
         if (!hit) continue;
         // Issue #14: candidate barrel is a disc, not a square: square

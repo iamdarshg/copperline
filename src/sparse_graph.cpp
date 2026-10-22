@@ -423,6 +423,10 @@ SparseRoutingGraph SparseRoutingGraph::build_multi(
             {raw, layer, dist_min, onet, std::move(kind), std::move(desc), poly});
     };
     for (const auto& ko : committed.keepouts) {
+        // Per-kind enforcement: only keepouts that forbid wires are graph
+        // obstacles for trace routing (a via_keepout is not a wire wall;
+        // via placement is gated on keepout_blocks_via separately).
+        if (!ko.keepout_blocks_trace()) continue;
         push_obstacle(ko.rect, ko.layer, max_clear + half_w, -1, "keepout",
                       "keepout:" + ko.reason);
     }

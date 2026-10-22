@@ -358,6 +358,7 @@ std::vector<int> legal_exit_sectors(const Board& board, const RuleResolver& reso
                         ir.index >= static_cast<int>(board.keepouts.size()))
                         continue;
                     const Keepout& ko = board.keepouts[static_cast<std::size_t>(ir.index)];
+                    if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
                     if (ko.layer != kAllLayers && ko.layer != t->layer) continue;
                     Coord need = fp.clearance_nm + half_w;
                     if (seg_rect_dist2(seg, ko.rect) < (__int128)need * need) {
@@ -381,6 +382,7 @@ std::vector<int> legal_exit_sectors(const Board& board, const RuleResolver& reso
             }
             if (!ok) continue;
             for (const auto& ko : board.keepouts) {
+                if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
                 if (ko.layer != kAllLayers && ko.layer != t->layer) continue;
                 __int128 d2 = seg_rect_dist2(seg, ko.rect);
                 Coord need = fp.clearance_nm + half_w;
@@ -435,6 +437,7 @@ int via_site_count(const Board& board, const RuleResolver& resolver, const FineP
                         ir.index >= static_cast<int>(board.keepouts.size()))
                         continue;
                     const Keepout& ko = board.keepouts[static_cast<std::size_t>(ir.index)];
+                    if (!ko.keepout_blocks_via()) continue;  // wire/place-only keepout is not a via wall
                     if (rect_gap(via_rect, ko.rect) < fp.clearance_nm) {
                         ok = false;
                         break;
@@ -451,6 +454,7 @@ int via_site_count(const Board& board, const RuleResolver& resolver, const FineP
             }
             if (!ok) continue;
             for (const auto& ko : board.keepouts) {
+                if (!ko.keepout_blocks_via()) continue;  // wire/place-only keepout is not a via wall
                 if (rect_gap(via_rect, ko.rect) < fp.clearance_nm) {
                     ok = false;
                     break;
@@ -516,6 +520,7 @@ bool direct_seg_legal(const Board& work, const RuleResolver& resolver,
                       LayerId layer, Coord max_clear) {
     if (!work.bounds().contains(s.bounds().expanded(half_w))) return false;
     for (const auto& ko : work.keepouts) {
+        if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
         __int128 d2 = seg_rect_dist2(s, ko.rect);
         Coord need = max_clear + half_w;
@@ -663,6 +668,7 @@ bool escape_candidate_legal(const Board& work, const RuleResolver& resolver,
     auto seg_ok = [&](const Segment& s, Coord half_w, LayerId layer) -> bool {
         if (!work.bounds().contains(s.bounds().expanded(half_w))) return false;
         for (const auto& ko : work.keepouts) {
+            if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
             if (ko.layer != kAllLayers && ko.layer != layer) continue;
             __int128 d2 = seg_rect_dist2(s, ko.rect);
             Coord need = max_clear + half_w;
@@ -703,6 +709,7 @@ bool escape_candidate_legal(const Board& work, const RuleResolver& resolver,
         LayerId lo = std::min(v.top_layer, v.bottom_layer);
         LayerId hi = std::max(v.top_layer, v.bottom_layer);
         for (const auto& ko : work.keepouts) {
+            if (!ko.keepout_blocks_via()) continue;  // wire/place-only keepout is not a via wall
             if (ko.layer != kAllLayers && (ko.layer < lo || ko.layer > hi)) continue;
             if (rect_gap(via_rect, ko.rect) < max_clear) return false;
         }
@@ -1514,6 +1521,7 @@ FootprintEscapeResult EscapePlanner::plan_one_footprint(
                                         .expanded(full_w);
                     int added = 0;
                     for (const auto& ko : board.keepouts) {
+                        if (!ko.keepout_blocks_trace()) continue;  // only wire blockers explain a trace corridor failure
                         if (!ko.rect.intersects(corridor)) continue;
                         rec.blockers.push_back("keepout:" +
                                                (ko.reason.empty() ? "unnamed" : ko.reason));

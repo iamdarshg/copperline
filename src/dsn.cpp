@@ -829,11 +829,27 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
     // Specctra keepout shapes become rect Keepouts (polygons by bbox, with
     // an explicit warning; circles by bbox the same way). Unknown layers
     // are skipped with a warning rather than applied board-wide.
+    // The DSN head names WHAT is forbidden inside the region
+    // ((wire_keepout) = no traces, (via_keepout) = no vias, ...); that
+    // classification becomes the Keepout kind, so the verifier/router
+    // enforce each region per the file's intent (a via keepout never
+    // silently becomes a wall that also blocks wires).
     {
         bool warned_poly = false;
         const char* kinds[] = {"wire_keepout", "via_keepout", "place_keepout",
                                "bend_keepout", "elongate_keepout", "keepout"};
         for (const char* kind : kinds) {
+            // Head name -> enforcement kind: strip the "_keepout" suffix so
+            // keepout_kind_from_name maps "wire" -> kWire, "via" -> kVia,
+            // "place" -> kPlace, "bend" -> kBend, "elongate" -> kElongate;
+            // the bare "keepout" head stays kAll (blocks everything).
+            std::string kind_name(kind);
+            static const std::string kKeepoutSuffix = "_keepout";
+            if (kind_name.size() > kKeepoutSuffix.size() &&
+                kind_name.compare(kind_name.size() - kKeepoutSuffix.size(),
+                                  kKeepoutSuffix.size(), kKeepoutSuffix) == 0)
+                kind_name.resize(kind_name.size() - kKeepoutSuffix.size());
+            KeepoutKind ko_kind = keepout_kind_from_name(kind_name);
             for (const SexprNode* ko : structure->find_all(kind)) {
                 std::vector<Point> poly;
                 std::string shape_layer;
@@ -874,6 +890,7 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
                 Keepout k;
                 k.rect = {x1, y1, x2, y2};
                 k.layer = layer;
+                k.kind = ko_kind;
                 k.reason = std::string("dsn-") + kind;
                 board.keepouts.push_back(k);
             }

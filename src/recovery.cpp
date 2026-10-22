@@ -153,6 +153,9 @@ std::vector<BlockerHit> attribute_blockers_detailed(const Board& board,
         BlockerHit h;
     };
     for (const auto& ko : board.keepouts) {
+        // Attribution honesty: only keepouts that actually block wires can
+        // explain a failed trace placement.
+        if (!ko.keepout_blocks_trace()) continue;
         if (!ko.rect.intersects(corridor)) continue;
         Rect inter{std::max(ko.rect.x1, corridor.x1), std::max(ko.rect.y1, corridor.y1),
                    std::min(ko.rect.x2, corridor.x2), std::min(ko.rect.y2, corridor.y2)};

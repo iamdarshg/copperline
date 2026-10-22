@@ -1490,6 +1490,7 @@ bool via_legal(const Via& vv, const LegalView& v, const RuleResolver& resolver,
         return gap_ok_rect(vr, raw, c);
     };
     for (const auto& ko : v.board.keepouts) {
+        if (!ko.keepout_blocks_via()) continue;  // wire/place-only keepout is not a via wall
         bool span_hit = ko.layer == kAllLayers ||
                         (ko.layer >= std::min(vv.top_layer, vv.bottom_layer) &&
                          ko.layer <= std::max(vv.top_layer, vv.bottom_layer));

@@ -99,11 +99,71 @@ struct Via {
     std::string via_class;  // style name; empty = board default
 };
 
+// Specctra keepout flavours. The file says what is forbidden inside the
+// region; enforcement is per-kind instead of "anything here is illegal".
+// Conservative by construction: a kind that only names one object type blocks
+// that type (a via keepout still leaves wires legal), while the generic
+// `keepout` blocks everything.
+enum class KeepoutKind {
+    kAll = 0,    // generic (keepout ...) - no copper, no pads, no vias
+    kWire,       // (wire_keepout ...) - no traces
+    kVia,        // (via_keepout ...) - no vias
+    kPlace,      // (place_keepout ...) - no component placement
+    kBend,       // (bend_keepout ...) - no wire bends
+    kElongate,   // (elongate_keepout ...) - no wire elongation
+};
+
 struct Keepout {
     Rect rect{};
     LayerId layer = kAllLayers;  // kAllLayers = applies on every layer
     std::string reason;
+    KeepoutKind kind = KeepoutKind::kAll;
+
+    // Verifier/router predicates. Wire kinds block copper; the route model has
+    // no bend or elongation objects, so those regions are enforced as plain
+    // wire keepouts (documented, never silently widened).
+    bool keepout_blocks_trace() const {
+        return kind == KeepoutKind::kAll || kind == KeepoutKind::kWire ||
+               kind == KeepoutKind::kBend || kind == KeepoutKind::kElongate;
+    }
+    bool keepout_blocks_via() const {
+        return kind == KeepoutKind::kAll || kind == KeepoutKind::kVia;
+    }
+    // Pads are fixed input: only a generic or placement keepout says a pad
+    // must not be there.
+    bool keepout_blocks_pad() const {
+        return kind == KeepoutKind::kAll || kind == KeepoutKind::kPlace;
+    }
 };
+
+// Serialized name of a keepout kind ("all"/"wire"/"via"/"place"/"bend"/
+// "elongate"); used by the JSON bridge and reports.
+inline const char* keepout_kind_name(KeepoutKind k) {
+    switch (k) {
+        case KeepoutKind::kWire:
+            return "wire";
+        case KeepoutKind::kVia:
+            return "via";
+        case KeepoutKind::kPlace:
+            return "place";
+        case KeepoutKind::kBend:
+            return "bend";
+        case KeepoutKind::kElongate:
+            return "elongate";
+        case KeepoutKind::kAll:
+        default:
+            return "all";
+    }
+}
+
+inline KeepoutKind keepout_kind_from_name(const std::string& s) {
+    if (s == "wire") return KeepoutKind::kWire;
+    if (s == "via") return KeepoutKind::kVia;
+    if (s == "place") return KeepoutKind::kPlace;
+    if (s == "bend") return KeepoutKind::kBend;
+    if (s == "elongate") return KeepoutKind::kElongate;
+    return KeepoutKind::kAll;
+}
 
 // Issue #16: declared power-plane / copper-pour zone.
 //

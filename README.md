@@ -198,7 +198,10 @@ with an explicit warning (never silent). Pour shapes: `polygon` exact,
 `rect` exact, `circle` as octagon (warned), `path` closed into a polygon
 (warned), `(window ...)` cutouts ignored (warned); polygons over 16384
 vertices are skipped with a warning. `(wire|via|place|bend|elongate)_keepout`
-shapes become rect keepouts (polygons by bbox, warned). `(wiring ...)`
+shapes become rect keepouts with the matching enforcement kind — a
+`via_keepout` blocks vias only (wires stay legal), a `place_keepout` flags
+pads only, `wire`/`bend`/`elongate` block wires, and the bare `keepout`
+blocks everything; polygons by bbox, warned. `(wiring ...)`
 pre-routes are re-routed from pads (warned).
 
 Gerber honest limits: no embedded netlist exists in RS-274X, so ALL dark

@@ -29,6 +29,7 @@ bool pair_segment_legal(const Board& board, const RuleResolver& resolver, NetId 
         max_clear = std::max(max_clear, resolver.requiredClearance(net, o.id, 0, ctx, &cs));
     }
     for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
         if (s.bounds().expanded(hw).intersects(ko.rect)) return false;
         if (max_clear > 0) {
@@ -100,6 +101,7 @@ bool pair_via_legal(const Board& board, const RuleResolver& resolver, NetId net,
         return d2 >= (__int128)need * need;
     };
     for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_via()) continue;  // wire/place-only keepout is not a via wall
         bool span_hit = ko.layer == kAllLayers ||
                         (ko.layer >= std::min(vv.top_layer, vv.bottom_layer) &&
                          ko.layer <= std::max(vv.top_layer, vv.bottom_layer));

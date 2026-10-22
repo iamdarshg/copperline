@@ -242,6 +242,183 @@ CT_TEST(dsn_polygon_boundary) {
     CT_CHECK(!has_warning(ir2.warnings, "non-rectangular board outline"));
 }
 
+// ---- DSN keepout kinds ------------------------------------------------
+// (wire|via|place|bend|elongate)_keepout name WHAT is forbidden inside the
+// region; the imported Keepout must carry that enforcement kind so a via
+// keepout is only a via wall (wires stay legal) and vice versa. The generic
+// (keepout ...) blocks everything. Polygons become bounding boxes with an
+// explicit warning (never silent).
+CT_TEST(dsn_keepout_kinds) {
+    static const char* kDsn =
+        "(pcb \"keepout_kinds\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20))\n"
+        "    (wire_keepout (rect Top 1 1 2 2))\n"
+        "    (via_keepout (rect Top 5 5 6 6))\n"
+        "    (place_keepout (rect Top 10 10 11 11))\n"
+        "    (bend_keepout (polygon Top 0.1 14 14 16 14 16 16 14 16))\n"
+        "    (elongate_keepout (rect Bottom 1 14 2 16))\n"
+        "    (keepout (rect Bottom 18 18 19 19)))\n"
+        "  (placement (component U1 (place P 2 8 front 0))\n"
+        "             (component U2 (place P 18 8 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network (net N (pins U1-1 U2-1))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "keepout_kinds.dsn");
+    CT_CHECK(ir.board.keepouts.size() == 6);
+    // Document order is preserved (import order == declaration order).
+    CT_CHECK(ir.board.keepouts[0].kind == KeepoutKind::kWire);
+    CT_CHECK(ir.board.keepouts[1].kind == KeepoutKind::kVia);
+    CT_CHECK(ir.board.keepouts[2].kind == KeepoutKind::kPlace);
+    CT_CHECK(ir.board.keepouts[3].kind == KeepoutKind::kBend);
+    CT_CHECK(ir.board.keepouts[4].kind == KeepoutKind::kElongate);
+    CT_CHECK(ir.board.keepouts[5].kind == KeepoutKind::kAll);
+    CT_CHECK(has_warning(ir.warnings, "keepout polygons approximated by bounding box"));
+}
+
+// Enforcement is per kind: a via_keepout flags vias but not wires, a
+// wire_keepout flags wires but not vias, a place_keepout flags pads only,
+// and the generic keepout blocks everything (traces + vias + pads).
+CT_TEST(keepout_kind_enforcement) {
+    Board b = base_2layer();
+    NetInfo n0 = make_net(0, "N0");
+    b.nets.push_back(n0);
+    NetInfo n1 = make_net(1, "N1");
+    b.nets.push_back(n1);
+    reset_term_ids();
+    add_terminal(b, 0, 2.0, 2.0, 0);
+    add_terminal(b, 0, 18.0, 2.0, 0);
+    add_terminal(b, 1, 2.0, 16.0, 0);
+    add_terminal(b, 1, 18.0, 16.0, 0);
+
+    // One region of every kind, all the same 1x1 mm square at (10,10).
+    auto add_ko = [&](KeepoutKind k, const char* reason) {
+        Keepout ko;
+        ko.rect = {mm_to_nm(10), mm_to_nm(10), mm_to_nm(11), mm_to_nm(11)};
+        ko.layer = 0;
+        ko.kind = k;
+        ko.reason = reason;
+        b.keepouts.push_back(ko);
+    };
+    // Generic first: blocks every object type.
+    add_ko(KeepoutKind::kAll, "all");
+    // Wire keepout: a trace through it is illegal, a via through it is not.
+    b.keepouts.push_back({mm_to_nm(5), mm_to_nm(5), mm_to_nm(6), mm_to_nm(6), 0,
+                          "wire", KeepoutKind::kWire});
+    // Via keepout: vias illegal, wires legal.
+    b.keepouts.push_back({mm_to_nm(14), mm_to_nm(5), mm_to_nm(15), mm_to_nm(6), 0,
+                          "via", KeepoutKind::kVia});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    BoardVerifier v;
+
+    // Trace through the generic keepout: violation.
+    {
+        Board t = b;
+        TraceSeg s;
+        s.net = 0;
+        s.layer = 0;
+        s.a = {mm_to_nm(9.5), mm_to_nm(10.5)};
+        s.b = {mm_to_nm(11.5), mm_to_nm(10.5)};
+        s.width_nm = mm_to_nm(0.2);
+        t.traces.push_back(s);
+        CT_CHECK(!v.verify(t, r, r.defaultContext()).legal);
+    }
+    // Trace through the via keepout: legal (wires are not blocked).
+    {
+        Board t = b;
+        TraceSeg s;
+        s.net = 0;
+        s.layer = 0;
+        s.a = {mm_to_nm(13.5), mm_to_nm(5.5)};
+        s.b = {mm_to_nm(15.5), mm_to_nm(5.5)};
+        s.width_nm = mm_to_nm(0.2);
+        t.traces.push_back(s);
+        CT_CHECK(v.verify(t, r, r.defaultContext()).legal);
+    }
+    // Via through the via keepout: violation (new per-kind via check).
+    {
+        Board t = b;
+        Via vv;
+        vv.net = 0;
+        vv.pos = {mm_to_nm(14.5), mm_to_nm(5.5)};
+        vv.top_layer = 0;
+        vv.bottom_layer = 1;
+        vv.outer_d_nm = mm_to_nm(0.6);
+        vv.hole_d_nm = mm_to_nm(0.3);
+        t.vias.push_back(vv);
+        VerifyResult vr = v.verify(t, r, r.defaultContext());
+        CT_CHECK(!vr.legal);
+        bool saw_via_ko = false;
+        for (const auto& vi : vr.violations)
+            if (vi.rule == "keepout" && vi.detail.find("via enters") != std::string::npos)
+                saw_via_ko = true;
+        CT_CHECK(saw_via_ko);
+    }
+    // Via through the wire keepout: legal.
+    {
+        Board t = b;
+        Via vv;
+        vv.net = 0;
+        vv.pos = {mm_to_nm(5.5), mm_to_nm(5.5)};
+        vv.top_layer = 0;
+        vv.bottom_layer = 1;
+        vv.outer_d_nm = mm_to_nm(0.6);
+        vv.hole_d_nm = mm_to_nm(0.3);
+        t.vias.push_back(vv);
+        CT_CHECK(v.verify(t, r, r.defaultContext()).legal);
+    }
+    // Pad center inside the place keepout: violation; a wire through a
+    // place keepout is legal (placement rules do not block copper).
+    {
+        Board t = b;
+        Keepout pk;
+        pk.rect = {mm_to_nm(7), mm_to_nm(7), mm_to_nm(8), mm_to_nm(8)};
+        pk.layer = 0;
+        pk.kind = KeepoutKind::kPlace;
+        pk.reason = "place";
+        t.keepouts.push_back(pk);
+        // Pad centered inside the region -> pad-keepout violation.
+        Keepout bogus;
+        bogus.rect = {mm_to_nm(7), mm_to_nm(7), mm_to_nm(8), mm_to_nm(8)};
+        bogus.layer = 0;
+        bogus.kind = KeepoutKind::kPlace;
+        bogus.reason = "place";
+        {
+            Board p = t;
+            Terminal pad;
+            pad.id = static_cast<TermId>(p.terminals.size());
+            pad.net = 0;
+            pad.pos = {mm_to_nm(7.5), mm_to_nm(7.5)};
+            pad.layer = 0;
+            pad.pad_w_nm = mm_to_nm(0.5);
+            pad.pad_h_nm = mm_to_nm(0.5);
+            pad.component = "U9";
+            pad.pin = "1";
+            p.terminals.push_back(pad);
+            CT_CHECK(!v.verify(p, r, r.defaultContext()).legal);
+        }
+        // Wire through the place keepout: legal (placement rules do not
+        // block copper; the region is not a wire wall).
+        TraceSeg s;
+        s.net = 0;
+        s.layer = 0;
+        s.a = {mm_to_nm(6.5), mm_to_nm(7.5)};
+        s.b = {mm_to_nm(8.5), mm_to_nm(7.5)};
+        s.width_nm = mm_to_nm(0.2);
+        t.traces.push_back(s);
+        CT_CHECK(v.verify(t, r, r.defaultContext()).legal);
+    }
+    // Unknown keepout kind names are never fatal: separator-stripped names
+    // resolve to the serialized form (round-trip via keepout_kind_name).
+    CT_CHECK(std::string(keepout_kind_name(KeepoutKind::kVia)) == "via");
+    CT_CHECK(std::string(keepout_kind_name(KeepoutKind::kAll)) == "all");
+    CT_CHECK(keepout_kind_from_name("via") == KeepoutKind::kVia);
+    CT_CHECK(keepout_kind_from_name("") == KeepoutKind::kAll);
+}
+
 // ---- FreeRouting / classic SES dialects ------------------------------------
 // The session payload (wires + vias per net) is the same everywhere; only the
 // nesting and the coordinate declaration differ. These tests pin both.

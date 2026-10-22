@@ -76,6 +76,7 @@ bool SegLegalityCtx::segment_legal(const Segment& s, std::string* why) const {
     // keepout, which verifies clean). Part 2 mirrors the graph/arbiter
     // predicate so raw Manhattan legs stay simplifiable.
     for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
         if (s.bounds().expanded(hw).intersects(ko.rect)) return fail("keepout:" + ko.reason);
         if (max_clear > 0) {
@@ -183,6 +184,7 @@ std::vector<Point> simplify_visibility_corners(const Board& board,
     Coord max_clear = cc.max_clear();
     int gid = 0;
     for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_trace()) continue;  // via/place-only keepout is not a wire wall
         if (ko.layer != kAllLayers && ko.layer != layer) continue;
         emit_expanded(ko.rect, max_clear + hw, gid++);
     }

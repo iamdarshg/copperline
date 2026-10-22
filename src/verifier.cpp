@@ -987,11 +987,27 @@ bool BoardVerifier::has_local_violation(const Board& board,
         if (!board.bounds().contains(r)) return true;
     }
     // Keepout intrusions over the touched net's traces (exact predicate).
+    // Enforced per kind: only keepouts that forbid wires block traces
+    // (a via_keepout or place_keepout is not a wire wall).
     for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_trace()) continue;
         for (const auto& t : board.traces) {
             if (t.net != net) continue;
             if (ko.layer != kAllLayers && ko.layer != t.layer) continue;
             Rect copper = t.segment().bounds().expanded(t.width_nm / 2);
+            if (copper.intersects(ko.rect)) return true;
+        }
+    }
+    // Via barrels over the touched net: a keepout forbids a via only when
+    // its kind names vias (generic keepout or via_keepout).
+    for (const auto& ko : board.keepouts) {
+        if (!ko.keepout_blocks_via()) continue;
+        for (const auto& vv : board.vias) {
+            if (vv.net != net) continue;
+            if (ko.layer != kAllLayers &&
+                (vv.top_layer > ko.layer || vv.bottom_layer < ko.layer))
+                continue;
+            Rect copper = Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm);
             if (copper.intersects(ko.rect)) return true;
         }
     }
@@ -1438,8 +1454,13 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
     }
 
     // ---- Keepout intrusions ----
+    // Each region enforces only what its kind forbids: wire kinds block
+    // traces, via kinds block via barrels, generic blocks everything, and
+    // a placement keepout only flags pads. Bend/elongation keepouts map to
+    // wire enforcement (the model has no bend/elongation objects).
     for (const auto& ko : board.keepouts) {
         for (const auto& t : board.traces) {
+            if (!ko.keepout_blocks_trace()) continue;
             if (ko.layer != kAllLayers && ko.layer != t.layer) continue;
             Rect copper = t.segment().bounds().expanded(t.width_nm / 2);
             if (copper.intersects(ko.rect)) {
@@ -1455,7 +1476,27 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
                 out.violations.push_back(v);
             }
         }
+        for (const auto& vv : board.vias) {
+            if (!ko.keepout_blocks_via()) continue;
+            if (ko.layer != kAllLayers &&
+                (vv.top_layer > ko.layer || vv.bottom_layer < ko.layer))
+                continue;
+            Rect copper = Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm);
+            if (copper.intersects(ko.rect)) {
+                Violation v;
+                v.type = "overlap";
+                v.net_a = vv.net;
+                v.rule = "keepout";
+                v.detail = "via enters keepout" +
+                           (ko.reason.empty() ? "" : " (" + ko.reason + ")");
+                v.x_mm = nm_to_mm(vv.pos.x);
+                v.y_mm = nm_to_mm(vv.pos.y);
+                v.layer = vv.top_layer;
+                out.violations.push_back(v);
+            }
+        }
         for (const auto& t : board.terminals) {
+            if (!ko.keepout_blocks_pad()) continue;
             if (ko.layer != kAllLayers && ko.layer != t.layer) continue;
             // Pads landing in keepouts: flag only when the pad center is inside
             // (pads are fixed input; full DRC of imports is Prompt-5 work).
