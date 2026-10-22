@@ -93,6 +93,72 @@ CT_TEST(dsn_resolution_scaling) {
     CT_CHECK(has_warning(fb.warnings, "used the unit scale"));
 }
 
+// Padstack shapes: `(padstack <id> (shape (rect|circle|octagon|polygon ...)))`
+// drives Terminal pad extents instead of the fixed 0.3 mm square, so the
+// verifier sees the copper the file declares.
+CT_TEST(dsn_padstack_shapes) {
+    static const char* kDsn =
+        "(pcb \"pads\" (unit mm)\n"
+        "  (structure (layer Top (type signal)) (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place PKG 2 2 front 0))\n"
+        "             (component U2 (place PKG 16 2 front 90)))\n"
+        "  (library\n"
+        "    (image PKG\n"
+        "      (pin 1 SMD 0 0)\n"
+        "      (pin 2 SMD 0 6)\n"
+        "      (padstack SMD (shape (rect Top -0.6 -0.4 0.6 0.4)\n"
+        "                           (circle Bottom 0.5)))))\n"
+        "  (network (net N1 (pins U1-1 U2-1)) (net N2 (pins U1-2 U2-2))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "padstacks.dsn");
+    CT_CHECK(ir.board.terminals.size() == 4);
+    const Terminal* p = nullptr;
+    for (const auto& t : ir.board.terminals)
+        if (t.component == "U1" && t.pin == "1") p = &t;
+    CT_CHECK(p != nullptr);
+    CT_CHECK(p->pad_w_nm == mm_to_nm(1.2));  // rect -0.6..0.6
+    CT_CHECK(p->pad_h_nm == mm_to_nm(0.8));  // rect -0.4..0.4
+    CT_CHECK(p->pos == Point({mm_to_nm(2), mm_to_nm(2)}));  // symmetric shape
+    // The verifier must now flag a foreign trace that clears a 0.3 mm square
+    // pad (0.25 mm gap) but penetrates the declared 1.2 mm rect copper.
+    TraceSeg s;
+    s.net = ir.board.find_net_by_name("N2")->id;
+    s.layer = 0;
+    s.a = {mm_to_nm(2.4), mm_to_nm(0.5)};
+    s.b = {mm_to_nm(2.4), mm_to_nm(3.5)};
+    s.width_nm = mm_to_nm(0.2);
+    ir.board.traces.push_back(s);
+    RuleResolver res = RuleResolver::defaults_for(ir.board);
+    BoardVerifier v;
+    VerifyResult vr = v.verify(ir.board, res, res.defaultContext());
+    CT_CHECK(!vr.legal);
+}
+
+// Octagon / polygon padstacks are approximated by their bounding box, with an
+// explicit warning (never silent, never fatal).
+CT_TEST(dsn_padstack_approximation_warns) {
+    static const char* kDsn =
+        "(pcb \"pads_approx\" (unit mm)\n"
+        "  (structure (layer Top (type signal)) (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20)))\n"
+        "  (placement (component U1 (place PKG 2 2 front 0))\n"
+        "             (component U2 (place PKG 16 2 front 0)))\n"
+        "  (library\n"
+        "    (image PKG\n"
+        "      (pin 1 OCT 0 0)\n"
+        "      (pin 2 POLY 0 6)\n"
+        "      (padstack OCT (shape (octagon Top 1.0)))\n"
+        "      (padstack POLY (shape (polygon Top 0.1 -0.5 -0.5 0.5 -0.5 0.5 0.5)))))\n"
+        "  (network (net N1 (pins U1-1 U2-1)) (net N2 (pins U1-2 U2-2))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "pads_approx.dsn");
+    CT_CHECK(has_warning(ir.warnings, "(octagon ...)"));
+    CT_CHECK(has_warning(ir.warnings, "(polygon ...)"));
+    for (const auto& t : ir.board.terminals)
+        CT_CHECK(t.pad_w_nm == mm_to_nm(1.0));
+}
+
 CT_TEST(dsn_pour_imports_as_plane) {
     DsnImporter dsn;
     ImportResult ir = dsn.import_file(fixture("pour_test.dsn"));

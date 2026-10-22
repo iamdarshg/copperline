@@ -419,24 +419,156 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
     }
     if (pending.empty()) throw BoardError(InputKind::kInvalid, "DSN: no (net ...) entries");
 
-    // ---- library + placement: pad positions ----
-    // pad_pos[ref][pad] = (x_mm, y_mm) in design coordinates.
-    std::map<std::string, std::map<std::string, std::pair<double, double>>> images;
+    // ---- library + placement: pad positions and pad geometry --------------
+    // Altium/KiCad/FreeRouting describe non-circular pads with a padstack that
+    // carries `(shapes (rect|circle|octagon|polygon ...))`. Without it every
+    // pad collapses to a fixed square, which under-reports copper in the
+    // verifier (clearance and pad-pad checks see phantom gaps).
+    struct PadShapeGeom {
+        Coord w_nm = 0;
+        Coord h_nm = 0;
+        Coord dx_nm = 0;  // shape centre offset from the pin origin
+        Coord dy_nm = 0;
+        std::string form;
+        std::string layer;  // norm_name; empty = any layer
+    };
+    struct PadGeom {
+        double x = 0, y = 0;       // pin origin in design mm
+        bool has_shape = false;
+        Coord w_nm = 0, h_nm = 0;  // chosen shape extent
+        Coord dx_nm = 0, dy_nm = 0;
+    };
+    // part -> padstack id -> shapes, and part -> pad -> padstack id.
+    std::map<std::string, std::map<std::string, std::vector<PadShapeGeom>>> padstacks;
+    std::map<std::string, std::map<std::string, PadGeom>> images;
+    int pads_without_shape = 0;
+    bool warned_octagon_pad = false, warned_polygon_pad = false;
+    std::map<std::string, std::vector<std::string>> unknown_padstacks;
     if (const SexprNode* lib = pcb->find_child("library")) {
         for (const SexprNode* img : lib->find_all("image")) {
             std::string part = atom_str(img, 1, "");
+            // Padstacks inside an image. Shape lists accept the canonical
+            // layer token (`(rect Top 0 0 1 1)`) or omit it, and a padstack
+            // may hold one shape per layer.
+            auto add_shape = [&](const SexprNode* s, std::vector<PadShapeGeom>& out) {
+                std::string head = s->head();
+                std::size_t i = first_numeric_atom(s);
+                PadShapeGeom g;
+                g.form = head;
+                if (i > 1) g.layer = norm_name(atom_str(s, 1, ""));
+                if (head == "rect" || head == "rect_keepout" || head == "roundrect") {
+                    double x1 = u2mm(atom_num(s, i)), y1 = u2mm(atom_num(s, i + 1));
+                    double x2 = u2mm(atom_num(s, i + 2)), y2 = u2mm(atom_num(s, i + 3));
+                    g.w_nm = mm_to_nm(std::fabs(x2 - x1));
+                    g.h_nm = mm_to_nm(std::fabs(y2 - y1));
+                    g.dx_nm = mm_to_nm((x1 + x2) / 2.0);
+                    g.dy_nm = mm_to_nm((y1 + y2) / 2.0);
+                } else if (head == "circle" || head == "octagon" || head == "round") {
+                    // (circle <layer> <diameter> [<x> <y>])
+                    double d = u2mm(atom_num(s, i));
+                    g.w_nm = g.h_nm = mm_to_nm(std::fabs(d));
+                    if (i + 2 < s->children.size() && is_number_atom(s->children[i + 1].get())) {
+                        g.dx_nm = mm_to_nm(u2mm(atom_num(s, i + 1)));
+                        g.dy_nm = mm_to_nm(u2mm(atom_num(s, i + 2)));
+                    }
+                    if (head == "octagon") {
+                        if (!warned_octagon_pad) {
+                            result.warnings.push_back(
+                                "dsn: padstack (octagon ...) pads approximated by their "
+                                "bounding box (8-gon copper not modeled)");
+                            warned_octagon_pad = true;
+                        }
+                    }
+                } else if (head == "polygon") {
+                    // (polygon <layer> <width> <x1> <y1> ...): the width atom
+                    // is the outline width, not a vertex.
+                    double x1 = 1e18, y1 = 1e18, x2 = -1e18, y2 = -1e18;
+                    std::size_t pts = 0;
+                    for (std::size_t k = i + 1; k + 1 < s->children.size(); k += 2) {
+                        if (!is_number_atom(s->children[k].get()) ||
+                            !is_number_atom(s->children[k + 1].get()))
+                            break;
+                        double x = u2mm(atom_num(s, k)), y = u2mm(atom_num(s, k + 1));
+                        x1 = std::min(x1, x); y1 = std::min(y1, y);
+                        x2 = std::max(x2, x); y2 = std::max(y2, y);
+                        ++pts;
+                    }
+                    if (pts < 3) return;
+                    g.w_nm = mm_to_nm(x2 - x1);
+                    g.h_nm = mm_to_nm(y2 - y1);
+                    g.dx_nm = mm_to_nm((x1 + x2) / 2.0);
+                    g.dy_nm = mm_to_nm((y1 + y2) / 2.0);
+                    if (!warned_polygon_pad) {
+                        result.warnings.push_back(
+                            "dsn: padstack (polygon ...) pads approximated by their "
+                            "bounding box (exact polygon copper not modeled)");
+                        warned_polygon_pad = true;
+                    }
+                } else {
+                    return;
+                }
+                out.push_back(g);
+            };
+            for (const SexprNode* ps : img->find_all("padstack")) {
+                std::string id = atom_str(ps, 1, "");
+                if (id.empty()) continue;
+                std::vector<PadShapeGeom>& shapes = padstacks[part][norm_name(id)];
+                for (const SexprNode* sh : ps->find_all("shape"))
+                    for (const auto& s : sh->children)
+                        if (!s->is_atom) add_shape(s.get(), shapes);
+                // Some writers put the shape lists directly on the padstack.
+                for (const auto& s : ps->children)
+                    if (!s->is_atom && s->head() != "shape" && s->head() != "padstack")
+                        add_shape(s.get(), shapes);
+            }
             for (const SexprNode* pin : img->find_all("pin")) {
                 std::string pad = atom_str(pin, 1, "");
-                double x = u2mm(atom_num(pin, 2)), y = u2mm(atom_num(pin, 3));
-                images[part][pad] = {x, y};
+                // (pin <pad> [<padstack>] <x> <y> [<rot>]): a padstack id sits
+                // between the pad name and the coordinates when present.
+                bool has_ps = pin->children.size() >= 5 && !is_number_atom(pin->children[2].get());
+                std::string ps = has_ps ? atom_str(pin, 2, "") : "";
+                std::size_t xi = has_ps ? 3 : 2;
+                PadGeom g;
+                g.x = u2mm(atom_num(pin, xi));
+                g.y = u2mm(atom_num(pin, xi + 1));
+                // Choose the shape for the layer the pad lives on (first match,
+                // deterministic document order), else the first declared.
+                if (!ps.empty()) {
+                    const std::vector<PadShapeGeom>* shapes = nullptr;
+                    auto pit = padstacks.find(part);
+                    if (pit != padstacks.end()) {
+                        auto sit = pit->second.find(norm_name(ps));
+                        if (sit != pit->second.end()) shapes = &sit->second;
+                    }
+                    if (shapes && !shapes->empty()) {
+                        const PadShapeGeom* chosen = &shapes->front();
+                        const std::string top_norm = norm_name(board.layers.front().name);
+                        for (const auto& cand : *shapes) {
+                            if (!cand.layer.empty() && cand.layer == top_norm) {
+                                chosen = &cand;
+                                break;
+                            }
+                        }
+                        g.has_shape = true;
+                        g.w_nm = chosen->w_nm;
+                        g.h_nm = chosen->h_nm;
+                        g.dx_nm = chosen->dx_nm;
+                        g.dy_nm = chosen->dy_nm;
+                    } else {
+                        unknown_padstacks[part].push_back(ps);
+                    }
+                }
+                images[part][pad] = g;
             }
         }
     }
     struct Placed {
         std::string part;
         double x = 0, y = 0;
+        double rot_deg = 0.0;
     };
     std::map<std::string, Placed> placed;  // ref -> placement
+    bool warned_rotation = false;
     if (const SexprNode* pl = pcb->find_child("placement")) {
         for (const SexprNode* comp : pl->find_all("component")) {
             std::string ref = atom_str(comp, 1, "");
@@ -445,6 +577,14 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
                 p.part = atom_str(plc, 1, "");
                 p.x = u2mm(atom_num(plc, 2));
                 p.y = u2mm(atom_num(plc, 3));
+                // (place <part> <x> <y> <front|back> <rotation>)
+                p.rot_deg = atom_num(plc, 5, 0.0);
+                if (!warned_rotation && std::fabs(p.rot_deg) > 1e-9) {
+                    result.warnings.push_back(
+                        "dsn: component rotation is imported as placement metadata only; "
+                        "pad geometry is used axis-aligned (rotated pad offsets not modeled)");
+                    warned_rotation = true;
+                }
                 placed[ref] = p;
             }
         }
@@ -489,15 +629,25 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             if (padit == iit->second.end())
                 throw BoardError(InputKind::kInvalid,
                                  "DSN: image '" + pit->second.part + "' has no pin '" + pad + "'");
-            double x_mm = pit->second.x + padit->second.first - origin_x_mm;
-            double y_mm = pit->second.y + padit->second.second - origin_y_mm;
+            double x_mm = pit->second.x + padit->second.x - origin_x_mm;
+            double y_mm = pit->second.y + padit->second.y - origin_y_mm;
             Terminal t;
             t.id = next_term++;
             t.net = net.id;
+            // Pad copper comes from the padstack shape when the file declares
+            // one; the offset moves an asymmetric shape's centre.
+            if (padit->second.has_shape) {
+                x_mm += nm_to_mm(padit->second.dx_nm);
+                y_mm += nm_to_mm(padit->second.dy_nm);
+                t.pad_w_nm = padit->second.w_nm;
+                t.pad_h_nm = padit->second.h_nm;
+            } else {
+                ++pads_without_shape;
+                t.pad_w_nm = mm_to_nm(0.3);
+                t.pad_h_nm = mm_to_nm(0.3);
+            }
             t.pos = {mm_to_nm(x_mm), mm_to_nm(y_mm)};
             t.layer = top_layer;
-            t.pad_w_nm = mm_to_nm(0.3);
-            t.pad_h_nm = mm_to_nm(0.3);
             t.component = ref;
             t.pin = pad;
             board.terminals.push_back(t);
@@ -715,6 +865,23 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
             names += kv.first;
         }
         result.warnings.push_back("dsn: via geometries available: " + names);
+    }
+    // Pad geometry honesty: a pad without a padstack shape (or naming a stack
+    // the library never declared) falls back to a 0.3 mm square. Reported once
+    // per import instead of silently under- or over-stating copper.
+    if (pads_without_shape > 0) {
+        result.warnings.push_back("dsn: " + std::to_string(pads_without_shape) +
+                                  " pad(s) carry no padstack shape; assumed 0.3mm squares");
+    }
+    for (const auto& kv : unknown_padstacks) {
+        std::string names;
+        for (const auto& s : kv.second) {
+            if (!names.empty()) names += ",";
+            names += s;
+        }
+        result.warnings.push_back("dsn: image '" + kv.first +
+                                  "' references unknown padstack(s) " + names +
+                                  "; those pads assumed 0.3mm squares");
     }
     // Micro-via / blind-buried spans are out of scope: record honestly.
     if (text.find("microvia") != std::string::npos || text.find("blind") != std::string::npos)
