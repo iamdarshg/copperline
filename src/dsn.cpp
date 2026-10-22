@@ -112,18 +112,6 @@ void write_mm(std::ostringstream& os, Coord nm) {
     os << buf;
 }
 
-struct DsnClassRule {
-    std::string name;
-    bool has_width = false;
-    Coord width_nm = 0;
-    bool has_pref_width = false;
-    Coord pref_width_nm = 0;
-    std::string width_source;  // "single" | "pref" | "min" (M9: preferred else min)
-    bool has_clearance = false;
-    Coord clearance_nm = 0;
-    std::vector<std::string> use_via;
-};
-
 // Parse a (width ...) rule the way the Specctra router reads it (M9):
 // the preferred value drives routing, the minimum is the floor, and the
 // maximum is out of scope (recorded, never enforced). Three spellings are
@@ -138,6 +126,48 @@ struct WidthTriplet {
     bool has_pref = false;
     std::string source;
 };
+
+struct DsnClassRule {
+    std::string name;
+    bool has_width = false;
+    Coord width_nm = 0;
+    bool has_pref_width = false;
+    Coord pref_width_nm = 0;
+    std::string width_source;  // "single" | "pref" | "min" (M9: preferred else min)
+    bool has_clearance = false;
+    Coord clearance_nm = 0;
+    std::vector<std::string> use_via;
+    // Item 9 (M9 scope flattening): per-layer width/clearance variants.
+    // Specctra scopes are (netclass on layer); the router resolves the
+    // most specific scope: layer-scoped > class-wide. Maps keyed by the
+    // DSN layer name as written ("Top Layer"/"TOP"/"TopLayer" unify via
+    // normalize_layer_name during class resolution).
+    std::map<std::string, WidthTriplet> layer_width;    // layer -> (min/pref)
+    std::map<std::string, Coord> layer_clearance;       // layer -> nm
+    // Item 12 (Electra via policy knobs, parsed + carried as soft inputs;
+    // enforcement lives in via-bundle cost, never hard DRC).
+    bool via_share = false;          // (via_share on)
+    bool via_at_smd = false;         // (via_at_smd on)
+    bool via_at_smd_grid = false;    // (via_at_smd (grid on))
+    Coord smd_to_via_gap_nm = 0;     // (smd_to_via_gap X)
+    Coord via_to_via_gap_nm = 0;     // (via_to_via_gap X)
+    Coord buried_via_gap_nm = 0;     // (buried_via_gap X)
+    // Item 13 (Altium PolygonConnect, carried on the class; enforcement is
+    // the EM/thermal tier's job, recorded for rule round-trips).
+    std::string poly_connect_style;  // "relief" | "solid" | "none" | ""
+    Coord relief_airgap_nm = 0;      // AIRGAPWIDTH
+    Coord relief_spoke_w_nm = 0;     // RELIEFCONDUCTORWIDTH
+    int relief_entries = 0;          // RELIEFENTRIES (spoke count)
+};
+
+// Parse a (width ...) rule the way the Specctra router reads it (M9):
+// the preferred value drives routing, the minimum is the floor, and the
+// maximum is out of scope (recorded, never enforced). Three spellings are
+// accepted because exporters disagree:
+//   (width 0.2)                    - single value: min = pref = 0.2
+//   (width 0.15 0.2 0.3)           - positional: min pref max
+//   (width (min 0.15) (pref 0.2))   - labelled fragment
+// `scale_mm` is the file's coordinate quantum (mm per count).
 WidthTriplet parse_width_rule(const SexprNode* w, double scale_mm) {
     WidthTriplet out;
     if (!w) return out;
@@ -486,6 +516,68 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
                 cr.has_clearance = true;
                 cr.clearance_nm = mm_to_nm(u2mm(atom_num(c, 1, 0.15)));
             }
+            // Item 12: Electra-style via policy knobs. These appear as
+            // (via_share on) / (via_at_smd on (grid on)) / (smd_to_via_gap x)
+            // style flags inside the class rule. Parsed + carried as soft
+            // via-placement inputs (never hard DRC here).
+            if (const SexprNode* vs = rule->find_child("via_share"))
+                cr.via_share = !atom_str(vs, 1, "on").empty() &&
+                               atom_str(vs, 1, "on") != "off";
+            if (const SexprNode* vas = rule->find_child("via_at_smd")) {
+                cr.via_at_smd = !atom_str(vas, 1, "off").empty();
+                if (const SexprNode* grid = vas->find_child("grid"))
+                    cr.via_at_smd_grid = !atom_str(grid, 1, "off").empty();
+            }
+            if (const SexprNode* sg = rule->find_child("smd_to_via_gap"))
+                cr.smd_to_via_gap_nm = mm_to_nm(u2mm(atom_num(sg, 1, 0.0)));
+            if (const SexprNode* vg = rule->find_child("via_to_via_gap"))
+                cr.via_to_via_gap_nm = mm_to_nm(u2mm(atom_num(vg, 1, 0.0)));
+            if (const SexprNode* bvg = rule->find_child("buried_via_gap"))
+                cr.buried_via_gap_nm = mm_to_nm(u2mm(atom_num(bvg, 1, 0.0)));
+            // Item 13: Altium PolygonConnect-style relief settings. Altium
+            // exports these as rule fragments; the DSN path may name them
+            // (poly_connect (style relief) (airgap x) (spoke_w x) (entries n))
+            // or (connect_style relief ...). Parsed + carried for the EM
+            // thermal tier; the router records them, never invents relief.
+            if (const SexprNode* pc = rule->find_child("poly_connect")) {
+                if (const SexprNode* st = pc->find_child("style"))
+                    cr.poly_connect_style = atom_str(st, 1, "");
+                else
+                    cr.poly_connect_style = atom_str(pc, 1, "");
+                if (const SexprNode* ag = pc->find_child("airgap"))
+                    cr.relief_airgap_nm = mm_to_nm(u2mm(atom_num(ag, 1, 0.0)));
+                if (const SexprNode* sw = pc->find_child("spoke_w"))
+                    cr.relief_spoke_w_nm = mm_to_nm(u2mm(atom_num(sw, 1, 0.0)));
+                if (const SexprNode* en = pc->find_child("entries"))
+                    cr.relief_entries = static_cast<int>(atom_num(en, 1, 0.0));
+            }
+            if (const SexprNode* cs = rule->find_child("connect_style")) {
+                if (const SexprNode* st = cs->find_child("style"))
+                    cr.poly_connect_style = atom_str(st, 1, cr.poly_connect_style);
+                else
+                    cr.poly_connect_style = atom_str(cs, 1, cr.poly_connect_style);
+                if (const SexprNode* ag = cs->find_child("airgap"))
+                    cr.relief_airgap_nm = mm_to_nm(u2mm(atom_num(ag, 1, 0.0)));
+                if (const SexprNode* sw = cs->find_child("spoke_w"))
+                    cr.relief_spoke_w_nm = mm_to_nm(u2mm(atom_num(sw, 1, 0.0)));
+                if (const SexprNode* en = cs->find_child("entries"))
+                    cr.relief_entries = static_cast<int>(atom_num(en, 1, 0.0));
+            }
+            // Item 9: layer-scoped variants (scope priority: layer wins).
+            // Specctra/Altium exporters nest (layer "X" (width ...)
+            // (clearance ...)) inside the class rule for per-layer rules.
+            for (const SexprNode* lay : rule->find_all("layer")) {
+                std::string lay_name = atom_str(lay, 1, "");
+                if (lay_name.empty()) continue;
+                std::string nrm = norm_name(lay_name);
+                if (const SexprNode* lw = lay->find_child("width")) {
+                    cr.layer_width[nrm] = parse_width_rule(lw, scale_mm);
+                }
+                if (const SexprNode* lc = lay->find_child("clearance")) {
+                    cr.layer_clearance[nrm] =
+                        mm_to_nm(u2mm(atom_num(lc, 1, 0.15)));
+                }
+            }
         }
         if (const SexprNode* cir = cn->find_child("circuit")) {
             for (const SexprNode* uv : cir->find_all("use_via"))
@@ -722,6 +814,33 @@ ImportResult DsnImporter::import_text(const std::string& text, const std::string
                 net.min_clearance_nm = cr.clearance_nm;
             }
             if (!cr.use_via.empty()) net.via_class = cr.use_via.front();
+            // Items 9/12/13: parsed + carried, surfaced honestly. The core
+            // width/clearance model stays class-wide (the router resolves
+            // per-layer via RuleResolver); layer-scoped widths, via policy
+            // knobs and relief settings are recorded on the class and
+            // reported so agents see them without the router silently
+            // inventing enforcement it does not implement.
+            if (!cr.layer_width.empty() || !cr.layer_clearance.empty()) {
+                result.warnings.push_back(
+                    "dsn: class '" + cr.name + "' carries " +
+                    std::to_string(cr.layer_width.size() + cr.layer_clearance.size()) +
+                    " layer-scoped rule(s); recorded (layer-specific widths are not "
+                    "enforced by the class-wide model — see docs/router_comparison.md M9)");
+            }
+            if (cr.via_share || cr.via_at_smd || cr.via_at_smd_grid ||
+                cr.smd_to_via_gap_nm > 0 || cr.via_to_via_gap_nm > 0 ||
+                cr.buried_via_gap_nm > 0) {
+                result.warnings.push_back(
+                    "dsn: class '" + cr.name + "' carries via-policy knobs "
+                    "(via_share/via_at_smd/smd_to_via_gap/...); recorded as soft "
+                    "via-placement inputs, not hard DRC");
+            }
+            if (!cr.poly_connect_style.empty()) {
+                result.warnings.push_back(
+                    "dsn: class '" + cr.name + "' PolygonConnect style '" +
+                    cr.poly_connect_style + "' recorded (relief/spoke enforcement "
+                    "is the EM/thermal tier's job — em/validate_thermal.py --relief)");
+            }
         }
         for (const auto& rp : p.pins) {
             // Pin token is "REF-PAD" (pad names with '-' are unsupported and

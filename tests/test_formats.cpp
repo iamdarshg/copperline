@@ -1030,4 +1030,76 @@ CT_TEST(ipc2581_imports_nets_pads_traces) {
     CT_CHECK(auto_gbr.board.source_format == "gerber");
 }
 
+// Item 9: layer-scoped net-class rules are parsed and surfaced honestly.
+CT_TEST(dsn_layer_scoped_class_rules) {
+    static const char* kDsn =
+        "(pcb \"layerscope\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20))\n"
+        "    (via STD 0.6 0.3))\n"
+        "  (placement\n"
+        "    (component U1 (place P 1 1 front 0))\n"
+        "    (component U2 (place P 19 1 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network\n"
+        "    (class PWR\n"
+        "      (rule (width 0.5)\n"
+        "            (layer \"Top Layer\" (width 1.0) (clearance 0.3))\n"
+        "            (via_share on)\n"
+        "            (via_at_smd on (grid on))\n"
+        "            (smd_to_via_gap 0.2)\n"
+        "            (poly_connect (style relief) (airgap 0.4)\n"
+        "                          (spoke_w 0.25) (entries 4))))\n"
+        "    (net V1 (pins U1-1 U2-1) (class PWR))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "layerscope.dsn");
+    CT_CHECK(ir.board.nets.size() == 1);
+    CT_CHECK(ir.board.nets[0].name == "V1");
+    // Class-wide width still applies (layer-scoped is recorded, not enforced
+    // by the class-wide model).
+    CT_CHECK(ir.board.nets[0].has_min_width);
+    CT_CHECK(ir.board.nets[0].min_width_nm == mm_to_nm(0.5));
+    // Item 9 surfaced: layer-scoped rules warn, never silent.
+    CT_CHECK(has_warning(ir.warnings, "layer-scoped"));
+    // Item 12 surfaced: via policy knobs warn.
+    CT_CHECK(has_warning(ir.warnings, "via-policy"));
+    // Item 13 surfaced: PolygonConnect style recorded + warned, with the
+    // pointer to the EM/thermal tier.
+    CT_CHECK(has_warning(ir.warnings, "PolygonConnect"));
+    CT_CHECK(has_warning(ir.warnings, "em/validate_thermal.py"));
+}
+
+// Items 9/12/13 must never change the committed geometry (deterministic
+// import; the new fields are advisory).
+CT_TEST(dsn_phase2_fields_do_not_affect_geometry) {
+    static const char* kDsn =
+        "(pcb \"phase2\"\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer Top (type signal))\n"
+        "    (layer Bottom (type signal))\n"
+        "    (boundary (rect 0 0 20 20))\n"
+        "    (via STD 0.6 0.3))\n"
+        "  (placement\n"
+        "    (component U1 (place P 1 1 front 0))\n"
+        "    (component U2 (place P 19 1 front 0)))\n"
+        "  (library (image P (pin 1 0 0)))\n"
+        "  (network\n"
+        "    (class PWR (rule (width 0.5)\n"
+        "           (via_share on) (smd_to_via_gap 0.2)\n"
+        "           (poly_connect (style relief) (entries 4))))\n"
+        "    (net V1 (pins U1-1 U2-1) (class PWR))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "phase2.dsn");
+    // Same geometry as the same board without the advisory fields: two
+    // terminals, correct span.
+    CT_CHECK(ir.board.terminals.size() == 2);
+    Coord span = std::llabs(ir.board.terminals[0].pos.x - ir.board.terminals[1].pos.x);
+    CT_CHECK(span == mm_to_nm(18.0));
+    CT_CHECK(ir.board.nets[0].min_width_nm == mm_to_nm(0.5));
+}
+
 int main() { return copperline::test::run_all_tests(); }
