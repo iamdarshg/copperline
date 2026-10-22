@@ -159,6 +159,44 @@ CT_TEST(dsn_padstack_approximation_warns) {
         CT_CHECK(t.pad_w_nm == mm_to_nm(1.0));
 }
 
+// Quoted names: Altium writes `(layer "Top Layer")` while references may use
+// `TopLayer` or `TOP`. Layer/padstack identifiers compare separator- and
+// case-insensitively, quoted tokens (including their spaces) survive, and net
+// names stay verbatim so nothing is silently merged.
+CT_TEST(dsn_quoted_name_normalization) {
+    static const char* kDsn =
+        "(pcb \"quoted\"\n"
+        "  (parser (string_quote \") (space_in_quoted_tokens on))\n"
+        "  (unit mm)\n"
+        "  (structure\n"
+        "    (layer \"Top Layer\" (type signal))\n"
+        "    (layer \"Bottom Layer\" (type signal))\n"
+        "    (boundary (rect pcb 0 0 20 20))\n"
+        "    (copper_pour PWR (polygon bottomlayer 1 8 19 8 19 12 1 12))\n"
+        "    (via_keepout (rect toplayer 5 5 6 6)))\n"
+        "  (placement (component U1 (place \"SO 8\" 2 10 front 0))\n"
+        "             (component U2 (place \"SO 8\" 18 10 front 0)))\n"
+        "  (library (image \"SO 8\" (pin 1 0 0) (pin 2 0 0)))\n"
+        "  (network (class \"SIG CLASS\" (rule (width 0.2) (clearance 0.15)))\n"
+        "           (net \"SIG A\" (pins U1-1 U2-1) (class \"SIG CLASS\"))\n"
+        "           (net PWR (pins U1-2 U2-2) (class \"SIG CLASS\"))))\n";
+    DsnImporter dsn;
+    ImportResult ir = dsn.import_text(kDsn, "quoted.dsn");
+    CT_CHECK(ir.board.layers.size() == 2);
+    CT_CHECK(ir.board.layers[0].name == "Top Layer");  // verbatim name kept
+    // Pour resolved `bottomlayer` -> "Bottom Layer"; keepout resolved
+    // `toplayer` -> "Top Layer".
+    CT_CHECK(ir.board.planes.size() == 1);
+    CT_CHECK(ir.board.planes[0].layer == ir.board.layers[1].id);
+    CT_CHECK(ir.board.keepouts.size() == 1);
+    CT_CHECK(ir.board.keepouts[0].layer == ir.board.layers[0].id);
+    // Quoted net names keep their spaces (no normalization for nets).
+    CT_CHECK(ir.board.find_net_by_name("SIG A") != nullptr);
+    CT_CHECK(ir.board.find_net_by_name("SIGA") == nullptr);
+    // Pin/pad names with spaces still resolve through the quoted image name.
+    CT_CHECK(ir.board.terminals.size() == 4);
+}
+
 CT_TEST(dsn_pour_imports_as_plane) {
     DsnImporter dsn;
     ImportResult ir = dsn.import_file(fixture("pour_test.dsn"));
