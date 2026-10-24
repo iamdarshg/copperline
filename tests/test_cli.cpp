@@ -676,4 +676,34 @@ CT_TEST(cli_strategy_engine) {
     std::remove(badjson.c_str());
 }
 
+// Phase 3 item 16: the memory U-pattern pass is strategy-gated — OFF by
+// default (existing boards untouched), ON with "memory": true.
+CT_TEST(cli_memory_pass_strategy_gate) {
+    // Without a memory strategy: pass reports ran=false, 0 pairs.
+    CliResult off = run_cli_full("route " + fixture("memory_bus.json") +
+                                 " --json --seed 42 --no-board-echo");
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    CT_CHECK(vo.get_string("status") == "COMPLETE");
+    JsonValue mo = *vo.find("memory");
+    CT_CHECK(mo.get_bool("ran", true) == false);
+    CT_CHECK(mo.get_number("pairs_committed", -1) == 0);
+
+    // With the memory_bus strategy: 4 aligned pairs committed as 12 traces.
+    CliResult on = run_cli_full("route " + fixture("memory_bus.json") +
+                                " --json --seed 42 --no-board-echo"
+                                " --strategy " + fixture("strategies/memory_bus.json"));
+    CT_CHECK(on.rc == 0);
+    JsonValue vn = must_parse(on.out);
+    CT_CHECK(vn.get_string("status") == "COMPLETE");
+    CT_CHECK(vn.get_string("strategy") == "memory_bus");
+    JsonValue mn = *vn.find("memory");
+    CT_CHECK(mn.get_bool("ran", false) == true);
+    CT_CHECK(mn.get_number("pairs_found", -1) == 4);
+    CT_CHECK(mn.get_number("pairs_committed", -1) == 4);
+    CT_CHECK(mn.get_number("traces_added", -1) == 12);
+    // The independent verifier accepts the memory copper.
+    CT_CHECK(vn.find("verification") && vn.find("verification")->is_object());
+}
+
 int main() { return copperline::test::run_all_tests(); }

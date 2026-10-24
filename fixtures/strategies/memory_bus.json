@@ -1,0 +1,13 @@
+{
+  "schema": "copperline/strategy/1",
+  "strategy": "memory_bus",
+  "escape": true,
+  "memory": true,
+  "optimizer": true,
+  "tuning": true,
+  "recovery": true,
+  "max_epochs": 0,
+  "recovery_depth": 0,
+  "recovery_beam": 0,
+  "astar_scale": 1.0
+}

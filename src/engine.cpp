@@ -194,6 +194,7 @@ JsonValue RouteReport::to_json() const {
     r["optimizer"] = optimizer.to_json();
     r["recovery"] = recovery.to_json();
     r["escape"] = escape_stage.to_json();
+    r["memory"] = memory_stage.to_json();  // Phase 3 item 16
     // Issue #14: maturity/budget schedule + final effective state. Agents
     // see every phase transition and the exact hyperparams consumed.
     {
@@ -526,6 +527,20 @@ RouteReport RouterEngine::run() {
     // Rebuild density AFTER escape copper is committed so global routing sees
     // the actual occupied board.
     ms_escape = stage_ms(t_escape_start, stage_now());
+    // ---- Phase 3 item 16: memory U-pattern pass (strategy-gated) ----
+    // Runs after escape, before task generation, so memory pairs are
+    // committed copper by the time the global router plans corridors. OFF
+    // by default; enabled by a strategy with "memory": true. The final
+    // BoardVerifier gate applies to this copper like all other routes.
+    if (options_.strategy_memory) {
+        const auto t_mem = stage_now();
+        std::vector<std::string> via_names;
+        for (const auto& vs : resolver_.via_styles()) via_names.push_back(vs.name);
+        report.memory_stage = run_memory_pass(board_, resolver_, ctx, via_names);
+        (void)stage_ms(t_mem, stage_now());  // timing folded into _batch later
+    } else {
+        report.memory_stage.ran = false;
+    }
     const auto t_taskgen_start = stage_now();
     DensityEstimator density_est;
     DensityResult density = density_est.analyze(board_);

@@ -1,0 +1,45 @@
+{
+  "schema": "copperline/board/1",
+  "board": {"width_mm": 20, "height_mm": 12},
+  "layers": [
+    {"id": 0, "name": "Top"},
+    {"id": 1, "name": "Bottom"}
+  ],
+  "defaults": {
+    "trace_width_mm": 0.2,
+    "clearance_mm": 0.15,
+    "via_outer_mm": 0.6,
+    "via_hole_mm": 0.3,
+    "default_current_a": 0.5
+  },
+  "nets": [
+    {
+      "id": 0, "name": "MEM_D0",
+      "terminals": [
+        {"id": 0, "x_mm": 2, "y_mm": 3, "layer": 0, "component": "U1", "pin": "A1"},
+        {"id": 1, "x_mm": 18, "y_mm": 3, "layer": 0, "component": "U2", "pin": "D0"}
+      ]
+    },
+    {
+      "id": 1, "name": "MEM_D1",
+      "terminals": [
+        {"id": 2, "x_mm": 2, "y_mm": 5, "layer": 0, "component": "U1", "pin": "A2"},
+        {"id": 3, "x_mm": 18, "y_mm": 5, "layer": 0, "component": "U2", "pin": "D1"}
+      ]
+    },
+    {
+      "id": 2, "name": "MEM_D2",
+      "terminals": [
+        {"id": 4, "x_mm": 2, "y_mm": 7, "layer": 0, "component": "U1", "pin": "A3"},
+        {"id": 5, "x_mm": 18, "y_mm": 7, "layer": 0, "component": "U2", "pin": "D2"}
+      ]
+    },
+    {
+      "id": 3, "name": "MEM_D3",
+      "terminals": [
+        {"id": 6, "x_mm": 2, "y_mm": 9, "layer": 0, "component": "U1", "pin": "A4"},
+        {"id": 7, "x_mm": 18, "y_mm": 9, "layer": 0, "component": "U2", "pin": "D3"}
+      ]
+    }
+  ]
+}

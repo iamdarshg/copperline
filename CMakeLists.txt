@@ -40,6 +40,7 @@ add_library(router_core
   src/impact.cpp
   src/recovery.cpp
   src/optimizer.cpp
+  src/memory_pass.cpp
   src/engine.cpp
   src/verifier.cpp
   src/analyze.cpp
@@ -120,6 +121,7 @@ copperline_test(test_diffpair)
 copperline_test(test_pair_verify)
 copperline_test(test_tuning)
 copperline_test(test_golden)
+copperline_test(test_memory_pass)
 copperline_test(test_formats)
 # Opt-in: skipped cheaply unless COPPERLINE_BOARD_SCALE=1 (see the file header).
 copperline_test(test_board_scale)

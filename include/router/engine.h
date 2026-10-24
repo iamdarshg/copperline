@@ -31,6 +31,7 @@
 #include "router/impact.h"
 #include "router/json.h"
 #include "router/maturity.h"
+#include "router/memory_pass.h"
 #include "router/optimizer.h"
 #include "router/parallel.h"
 #include "router/recovery.h"
@@ -169,6 +170,7 @@ struct RouteReport {
     StateHash128 state_hash{};
     RecoveryInfo recovery;
     EscapeStageInfo escape_stage;  // Post-P4 issue #1: escape summary
+    MemoryPassReport memory_stage;  // Phase 3 item 16: memory U-pattern pass
     std::vector<PlaneAccessInfo> plane_access;  // issue #16: plane entries
     std::vector<ImpedanceResolution> impedance;  // issue #11: per-net Z report
     std::vector<PairReport> diffpairs;  // issue #12: corridor + materialization
@@ -202,6 +204,9 @@ struct EngineOptions {
     std::string strategy = "";  // active strategy id ("" = built-in default)
     // Stage toggles a strategy may set (defaults = current engine behavior).
     bool strategy_escape = true;       // fine-pitch escape stage
+    bool strategy_memory = false;      // Phase 3 item 16: memory U-pattern pass
+                                       // (OFF by default: new committed copper
+                                       // would change existing golden hashes)
     bool strategy_optimizer = true;    // transactional cleanup
     bool strategy_tuning = true;       // post-route diff-pair tuning
     bool strategy_recovery = true;     // rip-up meta-search
