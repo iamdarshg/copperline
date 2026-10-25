@@ -240,6 +240,88 @@ CT_TEST(optimizer_rejected_candidate_does_not_starve_later_ones) {
     CT_CHECK(v.verify(b, r, ctx).ok);
 }
 
+// Phase 3 item 19: straighten corner probes are independent of trace
+// endpoint orientation (the bend-removal pass only sees A.b == B.a). The
+// same transactional verify-and-revert machinery is reused for pass 5.
+CT_TEST(optimizer_straighten_reversed_corner) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b, 0, 1.0, 5.0);
+    test::add_terminal(b, 0, 3.0, 7.0);
+    const Coord w = mm_to_nm(0.2);
+    // Legal L, but both segments serialize the shared corner as endpoint
+    // `a` — the exact case bend-removal's single-orientation probe misses.
+    b.traces.push_back({0, 0, {mm_to_nm(3.0), mm_to_nm(5.0)},
+                        {mm_to_nm(1.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(3.0), mm_to_nm(5.0)},
+                        {mm_to_nm(3.0), mm_to_nm(7.0)}, w});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.straighten = true;
+    CleanupOptimizer optimizer(&b, &r, ctx, opt);
+    OptimizerReport rep = optimizer.run();
+    CT_CHECK(rep.ran);
+    CT_CHECK(rep.straighten_ran);
+    CT_CHECK(rep.applied == 1);
+    CT_CHECK(rep.length_after_mm < rep.length_before_mm);
+    CT_CHECK(b.traces.size() == 1);
+    {
+        const Point fa{mm_to_nm(1.0), mm_to_nm(5.0)};
+        const Point fb{mm_to_nm(3.0), mm_to_nm(7.0)};
+        CT_CHECK(b.traces[0].a == fa);
+        CT_CHECK(b.traces[0].b == fb);
+    }
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
+// Straighten reverts (never partially applies) when the shortcut crosses
+// foreign copper: the board stays byte-identical, report counts a revert.
+CT_TEST(optimizer_straighten_reverts_illegal_shortcut) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b, 0, 1.0, 5.0);
+    test::add_terminal(b, 0, 3.0, 7.0);
+    const Coord w = mm_to_nm(0.2);
+    b.traces.push_back({0, 0, {mm_to_nm(3.0), mm_to_nm(5.0)},
+                        {mm_to_nm(1.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(3.0), mm_to_nm(5.0)},
+                        {mm_to_nm(3.0), mm_to_nm(7.0)}, w});
+    // Keepout across the diagonal (1,5)-(3,7), clear of the original L.
+    Keepout ko;
+    ko.rect = {mm_to_nm(1.2), mm_to_nm(5.4), mm_to_nm(2.8), mm_to_nm(6.6)};
+    ko.layer = 0;
+    ko.reason = "straighten-blocker";
+    b.keepouts.push_back(ko);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+    Board before = b;
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.straighten = true;
+    CleanupOptimizer optimizer(&b, &r, ctx, opt);
+    OptimizerReport rep = optimizer.run();
+    CT_CHECK(rep.ran);
+    CT_CHECK(rep.applied == 0);
+    CT_CHECK(rep.reverted >= 1);
+    // Board untouched: the illegal shortcut never landed.
+    CT_CHECK(b.traces.size() == 2);
+    CT_CHECK(geometry_hash(b) == geometry_hash(before));
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
 // DSN import preserves net names/pads/layers/classes/widths; SES export
 // round-trips copper back through verify.
 CT_TEST(adapter_dsn_ses_roundtrip) {

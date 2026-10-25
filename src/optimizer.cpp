@@ -84,6 +84,7 @@ JsonValue OptimizerReport::to_json() const {
     r["vias_after"] = static_cast<double>(vias_after);
     r["length_before_mm"] = length_before_mm;
     r["length_after_mm"] = length_after_mm;
+    r["straighten_ran"] = straighten_ran;
     r["peak_bytes"] = static_cast<double>(peak_bytes);
     return r;
 }
@@ -465,6 +466,82 @@ OptimizerReport CleanupOptimizer::run() {
                 ni = cursor;
             } else {
                 break;  // candidate-cap exhaustion: report counts as-is
+            }
+        }
+    }
+
+    // Pass 5: straighten (Phase 3 item 19) — corner probe independent of
+    // trace endpoint orientation. Exactly-2 same-net/same-layer segments
+    // sharing an endpoint (no via at the corner) collapse to a direct
+    // shortcut when it shortens; every candidate re-verifies and reverts
+    // on harm. OFF by default; enabled by strategy "straighten": true.
+    if (opt_.straighten) {
+        rep.passes++;
+        rep.straighten_ran = true;
+        bool changed = true;
+        int guard = 0;
+        while (changed && guard++ < 12 &&
+               rep.candidates < static_cast<int>(opt_.max_candidates)) {
+            changed = false;
+            // Endpoint degree per (net, point) for the exact-2 gate.
+            std::map<NetId, std::map<Point, int>> degree;
+            for (const auto& seg : board_->traces)
+                degree[seg.net][seg.a]++, degree[seg.net][seg.b]++;
+            const std::size_t ntr = board_->traces.size();
+            const std::size_t nn = ntr * ntr;
+            std::size_t t = 0;
+            while (t < nn && !changed &&
+                   rep.candidates < static_cast<int>(opt_.max_candidates)) {
+                std::vector<OptBatchCandidate> window;
+                while (t < nn && (int)window.size() < opt_workers) {
+                    std::size_t i = t / ntr, j = t % ntr;
+                    ++t;
+                    if (i == j) continue;
+                    const TraceSeg A = board_->traces[i], B = board_->traces[j];
+                    if (A.net != B.net || A.layer != B.layer) continue;
+                    if (is_protected(A.net)) continue;
+                    Point corner, from, to;
+                    bool joined = false;
+                    if (A.a == B.a) {
+                        corner = A.a; from = A.b; to = B.b; joined = true;
+                    } else if (A.a == B.b) {
+                        corner = A.a; from = A.b; to = B.a; joined = true;
+                    } else if (A.b == B.a) {
+                        corner = A.b; from = A.a; to = B.b; joined = true;
+                    } else if (A.b == B.b) {
+                        corner = A.b; from = A.a; to = B.a; joined = true;
+                    }
+                    if (!joined || from == to) continue;
+                    if (degree[A.net][corner] != 2) continue;
+                    // A via wedged into the corner is a junction: never
+                    // shortcut across it (via elimination already had its turn).
+                    bool via_at_corner = false;
+                    for (const auto& v : board_->vias)
+                        if (v.net == A.net && v.pos == corner) via_at_corner = true;
+                    if (via_at_corner) continue;
+                    double old_len = trace_seg_length_mm(A) + trace_seg_length_mm(B);
+                    TraceSeg shortcut = A;
+                    shortcut.a = from;
+                    shortcut.b = to;
+                    double new_len = trace_seg_length_mm(shortcut);
+                    if (new_len >= old_len - 1e-9) continue;
+                    OptBatchCandidate c;
+                    c.must_shorten = true;
+                    c.touched_net = A.net;
+                    c.touched_area =
+                        rect_union(A.segment().bounds(), B.segment().bounds());
+                    c.mutate = [i, j, from, to](Board& bd) {
+                        bd.traces[i].a = from;
+                        bd.traces[i].b = to;
+                        bd.traces.erase(bd.traces.begin() +
+                                        static_cast<std::ptrdiff_t>(j));
+                    };
+                    window.push_back(std::move(c));
+                }
+                if (window.empty()) break;
+                std::vector<char> keep;
+                eval_window(window, keep);
+                if (commit_until_accept(window, keep) >= 0) changed = true;
             }
         }
     }

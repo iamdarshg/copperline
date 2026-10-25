@@ -706,4 +706,32 @@ CT_TEST(cli_memory_pass_strategy_gate) {
     CT_CHECK(vn.find("verification") && vn.find("verification")->is_object());
 }
 
+// Phase 3 item 19: the straighten pass is strategy-gated — OFF by default
+// (existing boards untouched), ON with "straighten": true. The pass reuses
+// the optimizer's transactional verify+revert machinery.
+CT_TEST(cli_straighten_strategy_gate) {
+    // Without the strategy: optimizer runs but straighten_ran stays false.
+    CliResult off = run_cli_full("route " + fixture("open_2layer.json") +
+                                 " --json --seed 42 --no-board-echo");
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    CT_CHECK(vo.get_string("status") == "COMPLETE");
+    JsonValue oo = *vo.find("optimizer");
+    CT_CHECK(oo.get_bool("straighten_ran", true) == false);
+
+    // With the straighten_demo strategy: the pass runs and re-verifies.
+    CliResult on = run_cli_full("route " + fixture("open_2layer.json") +
+                                " --json --seed 42 --no-board-echo"
+                                " --strategy " + fixture("strategies/straighten_demo.json"));
+    CT_CHECK(on.rc == 0);
+    JsonValue vn = must_parse(on.out);
+    CT_CHECK(vn.get_string("status") == "COMPLETE");
+    CT_CHECK(vn.get_string("strategy") == "straighten_demo");
+    JsonValue on2 = *vn.find("optimizer");
+    CT_CHECK(on2.get_bool("straighten_ran", false) == true);
+    // Straighten never grows wire length (must_shorten gate).
+    CT_CHECK(on2.get_number("length_after_mm", -1.0) <=
+             on2.get_number("length_before_mm", 0.0) + 1e-9);
+}
+
 int main() { return copperline::test::run_all_tests(); }

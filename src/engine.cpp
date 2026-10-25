@@ -2512,6 +2512,8 @@ RouteReport RouterEngine::run() {
     const auto t_optimizer_start = stage_now();
     if (report.status == "COMPLETE" && report.verification.ok) {
         OptimizerOptions oo = options_.optimizer;
+        // Phase 3 item 19: strategy "straighten": true enables the pass.
+        oo.straighten = oo.straighten || options_.strategy_straighten;
         // Bound optimizer scratch by the router memory budget.
         oo.max_candidates = std::min<std::size_t>(
             oo.max_candidates, options_.memory_budget_bytes / (4 * options_.per_task_bytes));

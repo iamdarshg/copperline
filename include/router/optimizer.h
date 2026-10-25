@@ -35,6 +35,10 @@ struct OptimizerOptions {
     bool bend_removal = true;
     bool via_elimination = true;
     bool preferred_layer = true;
+    // Phase 3 item 19: straighten corner probes (H/V/45) that shorten, gated
+    // on verify+revert like every other transform. OFF by default: existing
+    // golden geometry is untouched unless a strategy sets "straighten": true.
+    bool straighten = false;
 };
 
 struct OptimizerReport {
@@ -51,6 +55,7 @@ struct OptimizerReport {
     int vias_after = 0;
     double length_before_mm = 0.0;
     double length_after_mm = 0.0;
+    bool straighten_ran = false;  // pass 5 ran (strategy-gated)
     std::size_t peak_bytes = 0;  // bounded scratch (candidates * per-item)
     JsonValue to_json() const;
 };

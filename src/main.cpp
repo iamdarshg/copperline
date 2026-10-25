@@ -450,6 +450,8 @@ bool load_strategy(const Flags& f, EngineOptions& opt, std::string& msg) {
     opt.strategy = root.get_string("strategy", "custom");
     if (root.has("escape")) opt.strategy_escape = root.get_bool("escape", true);
     if (root.has("memory")) opt.strategy_memory = root.get_bool("memory", false);
+    if (root.has("straighten"))
+        opt.strategy_straighten = root.get_bool("straighten", false);
     if (root.has("optimizer")) opt.strategy_optimizer = root.get_bool("optimizer", true);
     if (root.has("tuning")) opt.strategy_tuning = root.get_bool("tuning", true);
     if (root.has("recovery")) opt.strategy_recovery = root.get_bool("recovery", true);
