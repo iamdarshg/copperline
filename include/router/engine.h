@@ -143,6 +143,10 @@ struct EscapeStageInfo {
     int pads_total = 0;
     int pads_escaped = 0;
     int pads_infeasible = 0;
+    // Phase 3 item 21: fanout arrangement preference + filtered candidates.
+    std::string fanout_pattern = "auto";
+    int fanout_dir = -1;
+    int fanout_filtered = 0;
     std::vector<TermId> escaped_terminals;    // sorted, deterministic
     std::vector<TermId> unresolved_terminals;  // escape-infeasible pads, sorted
     // Per-terminal infeasibility reasons for unresolved pads, parallel to
@@ -171,6 +175,7 @@ struct RouteReport {
     RecoveryInfo recovery;
     EscapeStageInfo escape_stage;  // Post-P4 issue #1: escape summary
     MemoryPassReport memory_stage;  // Phase 3 item 16: memory U-pattern pass
+    MemoryPassReport adjacent_memory_stage;  // Phase 3 item 17: adjacent pass
     std::vector<PlaneAccessInfo> plane_access;  // issue #16: plane entries
     std::vector<ImpedanceResolution> impedance;  // issue #11: per-net Z report
     std::vector<PairReport> diffpairs;  // issue #12: corridor + materialization
@@ -207,6 +212,8 @@ struct EngineOptions {
     bool strategy_memory = false;      // Phase 3 item 16: memory U-pattern pass
                                        // (OFF by default: new committed copper
                                        // would change existing golden hashes)
+    // Phase 3 item 17: adjacent-memory pass (same-component/adjacent pins).
+    bool strategy_adjacent_memory = false;
     bool strategy_optimizer = true;    // transactional cleanup
     bool strategy_tuning = true;       // post-route diff-pair tuning
     bool strategy_recovery = true;     // rip-up meta-search
@@ -214,6 +221,14 @@ struct EngineOptions {
     bool strategy_straighten = false;
     // Phase 3 item 24: Via Miser optimizer mode (off by default).
     bool strategy_via_miser = false;
+    // Phase 3 item 20: 90-degree corner miter (off by default).
+    bool strategy_orthogonal = false;
+    // Phase 3 item 18: clean pad entries (off by default).
+    bool strategy_clean_pad_entries = false;
+    // Phase 3 item 21: fanout arrangement ("auto" | "inline" | "staggered")
+    // and optional preferred principal direction (0..7, -1 = auto).
+    std::string strategy_fanout_pattern = "auto";
+    int strategy_fanout_dir = -1;
     int strategy_max_epochs = 0;       // 0 = engine default (4096)
     int strategy_recovery_depth = 0;   // 0 = engine default (2)
     int strategy_recovery_beam = 0;    // 0 = engine default (4)

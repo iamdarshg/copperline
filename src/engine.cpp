@@ -25,6 +25,9 @@ JsonValue EscapeStageInfo::to_json() const {
     r["pads_total"] = static_cast<double>(pads_total);
     r["pads_escaped"] = static_cast<double>(pads_escaped);
     r["pads_infeasible"] = static_cast<double>(pads_infeasible);
+    r["fanout_pattern"] = fanout_pattern;
+    r["fanout_dir"] = static_cast<double>(fanout_dir);
+    r["fanout_filtered"] = static_cast<double>(fanout_filtered);
     // D5: shared array helpers (byte-identical numbers/strings).
     r["escaped_terminals"] = json_int_array(
         std::vector<int>(escaped_terminals.begin(), escaped_terminals.end()));
@@ -195,6 +198,7 @@ JsonValue RouteReport::to_json() const {
     r["recovery"] = recovery.to_json();
     r["escape"] = escape_stage.to_json();
     r["memory"] = memory_stage.to_json();  // Phase 3 item 16
+    r["adjacent_memory"] = adjacent_memory_stage.to_json();  // Phase 3 item 17
     // Issue #14: maturity/budget schedule + final effective state. Agents
     // see every phase transition and the exact hyperparams consumed.
     {
@@ -405,11 +409,17 @@ RouteReport RouterEngine::run() {
         // pad's fallback portal attempts fan out on it (deterministic merge,
         // same commit path below). Explicit --threads wins, 0 = auto.
         escape_options.threads = effective_threads;
+        // Phase 3 item 21: fanout arrangement preference from the strategy.
+        escape_options.fanout_pattern = options_.strategy_fanout_pattern;
+        escape_options.fanout_dir = options_.strategy_fanout_dir;
         EscapePlanner planner(escape_options);
         EscapeResult esc = planner.plan(board_, resolver_, ctx);
         report.escape_stage.pads_total = esc.pads_total;
         report.escape_stage.pads_escaped = esc.pads_with_candidates;
         report.escape_stage.pads_infeasible = esc.pads_infeasible;
+        report.escape_stage.fanout_pattern = esc.fanout_pattern;
+        report.escape_stage.fanout_dir = esc.fanout_dir;
+        report.escape_stage.fanout_filtered = esc.fanout_filtered;
         // Commit in planner eligibility order (per-footprint commit_order is
         // already centre-out). Deterministic: footprints sorted by component
         // (planner guarantee), commit_order preserves eligibility order.
@@ -540,6 +550,19 @@ RouteReport RouterEngine::run() {
         (void)stage_ms(t_mem, stage_now());  // timing folded into _batch later
     } else {
         report.memory_stage.ran = false;
+    }
+    // ---- Phase 3 item 17: adjacent-memory pass (strategy-gated) ----
+    // Runs after the memory pass so pairs it already joined are skipped;
+    // covers adjacent same-net pins (including pins of the same component).
+    if (options_.strategy_adjacent_memory) {
+        const auto t_adj = stage_now();
+        std::vector<std::string> via_names;
+        for (const auto& vs : resolver_.via_styles()) via_names.push_back(vs.name);
+        report.adjacent_memory_stage = run_adjacent_memory_pass(
+            board_, resolver_, ctx, via_names, kAdjacentMemoryPitchNm);
+        (void)stage_ms(t_adj, stage_now());
+    } else {
+        report.adjacent_memory_stage.ran = false;
     }
     const auto t_taskgen_start = stage_now();
     DensityEstimator density_est;
@@ -2516,6 +2539,11 @@ RouteReport RouterEngine::run() {
         oo.straighten = oo.straighten || options_.strategy_straighten;
         // Phase 3 item 24: strategy "via_miser": true selects Via Miser mode.
         oo.via_miser = oo.via_miser || options_.strategy_via_miser;
+        // Phase 3 item 20: strategy "orthogonal": true enables corner miters.
+        oo.orthogonal = oo.orthogonal || options_.strategy_orthogonal;
+        // Phase 3 item 18: strategy "clean_pad_entries": true enables the pass.
+        oo.clean_pad_entries =
+            oo.clean_pad_entries || options_.strategy_clean_pad_entries;
         // Bound optimizer scratch by the router memory budget.
         oo.max_candidates = std::min<std::size_t>(
             oo.max_candidates, options_.memory_budget_bytes / (4 * options_.per_task_bytes));

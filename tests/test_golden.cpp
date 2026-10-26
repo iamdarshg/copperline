@@ -388,6 +388,148 @@ CT_TEST(optimizer_via_miser_mode) {
     }
 }
 
+// Phase 3 item 20: miter/re-corner pass — a 90-degree axis-aligned corner is
+// chamfered with a 45-degree segment when the strategy sets orthogonal:true.
+// The chamfer must shorten the pair and pass independent verification.
+CT_TEST(optimizer_miter_chamfers_corner) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b, 0, 1.0, 5.0);
+    test::add_terminal(b, 0, 3.0, 7.0);
+    const Coord w = mm_to_nm(0.2);
+    b.traces.push_back({0, 0, {mm_to_nm(1.0), mm_to_nm(5.0)},
+                        {mm_to_nm(3.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(3.0), mm_to_nm(5.0)},
+                        {mm_to_nm(3.0), mm_to_nm(7.0)}, w});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.straighten = false;
+    opt.orthogonal = true;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.ran);
+    CT_CHECK(rep.orthogonal_ran);
+    CT_CHECK(rep.applied == 1);
+    CT_CHECK(rep.length_after_mm < rep.length_before_mm);
+    // Two legs + the chamfer = three segments, with one true 45-degree.
+    CT_CHECK(b.traces.size() == 3);
+    bool diagonal = false;
+    for (const auto& s : b.traces) {
+        const Coord dx = s.a.x > s.b.x ? s.a.x - s.b.x : s.b.x - s.a.x;
+        const Coord dy = s.a.y > s.b.y ? s.a.y - s.b.y : s.b.y - s.a.y;
+        if (dx > 0 && dx == dy) diagonal = true;
+    }
+    CT_CHECK(diagonal);
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
+// A degree-3 junction is never chamfered (it would cut the third branch).
+CT_TEST(optimizer_miter_requires_degree_two) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b, 0, 2.0, 5.0);
+    test::add_terminal(b, 0, 4.0, 7.0);
+    test::add_terminal(b, 0, 4.0, 3.0);
+    const Coord w = mm_to_nm(0.2);
+    b.traces.push_back({0, 0, {mm_to_nm(2.0), mm_to_nm(5.0)},
+                        {mm_to_nm(4.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(4.0), mm_to_nm(5.0)},
+                        {mm_to_nm(4.0), mm_to_nm(7.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(4.0), mm_to_nm(5.0)},
+                        {mm_to_nm(4.0), mm_to_nm(3.0)}, w});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.orthogonal = true;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.ran);
+    // The junction must be rejected by the degree gate itself, not merely by
+    // the verifier: no miter candidate may be generated or attempted.
+    CT_CHECK(rep.candidates == 0);
+    CT_CHECK(rep.reverted == 0);
+    CT_CHECK(rep.applied == 0);
+    CT_CHECK(b.traces.size() == 3);
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
+// Phase 3 item 18: clean pad entries — an asymmetric rectangular pad whose
+// single exit runs along the SHORT axis is rerouted to leave along the LONG
+// axis (verify+revert, strategy-gated).
+CT_TEST(optimizer_clean_pad_entry_reroutes_long_axis) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b, 0, 5.0, 5.0);   // replaced below with an asymmetric pad
+    test::add_terminal(b, 0, 5.0, 7.0);
+    // Net 0 pad at (5,5) is wide in X (1.0 x 0.4 mm).
+    b.terminals[0].pad_w_nm = mm_to_nm(1.0);
+    b.terminals[0].pad_h_nm = mm_to_nm(0.4);
+    const Coord w = mm_to_nm(0.2);
+    // Exit runs along Y (the SHORT axis of the pad).
+    b.traces.push_back({0, 0, {mm_to_nm(5.0), mm_to_nm(5.0)},
+                        {mm_to_nm(5.0), mm_to_nm(7.0)}, w});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.straighten = false;
+    opt.orthogonal = false;
+    opt.clean_pad_entries = true;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.ran);
+    CT_CHECK(rep.clean_pad_entries_ran);
+    CT_CHECK(rep.applied == 1);
+    // The exit now leaves along +X from the pad, then reconnects to (5,7).
+    CT_CHECK(b.traces.size() == 2);
+    bool x_exit = false;
+    bool reaches_far = false;
+    for (const auto& s : b.traces) {
+        if (s.a.y == mm_to_nm(5.0) && s.b.y == mm_to_nm(5.0)) x_exit = true;
+        if ((s.a.x == mm_to_nm(5.0) && s.a.y == mm_to_nm(7.0)) ||
+            (s.b.x == mm_to_nm(5.0) && s.b.y == mm_to_nm(7.0)))
+            reaches_far = true;
+    }
+    CT_CHECK(x_exit);
+    CT_CHECK(reaches_far);
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    // Symmetric pad: nothing to do.
+    Board b2 = test::base_2layer();
+    b2.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b2, 0, 5.0, 5.0, 0, 0.5);
+    test::add_terminal(b2, 0, 5.0, 7.0);
+    b2.traces.push_back({0, 0, {mm_to_nm(5.0), mm_to_nm(5.0)},
+                         {mm_to_nm(5.0), mm_to_nm(7.0)}, w});
+    RuleResolver r2 = RuleResolver::defaults_for(b2);
+    CT_CHECK(v.verify(b2, r2, ctx).ok);
+    OptimizerOptions opt2 = opt;
+    CleanupOptimizer oz2(&b2, &r2, ctx, opt2);
+    OptimizerReport rep2 = oz2.run();
+    CT_CHECK(rep2.applied == 0);
+    CT_CHECK(b2.traces.size() == 1);
+}
+
 // DSN import preserves net names/pads/layers/classes/widths; SES export
 // round-trips copper back through verify.
 CT_TEST(adapter_dsn_ses_roundtrip) {

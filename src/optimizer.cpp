@@ -86,6 +86,8 @@ JsonValue OptimizerReport::to_json() const {
     r["length_after_mm"] = length_after_mm;
     r["straighten_ran"] = straighten_ran;
     r["via_miser_ran"] = via_miser_ran;
+    r["orthogonal_ran"] = orthogonal_ran;
+    r["clean_pad_entries_ran"] = clean_pad_entries_ran;
     r["peak_bytes"] = static_cast<double>(peak_bytes);
     return r;
 }
@@ -110,6 +112,7 @@ OptimizerReport CleanupOptimizer::run() {
     }
     rep.ran = true;
     rep.via_miser_ran = opt_.via_miser;
+    rep.orthogonal_ran = opt_.orthogonal && !opt_.via_miser;
     rep.bends_before = count_bends(*board_);
     rep.vias_before = static_cast<int>(board_via_count(*board_));
     rep.length_before_mm = board_total_length_mm(*board_);
@@ -537,6 +540,192 @@ OptimizerReport CleanupOptimizer::run() {
                         bd.traces[i].b = to;
                         bd.traces.erase(bd.traces.begin() +
                                         static_cast<std::ptrdiff_t>(j));
+                    };
+                    window.push_back(std::move(c));
+                }
+                if (window.empty()) break;
+                std::vector<char> keep;
+                eval_window(window, keep);
+                if (commit_until_accept(window, keep) >= 0) changed = true;
+            }
+        }
+    }
+
+    // Pass 6: recorner/miter (Phase 3 item 20) — chamfer axis-aligned
+    // 90-degree corners with a 45-degree segment when a strategy sets
+    // "orthogonal": true. The chamfer shortens the pair and removes the sharp
+    // corner; every candidate re-verifies and reverts on harm. OFF by default.
+    if (opt_.orthogonal && !opt_.via_miser) {
+        rep.passes++;
+        bool changed = true;
+        int guard = 0;
+        while (changed && guard++ < 12 &&
+               rep.candidates < static_cast<int>(opt_.max_candidates)) {
+            changed = false;
+            std::map<NetId, std::map<Point, int>> degree;
+            for (const auto& seg : board_->traces)
+                degree[seg.net][seg.a]++, degree[seg.net][seg.b]++;
+            const std::size_t ntr = board_->traces.size();
+            const std::size_t nn = ntr * ntr;
+            std::size_t t = 0;
+            while (t < nn && !changed &&
+                   rep.candidates < static_cast<int>(opt_.max_candidates)) {
+                std::vector<OptBatchCandidate> window;
+                while (t < nn && (int)window.size() < opt_workers) {
+                    std::size_t i = t / ntr, j = t % ntr;
+                    ++t;
+                    if (i == j) continue;
+                    const TraceSeg A = board_->traces[i], B = board_->traces[j];
+                    if (A.net != B.net || A.layer != B.layer) continue;
+                    if (is_protected(A.net)) continue;
+                    // Shared corner, both legs axis-aligned and perpendicular.
+                    Point corner, a_far, b_far;
+                    bool joined = false;
+                    if (A.a == B.a) {
+                        corner = A.a; a_far = A.b; b_far = B.b; joined = true;
+                    } else if (A.a == B.b) {
+                        corner = A.a; a_far = A.b; b_far = B.a; joined = true;
+                    } else if (A.b == B.a) {
+                        corner = A.b; a_far = A.a; b_far = B.b; joined = true;
+                    } else if (A.b == B.b) {
+                        corner = A.b; a_far = A.a; b_far = B.a; joined = true;
+                    }
+                    if (!joined) continue;
+                    if (degree[A.net][corner] != 2) continue;
+                    const bool a_h = (a_far.y == corner.y);
+                    const bool a_v = (a_far.x == corner.x);
+                    const bool b_h = (b_far.y == corner.y);
+                    const bool b_v = (b_far.x == corner.x);
+                    if (!((a_h && b_v) || (a_v && b_h))) continue;
+                    // A via at the corner is a junction: never chamfer it.
+                    bool via_at_corner = false;
+                    for (const auto& v : board_->vias)
+                        if (v.net == A.net && v.pos == corner) via_at_corner = true;
+                    if (via_at_corner) continue;
+                    const Coord la = manhattan(corner, a_far);
+                    const Coord lb = manhattan(corner, b_far);
+                    if (la <= 0 || lb <= 0) continue;
+                    // Chamfer offset bounded by half of each leg.
+                    Coord d = A.width_nm / 2;
+                    if (d < 1) d = 1;
+                    if (d > la / 2) d = la / 2;
+                    if (d > lb / 2) d = lb / 2;
+                    if (d <= 0) continue;
+                    auto step = [d](Coord from, Coord to) {
+                        return from + (to > from ? d : (to < from ? -d : 0));
+                    };
+                    const Point P{step(corner.x, a_far.x), step(corner.y, a_far.y)};
+                    const Point Q{step(corner.x, b_far.x), step(corner.y, b_far.y)};
+                    if (P == Q) continue;
+                    // The chamfer must shorten the pair.
+                    const double old_len =
+                        trace_seg_length_mm(A) + trace_seg_length_mm(B);
+                    const double new_len =
+                        static_cast<double>(euclid_len_nm(a_far, P)) / 1e6 +
+                        static_cast<double>(euclid_len_nm(P, Q)) / 1e6 +
+                        static_cast<double>(euclid_len_nm(Q, b_far)) / 1e6;
+                    if (new_len >= old_len - 1e-9) continue;
+                    OptBatchCandidate c;
+                    c.must_shorten = true;
+                    c.touched_net = A.net;
+                    c.touched_area =
+                        rect_union(A.segment().bounds(), B.segment().bounds());
+                    const Coord w = A.width_nm;
+                    const LayerId layer = A.layer;
+                    const NetId net = A.net;
+                    c.mutate = [i, j, a_far, b_far, P, Q, w, layer, net](Board& bd) {
+                        bd.traces[i] = TraceSeg{net, layer, a_far, P, w};
+                        bd.traces[j] = TraceSeg{net, layer, Q, b_far, w};
+                        bd.traces.push_back(TraceSeg{net, layer, P, Q, w});
+                    };
+                    window.push_back(std::move(c));
+                }
+                if (window.empty()) break;
+                std::vector<char> keep;
+                eval_window(window, keep);
+                if (commit_until_accept(window, keep) >= 0) changed = true;
+            }
+        }
+    }
+
+    // Pass 7: clean pad entries (Phase 3 item 18) — for asymmetric
+    // rectangular pads whose single exit runs along the SHORT axis, reroute
+    // the exit along the LONG axis (evidence: asymmetric-pad cleanliness).
+    // Verify+revert like every transform; OFF by default ("clean_pad_entries").
+    if (opt_.clean_pad_entries && !opt_.via_miser) {
+        rep.passes++;
+        rep.clean_pad_entries_ran = true;
+        Coord clear = board_->defaults.clearance_nm;
+        if (clear <= 0) clear = mm_to_nm(0.15);
+        bool changed = true;
+        int guard = 0;
+        while (changed && guard++ < 8 &&
+               rep.candidates < static_cast<int>(opt_.max_candidates)) {
+            changed = false;
+            std::vector<std::size_t> order(board_->terminals.size());
+            for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+            std::sort(order.begin(), order.end(), [&](std::size_t ia, std::size_t ib) {
+                const Terminal& A = board_->terminals[ia];
+                const Terminal& B = board_->terminals[ib];
+                if (A.net != B.net) return A.net < B.net;
+                if (A.pos.x != B.pos.x) return A.pos.x < B.pos.x;
+                if (A.pos.y != B.pos.y) return A.pos.y < B.pos.y;
+                return A.id < B.id;
+            });
+            std::size_t oi = 0;
+            while (oi < order.size() && !changed &&
+                   rep.candidates < static_cast<int>(opt_.max_candidates)) {
+                std::vector<OptBatchCandidate> window;
+                while (oi < order.size() && (int)window.size() < opt_workers) {
+                    const Terminal& t = board_->terminals[order[oi]];
+                    ++oi;
+                    if (t.pad_w_nm <= 0 || t.pad_h_nm <= 0) continue;
+                    const Coord dw = t.pad_w_nm - t.pad_h_nm;
+                    const Coord asym = dw < 0 ? -dw : dw;
+                    if (asym < mm_to_nm(0.05)) continue;  // near-square: leave
+                    const bool prefer_x = t.pad_w_nm > t.pad_h_nm;
+                    // Exactly one trace of this net/layer ends on the pad.
+                    std::size_t si = board_->traces.size();
+                    int hits = 0;
+                    for (std::size_t k = 0; k < board_->traces.size(); ++k) {
+                        const TraceSeg& s = board_->traces[k];
+                        if (s.net != t.net || s.layer != t.layer) continue;
+                        if (s.a == t.pos || s.b == t.pos) {
+                            si = k;
+                            ++hits;
+                        }
+                    }
+                    if (hits != 1) continue;  // ambiguous entry: leave it
+                    const TraceSeg s = board_->traces[si];
+                    if (is_protected(s.net)) continue;
+                    const Point far = (s.a == t.pos) ? s.b : s.a;
+                    const bool cur_x = (s.a.y == s.b.y);
+                    const bool cur_y = (s.a.x == s.b.x);
+                    if (!cur_x && !cur_y) continue;  // diagonal exit: leave it
+                    if (prefer_x && cur_x) continue;   // already along long axis
+                    if (!prefer_x && cur_y) continue;
+                    const Coord need =
+                        (prefer_x ? t.pad_w_nm / 2 : t.pad_h_nm / 2) +
+                        s.width_nm / 2 + clear;
+                    const Coord delta =
+                        prefer_x ? (far.x - t.pos.x) : (far.y - t.pos.y);
+                    const Coord sign = delta < 0 ? -1 : 1;
+                    Point e = t.pos;
+                    if (prefer_x) e.x += sign * need; else e.y += sign * need;
+                    if (e == far) continue;
+                    OptBatchCandidate c;
+                    c.must_shorten = false;
+                    c.touched_net = s.net;
+                    c.touched_area = rect_union(s.segment().bounds(), t.pad_rect());
+                    const Coord w = s.width_nm;
+                    const LayerId layer = s.layer;
+                    const NetId net = s.net;
+                    const Point p = t.pos;
+                    const Point ep = e;
+                    const Point fp = far;
+                    c.mutate = [si, net, layer, p, ep, fp, w](Board& bd) {
+                        bd.traces[si] = TraceSeg{net, layer, p, ep, w};
+                        bd.traces.push_back(TraceSeg{net, layer, ep, fp, w});
                     };
                     window.push_back(std::move(c));
                 }

@@ -503,6 +503,26 @@ int principal_direction(Point from, Point to) {
     return 7;
 }
 
+std::string classify_fanout(const EscapeCandidate& c, Point pad_pos) {
+    if (c.vias.empty()) return "none";
+    static const Coord kDx[8] = {1, 1, 0, -1, -1, -1, 0, 1};
+    static const Coord kDy[8] = {0, 1, 1, 1, 0, -1, -1, -1};
+    const int dir = ((c.principal_dir % 8) + 8) % 8;
+    const Point v = c.vias.front().pos;
+    const Coord vx = v.x - pad_pos.x;
+    const Coord vy = v.y - pad_pos.y;
+    // Offset along the principal ray vs perpendicular to it (exact integer).
+    const __int128 along =
+        static_cast<__int128>(vx) * kDx[dir] + static_cast<__int128>(vy) * kDy[dir];
+    const __int128 cross =
+        static_cast<__int128>(vx) * kDy[dir] - static_cast<__int128>(vy) * kDx[dir];
+    const __int128 abs_cross = cross < 0 ? -cross : cross;
+    const __int128 abs_along = along < 0 ? -along : along;
+    if (abs_along == 0 && abs_cross == 0) return "inline";  // via at the pad
+    // Inline when the via lies on the principal ray (a quarter-ray tolerance).
+    return abs_cross * 4 <= abs_along ? "inline" : "staggered";
+}
+
 std::string candidate_signature(int portal_id, int principal_dir,
                                 const std::string& layer_strategy,
                                 const std::string& via_class, int channel_count) {
@@ -1043,7 +1063,10 @@ EscapeResult EscapePlanner::plan(const Board& board, const RuleResolver& resolve
     }
 
     result.timed_out = aborted.load();
+    result.fanout_pattern = options_.fanout_pattern;
+    result.fanout_dir = options_.fanout_dir;
     for (const auto& fp : result.footprints) {
+        result.fanout_filtered += fp.fanout_filtered;
         for (const auto& p : fp.pads) {
             ++result.pads_total;
             if (p.has_viable)
@@ -1494,6 +1517,33 @@ FootprintEscapeResult EscapePlanner::plan_one_footprint(
                 if (a.cost != b.cost) return a.cost < b.cost;
                 return a.signature < b.signature;
             });
+            // Phase 3 item 21: fanout arrangement preference. Prefer the
+            // requested pattern (and direction) but never strand a pad: when
+            // the preference matches nothing, keep the unfiltered set.
+            if (options_.fanout_pattern != "auto" || options_.fanout_dir >= 0) {
+                const bool dir_pref = options_.fanout_dir >= 0;
+                auto dir_ok = [&](const EscapeCandidate& c) {
+                    return !dir_pref || ((c.principal_dir % 8) + 8) % 8 ==
+                                            ((options_.fanout_dir % 8) + 8) % 8;
+                };
+                if (options_.fanout_pattern != "auto") {
+                    std::vector<EscapeCandidate> wanted;
+                    for (const auto& c : cands)
+                        if (dir_ok(c) &&
+                            classify_fanout(c, t->pos) == options_.fanout_pattern)
+                            wanted.push_back(c);
+                    if (!wanted.empty()) {
+                        fr.fanout_filtered +=
+                            static_cast<int>(cands.size() - wanted.size());
+                        cands = std::move(wanted);
+                    }
+                } else {
+                    std::stable_sort(cands.begin(), cands.end(),
+                                     [&](const EscapeCandidate& a, const EscapeCandidate& b) {
+                                         return dir_ok(a) && !dir_ok(b);
+                                     });
+                }
+            }
             if (static_cast<int>(cands.size()) > options_.k_best)
                 cands.resize(options_.k_best);
             pr.candidates = cands;
@@ -1560,6 +1610,9 @@ JsonValue EscapeResult::to_json() const {
     r["pads_total"] = static_cast<double>(pads_total);
     r["pads_with_candidates"] = static_cast<double>(pads_with_candidates);
     r["pads_infeasible"] = static_cast<double>(pads_infeasible);
+    r["fanout_filtered"] = static_cast<double>(fanout_filtered);
+    r["fanout_pattern"] = fanout_pattern;
+    r["fanout_dir"] = static_cast<double>(fanout_dir);
     r["timed_out"] = timed_out;
     r["status"] = timed_out ? JsonValue("TIMEOUT")
                              : (pads_infeasible == 0 ? JsonValue("COMPLETE")

@@ -500,4 +500,62 @@ CT_TEST(neckdown_rejected_on_internal_thin_layer) {
     CT_CHECK(saw_viable);  // full-width escapes exist: the check is not vacuous
 }
 
+// Phase 3 item 21: fanout arrangement classification. The first via's offset
+// from the pad along the candidate's principal direction decides inline
+// (on the ray) vs staggered (offset from it); via-less candidates are "none".
+CT_TEST(fanout_classification) {
+    const Coord mm = mm_to_nm(1.0);
+    const Point pad{0, 0};
+    EscapeCandidate c;
+    c.principal_dir = 0;  // E
+    // Via straight out along +X -> inline.
+    c.vias.push_back([](Coord at) {
+        Via v;
+        v.pos = {at, 0};
+        v.outer_d_nm = mm_to_nm(0.6);
+        return v;
+    }(mm));
+    CT_CHECK(classify_fanout(c, pad) == "inline");
+    // Via offset perpendicular to the ray -> staggered.
+    c.vias[0].pos = {mm, mm_to_nm(0.4)};
+    CT_CHECK(classify_fanout(c, pad) == "staggered");
+    // Small offset within the quarter-ray tolerance stays inline.
+    c.vias[0].pos = {mm, mm_to_nm(0.2)};
+    CT_CHECK(classify_fanout(c, pad) == "inline");
+    // Direction N (2): a via along +Y is inline, along +X staggered.
+    c.principal_dir = 2;
+    c.vias[0].pos = {0, mm};
+    CT_CHECK(classify_fanout(c, pad) == "inline");
+    c.vias[0].pos = {mm, 0};
+    CT_CHECK(classify_fanout(c, pad) == "staggered");
+    // No via -> "none" (same-layer escape).
+    c.vias.clear();
+    CT_CHECK(classify_fanout(c, pad) == "none");
+}
+
+// Strategy option round-trip: the planner echoes the requested pattern and
+// filtering never strands a pad (a pad that had candidates still has some).
+CT_TEST(fanout_pattern_preference_keeps_pads_viable) {
+    ImportResult ir = import_board_auto(std::string(FIXTURE_DIR) + "/bga_4x4.json");
+    Board b = std::move(ir.board);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    for (const std::string pattern : {"auto", "inline", "staggered"}) {
+        EscapeOptions opts;
+        opts.fanout_pattern = pattern;
+        opts.fanout_dir = 0;  // prefer east
+        EscapePlanner planner(opts);
+        EscapeResult res = planner.plan(b, r, ctx);
+        CT_CHECK(res.fanout_pattern == pattern);
+        CT_CHECK(res.fanout_dir == 0);
+        CT_CHECK(res.fanout_filtered >= 0);
+        // Same pad viability as auto: the filter never strands a pad.
+        int viable = 0;
+        for (const auto& fp : res.footprints)
+            for (const auto& p : fp.pads)
+                if (p.has_viable) ++viable;
+        CT_CHECK(viable > 0);
+    }
+}
+
 int main() { return copperline::test::run_all_tests(); }

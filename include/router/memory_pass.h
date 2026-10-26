@@ -40,6 +40,7 @@ namespace copperline {
 // Per-net memory-pair results for agent observability.
 struct MemoryPassReport {
     bool ran = false;          // false when the strategy did not enable it
+    std::string mode = "memory";  // "memory" | "adjacent_memory"
     int pairs_found = 0;
     int pairs_committed = 0;
     int pairs_skipped_illegal = 0;
@@ -49,6 +50,12 @@ struct MemoryPassReport {
     JsonValue to_json() const;
 };
 
+// Phase 3 item 17: maximum pin-to-pin distance (Chebyshev, nm) that counts
+// as "adjacent" for the adjacent-memory fanout pass. 2 mm covers classic
+// 0.5/1.0/1.27 mm pitches plus their pad extents without swallowing
+// ordinary point-to-point connections.
+constexpr Coord kAdjacentMemoryPitchNm = 2000000;  // 2.0 mm
+
 // Run the memory pass on `board`, committing legal U-pattern routes.
 // `resolver` provides clearance/width rules; `ctx` the electrical context.
 // Only same-net pairs in DIFFERENT components that share X or Y and are on
@@ -56,5 +63,15 @@ struct MemoryPassReport {
 MemoryPassReport run_memory_pass(Board& board, const RuleResolver& resolver,
                                  const ElectricalContext& ctx,
                                  const std::vector<std::string>& via_names);
+
+// Phase 3 item 17: adjacent-memory pass. Routes ADJACENT same-net pins
+// (including pins of the SAME component) on one layer: an aligned pair gets
+// the 3-leg U, an offset pair gets a 2-leg L dogleg. Pairs already joined by
+// committed copper are skipped, so running the memory pass first is safe.
+// `max_pitch_nm` bounds the Chebyshev pin distance considered adjacent.
+MemoryPassReport run_adjacent_memory_pass(
+    Board& board, const RuleResolver& resolver, const ElectricalContext& ctx,
+    const std::vector<std::string>& via_names,
+    Coord max_pitch_nm = kAdjacentMemoryPitchNm);
 
 }  // namespace copperline

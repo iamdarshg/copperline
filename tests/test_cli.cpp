@@ -758,4 +758,82 @@ CT_TEST(cli_via_miser_strategy_gate) {
              on2.get_number("length_before_mm", 0.0) + 1e-9);
 }
 
+// Phase 3 item 17: adjacent-memory is strategy-gated — OFF by default, and
+// with the strategy it routes the adjacent same-net pin pairs.
+CT_TEST(cli_adjacent_memory_strategy_gate) {
+    CliResult off = run_cli_full("route " + fixture("adjacent_bus.json") +
+                                 " --json --seed 42 --no-board-echo");
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    CT_CHECK(vo.get_string("status") == "COMPLETE");
+    JsonValue ao = *vo.find("adjacent_memory");
+    CT_CHECK(ao.get_bool("ran", true) == false);
+    CT_CHECK(ao.get_number("pairs_committed", -1) == 0);
+
+    CliResult on = run_cli_full(
+        "route " + fixture("adjacent_bus.json") +
+        " --json --seed 42 --no-board-echo --strategy " +
+        fixture("strategies/adjacent_memory_demo.json"));
+    CT_CHECK(on.rc == 0);
+    JsonValue vn = must_parse(on.out);
+    CT_CHECK(vn.get_string("status") == "COMPLETE");
+    CT_CHECK(vn.get_string("strategy") == "adjacent_memory_demo");
+    JsonValue an = *vn.find("adjacent_memory");
+    CT_CHECK(an.get_bool("ran", false) == true);
+    CT_CHECK(an.get_string("mode") == "adjacent_memory");
+    CT_CHECK(an.get_number("pairs_found", -1) == 2);
+    CT_CHECK(an.get_number("pairs_committed", -1) == 2);
+    CT_CHECK(an.get_number("traces_added", -1) == 6);
+    // The independent verifier accepts the adjacent copper.
+    CT_CHECK(vn.find("verification") &&
+             vn.find("verification")->get_bool("ok", false));
+}
+
+// Phase 3 item 20: corner miter is strategy-gated — OFF by default, ON with
+// "orthogonal": true.
+CT_TEST(cli_orthogonal_miter_strategy_gate) {
+    CliResult off = run_cli_full("route " + fixture("open_2layer.json") +
+                                 " --json --seed 42 --no-board-echo");
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    JsonValue oo = *vo.find("optimizer");
+    CT_CHECK(oo.get_bool("orthogonal_ran", true) == false);
+
+    CliResult on = run_cli_full(
+        "route " + fixture("open_2layer.json") +
+        " --json --seed 42 --no-board-echo --strategy " +
+        fixture("strategies/orthogonal_demo.json"));
+    CT_CHECK(on.rc == 0);
+    JsonValue vn = must_parse(on.out);
+    CT_CHECK(vn.get_string("status") == "COMPLETE");
+    CT_CHECK(vn.get_string("strategy") == "orthogonal_demo");
+    JsonValue on2 = *vn.find("optimizer");
+    CT_CHECK(on2.get_bool("orthogonal_ran", false) == true);
+    CT_CHECK(on2.get_number("length_after_mm", -1.0) <=
+             on2.get_number("length_before_mm", 0.0) + 1e-9);
+}
+
+// Phase 3 item 18: clean pad entries is strategy-gated — OFF by default.
+CT_TEST(cli_clean_pad_entries_strategy_gate) {
+    CliResult off = run_cli_full("route " + fixture("open_2layer.json") +
+                                 " --json --seed 42 --no-board-echo");
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    JsonValue oo = *vo.find("optimizer");
+    CT_CHECK(oo.get_bool("clean_pad_entries_ran", true) == false);
+
+    CliResult on = run_cli_full(
+        "route " + fixture("open_2layer.json") +
+        " --json --seed 42 --no-board-echo --strategy " +
+        fixture("strategies/clean_pad_demo.json"));
+    CT_CHECK(on.rc == 0);
+    JsonValue vn = must_parse(on.out);
+    CT_CHECK(vn.get_string("status") == "COMPLETE");
+    CT_CHECK(vn.get_string("strategy") == "clean_pad_demo");
+    JsonValue on2 = *vn.find("optimizer");
+    CT_CHECK(on2.get_bool("clean_pad_entries_ran", false) == true);
+    CT_CHECK(vn.find("verification") &&
+             vn.find("verification")->get_bool("ok", false));
+}
+
 int main() { return copperline::test::run_all_tests(); }

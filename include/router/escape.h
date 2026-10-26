@@ -170,6 +170,7 @@ struct FootprintEscapeResult {
     std::vector<PadEscapeResult> pads;  // sorted in eligibility order
     std::vector<TermId> eligibility_order;
     std::vector<TermId> commit_order;  // terminals committed (viable) in order
+    int fanout_filtered = 0;           // candidates dropped by the pattern filter
 };
 
 struct EscapeOptions {
@@ -180,6 +181,13 @@ struct EscapeOptions {
     int max_portals_per_pad = 12;
     // A* portal attempts per pad in the fallback phase (same+alt share it).
     int max_fallback_portals = 4;
+    // Phase 3 item 21: fanout arrangement preference. "auto" keeps the
+    // cost-ordered set; "inline" prefers vias on the principal ray of each
+    // pad ("cbFanoutDir" analogue), "staggered" prefers offset vias. A
+    // pattern that would strand a pad falls back to the unfiltered set.
+    std::string fanout_pattern = "auto";
+    // Preferred principal direction (0..7 as principal_direction) or -1.
+    int fanout_dir = -1;
     // The route command owns one wall-clock budget. Escape preprocessing
     // checks the same deadline between bounded searches so a dense board
     // cannot consume the entire run before the global worker pool starts.
@@ -199,6 +207,9 @@ struct EscapeResult {
     int pads_total = 0;
     int pads_with_candidates = 0;
     int pads_infeasible = 0;
+    int fanout_filtered = 0;              // item 21: candidates pattern-filtered
+    std::string fanout_pattern = "auto";  // echoed preference
+    int fanout_dir = -1;
     bool timed_out = false;
     JsonValue to_json() const;
 };
@@ -242,6 +253,15 @@ class EscapePlanner {
 };
 
 int principal_direction(Point from, Point to);
+
+// Phase 3 item 21: classify a candidate's fanout arrangement from its first
+// via relative to the pad along the candidate's principal direction:
+//   "none"      — candidate has no via (same-layer escape)
+//   "inline"    — via sits on the principal ray (within a quarter of the
+//                 along-ray distance)
+//   "staggered" — via is offset from the principal ray
+// Pure function of (candidate, pad centre); deterministic.
+std::string classify_fanout(const EscapeCandidate& candidate, Point pad_pos);
 
 // Candidate signature: portal + principal direction + layer strategy +
 // first-via class + bottleneck bucket. Tiny geometric perturbations share a

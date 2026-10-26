@@ -9,6 +9,27 @@ schemas, honest import warnings, deterministic output).
 Legend: [interop] correctness with real files · [capability] new router
 behaviour · [em] EM validation · [orch] CLI/orchestration · [🆕] net-new
 
+## Status (updated 2026-10-26)
+
+| Item | Status | Commit / note |
+|---|---|---|
+| 9, 12, 13 | done | `f091a27` layer-scoped rules, via policy, relief import |
+| 10 | done | `b15bc05` min/pref/max width triplets |
+| 15 strategy engine | done | `fd9db4d` `--strategy`, toggles + budgets |
+| 16 memory pass | done | `b74ab2f` U-pattern, strategy-gated OFF by default |
+| 17 adjacent memory | done | same-component/adjacent pins, 2-leg dogleg for offset pairs |
+| 18 clean pad entries | done | asymmetric pads exit along the long axis |
+| 19 straighten | done | `ce89080` orientation-independent corner probe + verify/revert |
+| 20 recorner/miter | done | 45° chamfer on degree-2 axis-aligned corners (`orthogonal: true`) |
+| 21 fanout pattern | done | escape-stage inline/staggered preference + direction control |
+| 24 via-minimization | done | `0519043` Via Miser mode (via elimination only) |
+| 22 Hug, 23 Spread | open | require route re-planning / moving fixed objects; not implemented |
+| 25–31 | open | EM relief validated analytically; full-wave relief NOT validated |
+
+All new passes are strategy-gated and OFF by default: a pristine build at
+`ce89080` and the current build produce identical default `board_hash` on
+all 16 real board fixtures (see `docs/validation/phase3_realboard.md`).
+
 ---
 
 ## Phase 1 — DSN/SES interop correctness (highest ROI, ~3 days)

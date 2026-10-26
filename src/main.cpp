@@ -450,9 +450,32 @@ bool load_strategy(const Flags& f, EngineOptions& opt, std::string& msg) {
     opt.strategy = root.get_string("strategy", "custom");
     if (root.has("escape")) opt.strategy_escape = root.get_bool("escape", true);
     if (root.has("memory")) opt.strategy_memory = root.get_bool("memory", false);
+    if (root.has("adjacent_memory"))
+        opt.strategy_adjacent_memory = root.get_bool("adjacent_memory", false);
     if (root.has("straighten"))
         opt.strategy_straighten = root.get_bool("straighten", false);
     if (root.has("via_miser")) opt.strategy_via_miser = root.get_bool("via_miser", false);
+    if (root.has("orthogonal"))
+        opt.strategy_orthogonal = root.get_bool("orthogonal", false);
+    if (root.has("clean_pad_entries"))
+        opt.strategy_clean_pad_entries =
+            root.get_bool("clean_pad_entries", false);
+    if (root.has("fanout_pattern")) {
+        const std::string pattern = root.get_string("fanout_pattern", "auto");
+        if (pattern != "auto" && pattern != "inline" && pattern != "staggered") {
+            msg = "strategy fanout_pattern must be auto|inline|staggered";
+            return false;
+        }
+        opt.strategy_fanout_pattern = pattern;
+    }
+    if (root.has("fanout_dir")) {
+        const double dir = root.get_number("fanout_dir", -1.0);
+        if (dir < -1.0 || dir > 7.0) {
+            msg = "strategy fanout_dir out of range (-1..7)";
+            return false;
+        }
+        opt.strategy_fanout_dir = static_cast<int>(dir);
+    }
     if (root.has("optimizer")) opt.strategy_optimizer = root.get_bool("optimizer", true);
     if (root.has("tuning")) opt.strategy_tuning = root.get_bool("tuning", true);
     if (root.has("recovery")) opt.strategy_recovery = root.get_bool("recovery", true);

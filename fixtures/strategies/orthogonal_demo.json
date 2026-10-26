@@ -1,0 +1,15 @@
+{
+  "schema": "copperline/strategy/1",
+  "strategy": "orthogonal_demo",
+  "escape": true,
+  "memory": false,
+  "straighten": true,
+  "orthogonal": true,
+  "optimizer": true,
+  "tuning": true,
+  "recovery": true,
+  "max_epochs": 0,
+  "recovery_depth": 0,
+  "recovery_beam": 0,
+  "astar_scale": 1.0
+}

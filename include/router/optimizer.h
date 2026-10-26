@@ -43,6 +43,13 @@ struct OptimizerOptions {
     // elimination (a focused via-min pass) and skips the other transforms.
     // OFF by default; enabled by a strategy with "via_miser": true.
     bool via_miser = false;
+    // Phase 3 item 20: miter axis-aligned 90-degree corners with a 45-degree
+    // chamfer (shorter copper, fewer sharp corners) when a strategy sets
+    // "orthogonal": true. OFF by default.
+    bool orthogonal = false;
+    // Phase 3 item 18: reroute a pad's exit along the pad's longest axis for
+    // asymmetric rectangular pads. OFF by default.
+    bool clean_pad_entries = false;
 };
 
 struct OptimizerReport {
@@ -61,6 +68,8 @@ struct OptimizerReport {
     double length_after_mm = 0.0;
     bool straighten_ran = false;  // pass 5 ran (strategy-gated)
     bool via_miser_ran = false;   // pass ran in Via Miser mode (item 24)
+    bool orthogonal_ran = false;  // pass 6 ran (item 20 miter, strategy-gated)
+    bool clean_pad_entries_ran = false;  // pass 7 ran (item 18, strategy-gated)
     std::size_t peak_bytes = 0;  // bounded scratch (candidates * per-item)
     JsonValue to_json() const;
 };
