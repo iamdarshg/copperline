@@ -255,4 +255,98 @@ AnalysisResult analyze_board(const Board& board, const RuleResolver& resolver,
     return out;
 }
 
+// Phase 5 item 28: pre-route setup report.
+JsonValue setup_report(const Board& board, const RuleResolver& resolver,
+                       const ElectricalContext& ctx,
+                       const std::vector<std::string>& import_warnings) {
+    JsonValue r = JsonValue::object();
+    r["schema"] = "copperline/setup-report/1";
+    JsonValue b = JsonValue::object();
+    b["width_mm"] = nm_to_mm(board.width_nm);
+    b["height_mm"] = nm_to_mm(board.height_nm);
+    b["layers"] = static_cast<double>(board.layers.size());
+    b["terminals"] = static_cast<double>(board.terminals.size());
+    b["nets"] = static_cast<double>(board.nets.size());
+    r["board"] = b;
+
+    std::vector<std::string> warnings(import_warnings);
+    JsonValue layers = JsonValue::array();
+    for (const auto& l : board.layers) {
+        JsonValue o = JsonValue::object();
+        o["id"] = static_cast<double>(l.id);
+        o["name"] = l.name;
+        o["direction"] = l.preferred_horizontal ? JsonValue("horizontal")
+                                                : JsonValue("any");
+        o["cost_multiplier"] = l.cost_multiplier;
+        o["copper_weight_oz"] = l.copper_weight_oz;
+        layers.as_array().push_back(o);
+        if (!l.preferred_horizontal)
+            warnings.push_back("layer " + l.name +
+                               " has no direction preference (any)");
+    }
+    r["layers"] = layers;
+
+    // Drill pairs observed on the board's vias.
+    std::map<std::pair<LayerId, LayerId>, int> drills;
+    for (const auto& v : board.vias) drills[{v.top_layer, v.bottom_layer}]++;
+    JsonValue dp = JsonValue::array();
+    for (const auto& [span, count] : drills) {
+        JsonValue o = JsonValue::object();
+        o["top_layer"] = static_cast<double>(span.first);
+        o["bottom_layer"] = static_cast<double>(span.second);
+        o["count"] = static_cast<double>(count);
+        dp.as_array().push_back(o);
+    }
+    r["drill_pairs"] = dp;
+
+    // Per-net width + via resolution (what the router will actually use).
+    JsonValue nets = JsonValue::array();
+    int single_pin = 0;
+    for (const auto& n : board.nets) {
+        JsonValue o = JsonValue::object();
+        o["id"] = static_cast<double>(n.id);
+        o["name"] = n.name;
+        o["terminals"] = static_cast<double>(n.terminals.size());
+        if (n.terminals.size() < 2) {
+            ++single_pin;
+            warnings.push_back("net " + n.name + " has " +
+                               std::to_string(n.terminals.size()) +
+                               " terminal(s): nothing to route");
+        }
+        LayerId layer = 0;
+        if (!n.terminals.empty()) {
+            if (const Terminal* t = board.find_terminal(n.terminals.front()))
+                layer = t->layer;
+        }
+        std::string source;
+        o["width_mm"] = nm_to_mm(resolver.requiredTraceWidth(n.id, layer, ctx, &source));
+        o["width_source"] = source;
+        LayerSpan full{board.layers.empty() ? 0 : board.layers.front().id,
+                       board.layers.empty() ? 0 : board.layers.back().id};
+        ViaStyle single;
+        if (resolver.select_via(n.id, full, single)) {
+            o["via_style"] = single.name;
+            o["vias_required"] = 1.0;
+            o["via_reason"] = "ok";
+        } else {
+            auto ordered = ViaBundlePlanner::ordered_styles(resolver, n.id, full);
+            if (!ordered.empty()) {
+                o["via_style"] = ordered.front().name;
+                o["vias_required"] = static_cast<double>(
+                    ViaBundlePlanner::required_count(resolver, ordered.front(), n.id));
+                o["via_reason"] = "needs_parallel_bundle";
+            } else {
+                o["via_style"] = "";
+                o["vias_required"] = 1.0;
+                o["via_reason"] = "no_via_class";
+            }
+        }
+        nets.as_array().push_back(o);
+    }
+    r["nets"] = nets;
+    r["single_pin_nets"] = static_cast<double>(single_pin);
+    r["warnings"] = json_string_array(warnings);
+    return r;
+}
+
 }  // namespace copperline

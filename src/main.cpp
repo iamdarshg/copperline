@@ -26,6 +26,7 @@
 #include "router/engine.h"
 #include "router/escape.h"
 #include "router/maturity.h"
+#include "router/optimizer.h"
 #include "router/rules.h"
 #include "router/tuning.h"
 #include "router/verifier.h"
@@ -74,6 +75,19 @@ struct Flags {
     bool max_multiply_nodes_set = false;
     bool no_tuning = false;  // issue #15: disable post-route length tuning
     bool no_optimizer = false;  // Prompt 5: disable cleanup optimizer
+    // Phase 5 item 30: `router gloss` pass selection.
+    bool gloss_straighten = false;
+    bool gloss_recorner = false;
+    bool gloss_via_min = false;
+    bool gloss_clean_pad = false;
+    bool gloss_all = false;
+    bool gloss_hug = false;
+    bool gloss_spread = false;
+    // Phase 5 item 29: `router fanout` arrangement + direction.
+    std::string fanout_pattern = "auto";
+    int fanout_dir = -1;
+    // Phase 5 item 31: external router command prefix for route-external.
+    std::string route_router;
     double tuning_amplitude_mm = 0;  // issue #15: 0 = config default
     double tuning_pitch_mm = 0;      // issue #15: 0 = config default
     double tuning_max_added_mm = 0;  // issue #15: 0 = config default
@@ -297,6 +311,45 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
             f.no_tuning = true;  // issue #15
         } else if (a == "--no-optimizer") {
             f.no_optimizer = true;  // Prompt 5
+        } else if (a == "--straighten") {
+            f.gloss_straighten = true;  // item 30
+        } else if (a == "--recorner") {
+            f.gloss_recorner = true;  // item 30
+        } else if (a == "--via-min") {
+            f.gloss_via_min = true;  // item 30
+        } else if (a == "--clean-pad") {
+            f.gloss_clean_pad = true;  // item 30
+        } else if (a == "--gloss-all") {
+            f.gloss_all = true;  // item 30
+        } else if (a == "--hug") {
+            f.gloss_hug = true;  // item 30 (not implemented; reported)
+        } else if (a == "--spread") {
+            f.gloss_spread = true;  // item 30 (not implemented; reported)
+        } else if (a == "--pattern") {
+            if (!need_value(i, "--pattern", v)) return false;
+            if (v != "auto" && v != "inline" && v != "staggered") {
+                err = "--pattern must be auto|inline|staggered";
+                return false;
+            }
+            f.fanout_pattern = v;  // item 29
+            ++i;
+        } else if (a == "--dir") {
+            if (!need_value(i, "--dir", v)) return false;
+            try {
+                f.fanout_dir = std::stoi(v);
+            } catch (...) {
+                err = "bad --dir value";
+                return false;
+            }
+            if (f.fanout_dir < -1 || f.fanout_dir > 7) {
+                err = "--dir must be -1..7 (0:E 1:NE 2:N 3:NW 4:W 5:SW 6:S 7:SE)";
+                return false;
+            }
+            ++i;
+        } else if (a == "--router") {
+            if (!need_value(i, "--router", v)) return false;
+            f.route_router = v;  // item 31
+            ++i;
         } else if (a == "--tuning-amplitude-mm") {
             if (!need_value(i, "--tuning-amplitude-mm", v)) return false;
             try {
@@ -622,7 +675,9 @@ JsonValue capabilities_json() {
     r["phase"] = "prompt-5-release";
     r["commands"] = json_string_array(
         std::vector<std::string>{"capabilities", "analyze", "verify", "route",
-                                 "escape", "benchmark", "explain-failure"});
+                                 "gloss", "setup-report", "fanout",
+                                 "route-external", "escape", "benchmark",
+                                 "explain-failure"});
     JsonValue planned = JsonValue::array();
     r["planned_commands"] = planned;
     JsonValue formats = JsonValue::object();
@@ -685,6 +740,14 @@ JsonValue capabilities_json() {
     feat["copper_pours"] = true;
     feat["sidecar_nets"] = true;
     feat["no_board_echo"] = true;  // S3 (I3): route --no-board-echo (report only)
+    feat["gloss"] = true;          // Phase 5 item 30: post-route polish CLI
+    feat["gloss_straighten"] = true;
+    feat["gloss_recorner"] = true;
+    feat["gloss_via_min"] = true;
+    feat["gloss_clean_pad"] = true;
+    feat["setup_report"] = true;  // Phase 5 item 28
+    feat["fanout"] = true;        // Phase 5 item 29
+    feat["route_external"] = true;  // Phase 5 item 31 (requires a .dsn input)
     feat["golden_suite"] = true;
     JsonValue unsup = JsonValue::array();
     r["unsupported"] = unsup;
@@ -697,8 +760,8 @@ int cmd_capabilities(const Flags& f) {
         emit_json(f, capabilities_json());
     } else if (!f.quiet) {
         std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-5 release)\n"
-                  << "commands: capabilities, analyze, verify, route, escape, benchmark,\n"
-                  << "          explain-failure\n"
+                  << "commands: capabilities, analyze, verify, route, gloss, setup-report,\n"
+                  << "          fanout, route-external, escape, benchmark, explain-failure\n"
                   << "formats: json, kicad_pcb (.kicad_pcb), dsn (.dsn),\n"
                   << "         gerber (.gbr/.gtl/.gbl/...), ipc-2581 (.xml)\n"
                   << "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
@@ -735,6 +798,44 @@ int cmd_analyze(const Flags& f) {
                   << b.layers.size() << " layers, " << b.nets.size() << " nets, "
                   << b.terminals.size() << " terminals\n";
         std::cout << serialize_json(a.data, true);
+    }
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    return kOk;
+}
+
+int cmd_setup_report(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                    : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                    : kBadRules,
+                    "malformed_rules", msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                        : kBadRules,
+                        "malformed_rules", msg);
+    }
+    ElectricalContext ctx = resolver.defaultContext();
+    JsonValue rj = setup_report(lb.board, resolver, ctx, lb.warnings);
+    if (!f.report.empty()) {
+        std::string err;
+        if (!write_file(f.report, serialize_json(rj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        rj["report"] = f.report;
+    }
+    if (f.json) {
+        emit_json(f, rj);
+    } else if (!f.quiet) {
+        std::cout << serialize_json(rj, true);
     }
     for (const auto& w : lb.warnings) warn(f, "import: " + w);
     return kOk;
@@ -785,6 +886,325 @@ int cmd_verify(const Flags& f) {
     for (const auto& w : lb.warnings) warn(f, "import: " + w);
     if (!r.legal) return kViolation;
     if (!r.connected) return kIncomplete;
+    return kOk;
+}
+
+// Phase 5 item 30: `router gloss` — post-route polish passes with per-pass
+// verify+revert (the transactional optimizer) and a JSON report. Hug and
+// Spread are not implemented; when requested they are reported as
+// unsupported rather than silently ignored.
+int cmd_gloss(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                    : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                    : kBadRules,
+                    "malformed_rules", msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                        : kBadRules,
+                        "malformed_rules", msg);
+    }
+    ElectricalContext ctx = resolver.defaultContext();
+
+    const bool all = f.gloss_all;
+    const bool want_straighten = all || f.gloss_straighten;
+    const bool want_recorner = all || f.gloss_recorner;
+    const bool want_via_min = all || f.gloss_via_min;
+    const bool want_clean_pad = all || f.gloss_clean_pad;
+    if (!want_straighten && !want_recorner && !want_via_min && !want_clean_pad &&
+        !f.gloss_hug && !f.gloss_spread) {
+        return fail(f, kInvalidInput, "invalid_input",
+                    "gloss: select at least one pass (--straighten --recorner "
+                    "--via-min --clean-pad --gloss-all)");
+    }
+    std::vector<std::string> passes;
+    if (want_straighten) passes.push_back("straighten");
+    if (want_recorner) passes.push_back("recorner");
+    if (want_via_min) passes.push_back("via_min");
+    if (want_clean_pad) passes.push_back("clean_pad");
+    std::vector<std::string> unsupported;
+    if (f.gloss_hug) unsupported.push_back("hug");
+    if (f.gloss_spread) unsupported.push_back("spread");
+    if (passes.empty()) {
+        return fail(f, kInvalidInput, "unsupported_pass",
+                    "gloss: hug/spread are not implemented; no supported pass requested");
+    }
+
+    // Gloss runs exactly the requested polish passes (baseline merge/bend
+    // transforms are not part of gloss).
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = want_via_min;
+    opt.preferred_layer = false;
+    opt.straighten = want_straighten;
+    opt.orthogonal = want_recorner;
+    opt.clean_pad_entries = want_clean_pad;
+
+    const std::string hash_before = geometry_hash(lb.board);
+    CleanupOptimizer polish(&lb.board, &resolver, ctx, opt);
+    OptimizerReport reps = polish.run();
+    resolver.rebind(&lb.board);
+    BoardVerifier verifier;
+    VerifyResult vr = verifier.verify(lb.board, resolver, ctx);
+    const std::string hash_after = geometry_hash(lb.board);
+
+    JsonValue rj = JsonValue::object();
+    rj["schema"] = "copperline/gloss-report/1";
+    rj["passes"] = json_string_array(passes);
+    rj["unsupported"] = json_string_array(unsupported);
+    rj["optimizer"] = reps.to_json();
+    rj["verification"] = vr.to_json();
+    rj["board_hash_before"] = hash_before;
+    rj["board_hash_after"] = hash_after;
+    const bool ran = reps.ran;
+    rj["status"] = !ran ? JsonValue("GATED")
+                        : (vr.ok ? JsonValue("COMPLETE") : JsonValue("VIOLATION"));
+
+    if (!f.output.empty()) {
+        std::string err;
+        bool ok = false;
+        const auto ends_with = [](const std::string& s, const std::string& suffix) {
+            return s.size() >= suffix.size() &&
+                   s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+        };
+        if (ends_with(f.output, ".ses")) {
+            ok = write_file(f.output, board_to_ses(lb.board, f.board), err);
+        } else if (ends_with(f.output, ".kicad_pcb")) {
+            ok = write_file(f.output, board_to_kicad_pcb(lb.board), err);
+        } else {
+            ok = write_file(f.output, serialize_json(board_to_json(lb.board), true), err);
+        }
+        if (!ok) return fail(f, kInvalidInput, "write_failed", err);
+        rj["output"] = f.output;
+    }
+    if (!f.report.empty()) {
+        std::string err;
+        if (!write_file(f.report, serialize_json(rj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        rj["report"] = f.report;
+    }
+    if (f.json) {
+        emit_json(f, rj);
+    } else if (!f.quiet) {
+        std::cout << (vr.ok ? "PASS" : "FAIL") << ": gloss " << passes.size()
+                  << " pass(es), applied " << reps.applied << ", reverted "
+                  << reps.reverted << ", length " << reps.length_before_mm << " -> "
+                  << reps.length_after_mm << " mm\n";
+        if (!ran) std::cout << "  gated: " << reps.gate_reason << "\n";
+        if (!unsupported.empty()) {
+            std::cout << "  unsupported:";
+            for (const auto& u : unsupported) std::cout << " " << u;
+            std::cout << "\n";
+        }
+    }
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    if (!ran) return kIncomplete;
+    if (!vr.legal) return kViolation;
+    if (!vr.connected) return kIncomplete;
+    return kOk;
+}
+
+// Phase 5 item 29: `router fanout` — SMD fanout through the escape engine
+// with item-21 pattern/direction selection, committing the chosen candidates
+// to copper and reporting what was placed.
+int cmd_fanout(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    SharedConfig scfg;
+    if (!load_shared_config(f, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                    : kBadRules,
+                    "malformed_rules", msg);
+    if (!apply_sidecar(lb.board, scfg, msg))
+        return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                    : kBadRules,
+                    "malformed_rules", msg);
+    RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+    if (scfg.has) {
+        if (!load_resolver(lb.board, scfg, resolver, msg))
+            return fail(f, msg.find("cannot open") != std::string::npos ? kInvalidInput
+                                                                        : kBadRules,
+                        "malformed_rules", msg);
+    }
+    ElectricalContext ctx = resolver.defaultContext();
+    EscapeOptions escape_options;
+    escape_options.threads = f.threads;
+    escape_options.fanout_pattern = f.fanout_pattern;
+    escape_options.fanout_dir = f.fanout_dir;
+    EscapePlanner planner(escape_options);
+    EscapeResult esc = planner.plan(lb.board, resolver, ctx);
+
+    int committed = 0, traces = 0, vias = 0;
+    for (const auto& fp : esc.footprints) {
+        std::map<TermId, const PadEscapeResult*> by_term;
+        for (const auto& p : fp.pads) by_term[p.terminal] = &p;
+        for (TermId tid : fp.commit_order) {
+            auto it = by_term.find(tid);
+            if (it == by_term.end() || !it->second->has_viable ||
+                it->second->candidates.empty())
+                continue;
+            const EscapeCandidate& best = it->second->candidates.front();
+            for (const auto& s : best.traces) {
+                lb.board.traces.push_back(s);
+                ++traces;
+            }
+            for (const auto& v : best.vias) {
+                lb.board.vias.push_back(v);
+                ++vias;
+            }
+            ++committed;
+        }
+    }
+    resolver.rebind(&lb.board);
+    BoardVerifier verifier;
+    VerifyResult vr = verifier.verify(lb.board, resolver, ctx);
+
+    JsonValue rj = JsonValue::object();
+    rj["schema"] = "copperline/fanout-report/1";
+    rj["pattern"] = esc.fanout_pattern;
+    rj["dir"] = static_cast<double>(esc.fanout_dir);
+    rj["pads_total"] = static_cast<double>(esc.pads_total);
+    rj["pads_escaped"] = static_cast<double>(esc.pads_with_candidates);
+    rj["pads_infeasible"] = static_cast<double>(esc.pads_infeasible);
+    rj["fanout_filtered"] = static_cast<double>(esc.fanout_filtered);
+    rj["terminals_committed"] = static_cast<double>(committed);
+    rj["traces_added"] = static_cast<double>(traces);
+    rj["vias_added"] = static_cast<double>(vias);
+    rj["verification"] = vr.to_json();
+    rj["status"] = vr.legal ? JsonValue("COMPLETE") : JsonValue("VIOLATION");
+
+    if (!f.output.empty()) {
+        std::string err;
+        const auto ends_with = [](const std::string& s, const std::string& suffix) {
+            return s.size() >= suffix.size() &&
+                   s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+        };
+        bool ok = false;
+        if (ends_with(f.output, ".ses")) {
+            ok = write_file(f.output, board_to_ses(lb.board, f.board), err);
+        } else if (ends_with(f.output, ".kicad_pcb")) {
+            ok = write_file(f.output, board_to_kicad_pcb(lb.board), err);
+        } else {
+            ok = write_file(f.output, serialize_json(board_to_json(lb.board), true), err);
+        }
+        if (!ok) return fail(f, kInvalidInput, "write_failed", err);
+        rj["output"] = f.output;
+    }
+    if (!f.report.empty()) {
+        std::string err;
+        if (!write_file(f.report, serialize_json(rj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        rj["report"] = f.report;
+    }
+    if (f.json) {
+        emit_json(f, rj);
+    } else if (!f.quiet) {
+        std::cout << "fanout " << esc.fanout_pattern << " (dir " << esc.fanout_dir
+                  << "): " << committed << " terminal(s), " << traces << " traces, "
+                  << vias << " vias, " << esc.pads_infeasible << " infeasible\n";
+    }
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    if (!vr.legal) return kViolation;
+    return kOk;
+}
+
+// Phase 5 item 31: `router route-external <design.dsn> --router "<cmd prefix>"`
+// writes a Specctra DO file, invokes the external router (FreeRouting by
+// default) and imports the SES it produces. There is no DSN exporter in the
+// project, so the input must already be a .dsn design (forking a JSON board
+// through an external router would need one). The external process is not
+// bundled; the happy path requires the user to have the router installed.
+int cmd_route_external(const Flags& f) {
+    const auto ends_with = [](const std::string& s, const std::string& suffix) {
+        return s.size() >= suffix.size() &&
+               s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+    if (!ends_with(f.board, ".dsn")) {
+        return fail(f, kInvalidInput, "invalid_input",
+                    "route-external needs a .dsn input (no DSN exporter exists)");
+    }
+    if (f.route_router.empty()) {
+        return fail(f, kInvalidInput, "invalid_input",
+                    "route-external requires --router \"<command prefix>\"");
+    }
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+
+    const std::string ses =
+        f.output.empty() ? (f.board + ".ses") : f.output;
+    const std::string dofile = f.board + ".do";
+    {
+        std::ostringstream do_content;
+        do_content << "(source \"" << f.board << "\")\n"
+                   << "(export \"" << ses << "\")\n"
+                   << "(host_cad \"copperline\")\n"
+                   << "(host_version \"" << COPPERLINE_VERSION << "\")\n";
+        std::string err;
+        if (!write_file(dofile, do_content.str(), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+    }
+
+    const std::string cmd = f.route_router + " \"" + dofile + "\"";
+    const int rc = std::system(cmd.c_str());
+    JsonValue rj = JsonValue::object();
+    rj["schema"] = "copperline/external-route-report/1";
+    rj["router"] = f.route_router;
+    rj["do_file"] = dofile;
+    rj["ses_file"] = ses;
+    rj["router_exit_code"] = static_cast<double>(rc);
+    bool ok = (rc == 0);
+    std::ifstream ses_in(ses);
+    if (!ok) {
+        rj["status"] = "ROUTER_FAILED";
+    } else if (!ses_in) {
+        rj["status"] = "NO_SES";
+        ok = false;
+    } else {
+        ses_in.close();
+        try {
+            for (const auto& w : merge_routes_file(lb.board, ses)) warn(f, "ses: " + w);
+        } catch (const BoardError& e) {
+            return fail(f, kInvalidInput, "invalid_input", e.what());
+        }
+        RuleResolver resolver = RuleResolver::defaults_for(lb.board);
+        ElectricalContext ctx = resolver.defaultContext();
+        BoardVerifier verifier;
+        VerifyResult vr = verifier.verify(lb.board, resolver, ctx);
+        rj["verification"] = vr.to_json();
+        rj["status"] = vr.ok ? JsonValue("COMPLETE")
+                             : (vr.legal ? JsonValue("INCOMPLETE")
+                                         : JsonValue("VIOLATION"));
+    }
+    if (!f.report.empty()) {
+        std::string err;
+        if (!write_file(f.report, serialize_json(rj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        rj["report"] = f.report;
+    }
+    if (f.json) {
+        emit_json(f, rj);
+    } else if (!f.quiet) {
+        std::cout << "route-external: " << rj.get_string("status") << " ("
+                  << f.route_router << ")\n";
+    }
+    if (!ok) return kInternal;
+    if (rj.get_string("status") == "VIOLATION") return kViolation;
+    if (rj.get_string("status") == "INCOMPLETE") return kIncomplete;
     return kOk;
 }
 
@@ -1274,7 +1694,7 @@ int cmd_explain_failure(const Flags& f) {
 
 int run(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "usage: router <capabilities|analyze|verify|route|escape|benchmark|explain-failure> [board] [flags]\n"
+        std::cerr << "usage: router <capabilities|analyze|verify|route|gloss|setup-report|fanout|route-external|escape|benchmark|explain-failure> [board] [flags]\n"
                      "       router --help | router --version\n";
         return kInvalidInput;
     }
@@ -1331,6 +1751,10 @@ int run(const std::vector<std::string>& args) {
         if (cmd == "analyze") return cmd_analyze(f);
         if (cmd == "verify") return cmd_verify(f);
         if (cmd == "route") return cmd_route(f);
+        if (cmd == "gloss") return cmd_gloss(f);
+        if (cmd == "setup-report") return cmd_setup_report(f);
+        if (cmd == "fanout") return cmd_fanout(f);
+        if (cmd == "route-external") return cmd_route_external(f);
         if (cmd == "escape") return cmd_escape(f);
         if (cmd == "benchmark") return cmd_benchmark(f);
         if (cmd == "explain-failure") return cmd_explain_failure(f);

@@ -23,8 +23,12 @@ behaviour · [em] EM validation · [orch] CLI/orchestration · [🆕] net-new
 | 20 recorner/miter | done | 45° chamfer on degree-2 axis-aligned corners (`orthogonal: true`) |
 | 21 fanout pattern | done | escape-stage inline/staggered preference + direction control |
 | 24 via-minimization | done | `0519043` Via Miser mode (via elimination only) |
-| 22 Hug, 23 Spread | open | require route re-planning / moving fixed objects; not implemented |
-| 25–31 | open | EM relief validated analytically; full-wave relief NOT validated |
+| 22 Hug, 23 Spread | open | require route re-planning / moving fixed objects; reported as `unsupported_pass` by `router gloss` |
+| 28 setup-report | done | pre-route rules/layer/drill-pair/width/via JSON (`copperline/setup-report/1`) |
+| 29 fanout | done | `router fanout --pattern --dir` commits escape fanout copper (`copperline/fanout-report/1`) |
+| 30 gloss | done | `router gloss` runs requested polish passes with verify+revert and a JSON report |
+| 31 route-external | done (guarded) | `.dsn`-only wrapper: DO file + external router + SES import; no DSN exporter exists, so JSON boards are rejected |
+| 25–27 EM | partial | analytical tier validated; full-wave relief NOT validated |
 
 All new passes are strategy-gated and OFF by default: a pristine build at
 `ce89080` and the current build produce identical default `board_hash` on

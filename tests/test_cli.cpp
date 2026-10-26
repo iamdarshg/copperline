@@ -836,4 +836,153 @@ CT_TEST(cli_clean_pad_entries_strategy_gate) {
              vn.find("verification")->get_bool("ok", false));
 }
 
+// Phase 5 item 30: `router gloss` — post-route polish over an already routed
+// board, running exactly the requested passes with verify+revert, and a
+// JSON report with before/after hashes.
+CT_TEST(cli_gloss_runs_requested_passes) {
+    const std::string routed = win_path(std::string(FIXTURE_DIR) + "/_gloss_routed.json");
+    const std::string report = win_path(std::string(FIXTURE_DIR) + "/_gloss_report.json");
+    CliResult route = run_cli_full("route " + fixture("multi_terminal_tree.json") +
+                                   " --json --no-board-echo --seed 42 --output " + routed);
+    CT_CHECK(route.rc == 0);
+    CliResult g = run_cli_full("gloss " + routed + " --straighten --json --report " + report);
+    CT_CHECK(g.rc == 0);
+    JsonValue v = must_parse(g.out);
+    CT_CHECK(v.get_string("schema") == "copperline/gloss-report/1");
+    CT_CHECK(v.get_string("status") == "COMPLETE");
+    JsonValue opt = *v.find("optimizer");
+    CT_CHECK(opt.get_bool("ran", false) == true);
+    CT_CHECK(opt.get_bool("straighten_ran", false) == true);
+    CT_CHECK(opt.get_bool("via_miser_ran", true) == false);
+    CT_CHECK(opt.get_number("applied", 0) >= 1.0);
+    // Straighten never grows length and the hash reflects real copper change.
+    CT_CHECK(opt.get_number("length_after_mm", 1e9) <=
+             opt.get_number("length_before_mm", 0.0) + 1e-9);
+    CT_CHECK(v.get_string("board_hash_before") != v.get_string("board_hash_after"));
+    CT_CHECK(v.find("verification") && v.find("verification")->get_bool("ok", false));
+    std::remove(routed.c_str());
+    std::remove(report.c_str());
+}
+
+// gloss: no pass selected is invalid input; hug/spread are reported as
+// unsupported instead of silently doing nothing; an unrouted board is gated.
+CT_TEST(cli_gloss_guards) {
+    CliResult none = run_cli_full("gloss " + fixture("open_2layer.json") + " --json");
+    CT_CHECK(none.rc == 2);
+    CT_CHECK(none.out.find("invalid_input") != std::string::npos);
+
+    CliResult hug = run_cli_full("gloss " + fixture("open_2layer.json") + " --hug --json");
+    CT_CHECK(hug.rc == 2);
+    CT_CHECK(hug.out.find("unsupported_pass") != std::string::npos);
+
+    CliResult gated = run_cli_full("gloss " + fixture("open_2layer.json") +
+                                   " --straighten --json");
+    CT_CHECK(gated.rc == 4);  // incomplete: input copper is not routed
+    JsonValue g = must_parse(gated.out);
+    CT_CHECK(g.get_string("status") == "GATED");
+}
+
+// Phase 5 item 28: `router setup-report` — pre-route analysis with layer
+// directions, drill pairs, per-net width/via resolution and setup warnings.
+CT_TEST(cli_setup_report) {
+    CliResult r = run_cli_full("setup-report " + fixture("multi_terminal_tree.json") +
+                               " --json");
+    CT_CHECK(r.rc == 0);
+    JsonValue v = must_parse(r.out);
+    CT_CHECK(v.get_string("schema") == "copperline/setup-report/1");
+    JsonValue b = *v.find("board");
+    CT_CHECK(b.get_number("nets", -1) == 2);
+    CT_CHECK(b.get_number("terminals", -1) == 6);
+    // Every net gets a resolved width and a via answer.
+    JsonValue nets = *v.find("nets");
+    CT_CHECK(nets.is_array());
+    CT_CHECK(nets.as_array().size() == 2u);
+    for (const auto& n : nets.as_array()) {
+        CT_CHECK(n.get_number("width_mm", 0) > 0);
+        CT_CHECK(!n.get_string("width_source").empty());
+        CT_CHECK(!n.get_string("via_style").empty());
+    }
+    // Layers without a preferred direction are reported as warnings.
+    JsonValue layers = *v.find("layers");
+    CT_CHECK(layers.as_array().size() == 2u);
+    CT_CHECK(v.find("warnings") != nullptr);
+    const std::string warn_text = serialize_json(*v.find("warnings"));
+    CT_CHECK(warn_text.find("no direction preference") != std::string::npos);
+    // Drill pairs: none on an unrouted board.
+    CT_CHECK(v.find("drill_pairs") != nullptr);
+}
+
+// setup-report writes the same JSON to --report.
+CT_TEST(cli_setup_report_writes_report_file) {
+    const std::string path = win_path(std::string(FIXTURE_DIR) + "/_setup_report.json");
+    CliResult r = run_cli_full("setup-report " + fixture("golden_demo.dsn") +
+                               " --json --report " + path);
+    CT_CHECK(r.rc == 0);
+    JsonValue v = must_parse(r.out);
+    CT_CHECK(v.get_string("schema") == "copperline/setup-report/1");
+    CT_CHECK(v.find("nets") != nullptr);
+    std::ifstream rf(path);
+    std::stringstream ss;
+    ss << rf.rdbuf();
+    JsonValue file = must_parse(ss.str());
+    CT_CHECK(file.get_string("schema") == "copperline/setup-report/1");
+    std::remove(path.c_str());
+}
+
+// Phase 5 item 29: `router fanout` — escape-engine fanout with pattern and
+// direction selection, committing copper and reporting the arrangement.
+CT_TEST(cli_fanout_pattern_selection) {
+    CliResult r = run_cli_full("fanout " + fixture("bga_4x4.json") +
+                               " --pattern inline --dir 2 --json");
+    CT_CHECK(r.rc == 0);
+    JsonValue v = must_parse(r.out);
+    CT_CHECK(v.get_string("schema") == "copperline/fanout-report/1");
+    CT_CHECK(v.get_string("pattern") == "inline");
+    CT_CHECK(v.get_number("dir", -99) == 2);
+    CT_CHECK(v.get_number("pads_total", -1) == 16);
+    CT_CHECK(v.get_number("terminals_committed", 0) > 0);
+    CT_CHECK(v.get_number("traces_added", 0) > 0);
+    CT_CHECK(v.find("verification") && v.find("verification")->get_bool("legal", false));
+
+    // Default (auto) must also run and stay legal.
+    CliResult a = run_cli_full("fanout " + fixture("bga_4x4.json") + " --json");
+    CT_CHECK(a.rc == 0);
+    JsonValue va = must_parse(a.out);
+    CT_CHECK(va.get_string("pattern") == "auto");
+    CT_CHECK(va.get_number("dir", 1) == -1);
+
+    // Bad flag values are rejected at parse time.
+    CliResult badp = run_cli_full("fanout " + fixture("bga_4x4.json") +
+                                  " --pattern wiggly --json");
+    CT_CHECK(badp.rc == 2);
+    CliResult badd = run_cli_full("fanout " + fixture("bga_4x4.json") +
+                                  " --dir 9 --json");
+    CT_CHECK(badd.rc == 2);
+}
+
+// Phase 5 item 31: `router route-external` writes a DO file, runs an external
+// Specctra router prefix and imports its SES. The happy path needs a real
+// router; the guards and the failure path are covered here. (No DSN exporter
+// exists, so only .dsn inputs are accepted.)
+CT_TEST(cli_route_external_guards) {
+    CliResult json_board = run_cli_full("route-external " + fixture("open_2layer.json") +
+                                        " --router \"cmd /c exit 0\" --json");
+    CT_CHECK(json_board.rc == 2);
+    CT_CHECK(json_board.out.find("needs a .dsn input") != std::string::npos);
+
+    CliResult no_router = run_cli_full("route-external " + fixture("golden_demo.dsn") +
+                                       " --json");
+    CT_CHECK(no_router.rc == 2);
+    CT_CHECK(no_router.out.find("requires --router") != std::string::npos);
+
+    CliResult failed = run_cli_full("route-external " + fixture("golden_demo.dsn") +
+                                    " --router \"cmd /c exit 7\" --json");
+    CT_CHECK(failed.rc == 6);  // internal failure: external router failed
+    JsonValue v = must_parse(failed.out);
+    CT_CHECK(v.get_string("schema") == "copperline/external-route-report/1");
+    CT_CHECK(v.get_string("status") == "ROUTER_FAILED");
+    CT_CHECK(v.get_number("router_exit_code", -1) == 7);
+    std::remove(win_path(std::string(FIXTURE_DIR) + "/golden_demo.dsn.do").c_str());
+}
+
 int main() { return copperline::test::run_all_tests(); }
