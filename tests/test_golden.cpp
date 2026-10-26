@@ -530,6 +530,96 @@ CT_TEST(optimizer_clean_pad_entry_reroutes_long_axis) {
     CT_CHECK(b2.traces.size() == 1);
 }
 
+// Phase 3 items 22/23: hug and spread move a straight parallel segment and
+// stitch it back with perpendicular stubs (verify+revert). Hug tightens the
+// gap to a same-net neighbour; spread equalises the two neighbouring gaps.
+CT_TEST(optimizer_hug_moves_parallel_segment) {
+    Board b = test::base_2layer();
+    b.nets.push_back(test::make_net(0, "N0"));
+    test::add_terminal(b, 0, 2.0, 5.0);
+    test::add_terminal(b, 0, 2.0, 6.0);
+    const Coord w = mm_to_nm(0.2);
+    // One connected C-shaped net: parallel runs at y=5 and y=6 joined by a
+    // vertical run at x=6.
+    b.traces.push_back({0, 0, {mm_to_nm(2.0), mm_to_nm(5.0)},
+                        {mm_to_nm(6.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(6.0), mm_to_nm(5.0)},
+                        {mm_to_nm(6.0), mm_to_nm(6.0)}, w});
+    b.traces.push_back({0, 0, {mm_to_nm(6.0), mm_to_nm(6.0)},
+                        {mm_to_nm(2.0), mm_to_nm(6.0)}, w});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.hug = true;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.ran);
+    CT_CHECK(rep.hug_ran);
+    CT_CHECK(rep.applied >= 1);
+    // A parallel run moved toward the other: the minimum gap between
+    // horizontal runs is below the original 1.0 mm, and the board still
+    // verifies (connectivity + legality).
+    Coord min_gap = mm_to_nm(10.0);
+    for (const auto& s1 : b.traces)
+        for (const auto& s2 : b.traces) {
+            if (&s1 == &s2) continue;
+            if (s1.a.y != s1.b.y || s2.a.y != s2.b.y) continue;
+            const Coord gap = s1.a.y > s2.a.y ? s1.a.y - s2.a.y : s2.a.y - s1.a.y;
+            if (gap > 0 && gap < min_gap) min_gap = gap;
+        }
+    CT_CHECK(min_gap < mm_to_nm(1.0));
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
+// Spread equalises the two gaps around the middle run.
+CT_TEST(optimizer_spread_equalizes_gaps) {
+    Board b = test::base_2layer();
+    for (int n = 0; n < 3; ++n) b.nets.push_back(test::make_net(n, "N" + std::to_string(n)));
+    test::add_terminal(b, 0, 2.0, 5.0, 0, 0.2);
+    test::add_terminal(b, 0, 6.0, 5.0, 0, 0.2);
+    test::add_terminal(b, 1, 2.0, 5.5, 0, 0.2);
+    test::add_terminal(b, 1, 6.0, 5.5, 0, 0.2);
+    test::add_terminal(b, 2, 2.0, 7.0, 0, 0.2);
+    test::add_terminal(b, 2, 6.0, 7.0, 0, 0.2);
+    const Coord w = mm_to_nm(0.2);
+    b.traces.push_back({0, 0, {mm_to_nm(2.0), mm_to_nm(5.0)},
+                        {mm_to_nm(6.0), mm_to_nm(5.0)}, w});
+    b.traces.push_back({1, 0, {mm_to_nm(2.0), mm_to_nm(5.5)},
+                        {mm_to_nm(6.0), mm_to_nm(5.5)}, w});
+    b.traces.push_back({2, 0, {mm_to_nm(2.0), mm_to_nm(7.0)},
+                        {mm_to_nm(6.0), mm_to_nm(7.0)}, w});
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.spread = true;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.ran);
+    CT_CHECK(rep.spread_ran);
+    CT_CHECK(rep.applied >= 1);
+    // The middle run (net 1) sits midway between net 0 and net 2.
+    Coord y1 = 0;
+    for (const auto& s : b.traces)
+        if (s.net == 1 && s.a.y == s.b.y) y1 = s.a.y;
+    CT_CHECK(y1 > mm_to_nm(5.5));      // moved up from 5.5
+    CT_CHECK(y1 <= mm_to_nm(6.0) + 1); // toward the midpoint (6.0), bounded
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
 // DSN import preserves net names/pads/layers/classes/widths; SES export
 // round-trips copper back through verify.
 CT_TEST(adapter_dsn_ses_roundtrip) {

@@ -225,6 +225,9 @@ struct EngineOptions {
     bool strategy_orthogonal = false;
     // Phase 3 item 18: clean pad entries (off by default).
     bool strategy_clean_pad_entries = false;
+    // Phase 3 items 22/23: hug / spread packing (off by default).
+    bool strategy_hug = false;
+    bool strategy_spread = false;
     // Phase 3 item 21: fanout arrangement ("auto" | "inline" | "staggered")
     // and optional preferred principal direction (0..7, -1 = auto).
     std::string strategy_fanout_pattern = "auto";

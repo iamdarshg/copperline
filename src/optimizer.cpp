@@ -88,6 +88,8 @@ JsonValue OptimizerReport::to_json() const {
     r["via_miser_ran"] = via_miser_ran;
     r["orthogonal_ran"] = orthogonal_ran;
     r["clean_pad_entries_ran"] = clean_pad_entries_ran;
+    r["hug_ran"] = hug_ran;
+    r["spread_ran"] = spread_ran;
     r["peak_bytes"] = static_cast<double>(peak_bytes);
     return r;
 }
@@ -734,6 +736,141 @@ OptimizerReport CleanupOptimizer::run() {
                 eval_window(window, keep);
                 if (commit_until_accept(window, keep) >= 0) changed = true;
             }
+        }
+    }
+
+    // Pass 8: hug / spread (Phase 3 items 22/23) — move a straight parallel
+    // segment perpendicular to its run, stitching it back with two short
+    // perpendicular stubs:
+    //   hug    — move toward the nearest same-net parallel segment to minimum
+    //            same-net spacing (frees the opposite side of the channel)
+    //   spread — move to the midpoint of the nearest parallel neighbours, so
+    //            the two gaps around it become equal
+    // Every candidate re-verifies and reverts; the shift is bounded, so the
+    // added stub length is bounded too. OFF by default.
+    if ((opt_.hug || opt_.spread) && !opt_.via_miser) {
+        rep.passes++;
+        rep.hug_ran = opt_.hug;
+        rep.spread_ran = opt_.spread;
+        const Coord max_shift = mm_to_nm(0.5);   // bound per segment
+        const Coord min_shift = mm_to_nm(0.01);  // ignore noise
+        bool changed = true;
+        int guard = 0;
+        while (changed && guard++ < 8 &&
+               rep.candidates < static_cast<int>(opt_.max_candidates)) {
+            changed = false;
+            const std::size_t ntr = board_->traces.size();
+            std::vector<OptBatchCandidate> window;
+            for (std::size_t i = 0; i < ntr && (int)window.size() < opt_workers; ++i) {
+                const TraceSeg s = board_->traces[i];
+                if (is_protected(s.net)) continue;
+                const bool horiz = (s.a.y == s.b.y);
+                const bool vert = (s.a.x == s.b.x);
+                if (!horiz && !vert) continue;  // only straight runs
+                // Only real runs are worth moving; this also stops the pass
+                // from churning on the perpendicular stubs it just created.
+                if (manhattan(s.a, s.b) < mm_to_nm(1.0)) continue;
+                const Coord off = horiz ? s.a.y : s.a.x;
+                const Coord lo = horiz ? std::min(s.a.x, s.b.x) : std::min(s.a.y, s.b.y);
+                const Coord hi = horiz ? std::max(s.a.x, s.b.x) : std::max(s.a.y, s.b.y);
+                // Nearest parallel neighbours (below / above in offset).
+                bool has_below = false, has_above = false;
+                Coord below_off = 0, above_off = 0;
+                bool hug_found = false;
+                Coord hug_gap = 0, hug_target = 0;
+                Coord hug_dir = 0;
+                for (std::size_t j = 0; j < ntr; ++j) {
+                    if (j == i) continue;
+                    const TraceSeg& o = board_->traces[j];
+                    if (o.layer != s.layer) continue;
+                    const bool o_h = (o.a.y == o.b.y);
+                    const bool o_v = (o.a.x == o.b.x);
+                    if ((horiz && !o_h) || (vert && !o_v)) continue;
+                    const Coord o_off = horiz ? o.a.y : o.a.x;
+                    if (o_off == off) continue;
+                    const Coord o_lo =
+                        horiz ? std::min(o.a.x, o.b.x) : std::min(o.a.y, o.b.y);
+                    const Coord o_hi =
+                        horiz ? std::max(o.a.x, o.b.x) : std::max(o.a.y, o.b.y);
+                    if (std::min(hi, o_hi) - std::max(lo, o_lo) <= 0) continue;
+                    if (o_off < off) {
+                        if (!has_below || o_off > below_off) below_off = o_off;
+                        has_below = true;
+                    } else {
+                        if (!has_above || o_off < above_off) above_off = o_off;
+                        has_above = true;
+                    }
+                    // Hug: nearest parallel run on either side, same net or
+                    // foreign. Foreign neighbours are hugged to exactly the
+                    // required clearance; same-net runs to minimum spacing.
+                    if (opt_.hug) {
+                        const Coord gap = o_off > off ? o_off - off : off - o_off;
+                        Coord target = 0;
+                        if (o.net == s.net) {
+                            target = std::max<Coord>(
+                                s.width_nm * 2,
+                                (s.width_nm + o.width_nm) / 2 + 1);
+                        } else {
+                            Coord need = resolver_
+                                             ? resolver_->requiredClearance(
+                                                   s.net, o.net, s.layer, ctx_, nullptr)
+                                             : 0;
+                            if (need <= 0) need = mm_to_nm(0.15);
+                            // edge gap == clearance, plus a 10um safety margin
+                            target = need + (s.width_nm + o.width_nm) / 2 +
+                                     mm_to_nm(0.01);
+                        }
+                        if (gap <= target) continue;
+                        if (!hug_found || gap < hug_gap) {
+                            hug_found = true;
+                            hug_gap = gap;
+                            hug_target = target;
+                            hug_dir = o_off < off ? -1 : 1;
+                        }
+                    }
+                }
+                Coord shift = 0;
+                if (opt_.hug && hug_found) {
+                    const Coord step = std::min(hug_gap - hug_target, max_shift);
+                    if (step > min_shift) shift = hug_dir * step;
+                }
+                if (opt_.spread && shift == 0 && has_below && has_above) {
+                    const Coord target = (below_off + above_off) / 2;
+                    const Coord delta = target - off;
+                    const Coord mag = delta < 0 ? -delta : delta;
+                    if (mag > min_shift && mag <= max_shift) shift = delta;
+                }
+                if (shift == 0) continue;
+                // Shifted run + two perpendicular stubs, preserving direction.
+                const Point A = s.a, B = s.b;
+                Point A2 = A, B2 = B;
+                if (horiz) {
+                    A2.y += shift;
+                    B2.y += shift;
+                } else {
+                    A2.x += shift;
+                    B2.x += shift;
+                }
+                OptBatchCandidate c;
+                c.must_shorten = false;  // hugging/equalising may add stub length
+                c.touched_net = s.net;
+                c.touched_area = rect_union(
+                    s.segment().bounds(),
+                    rect_union(Rect::from_points(A2, B2), Rect::from_points(A, B)));
+                const Coord w = s.width_nm;
+                const LayerId layer = s.layer;
+                const NetId net = s.net;
+                c.mutate = [i, net, layer, A, A2, B2, B, w](Board& bd) {
+                    bd.traces[i] = TraceSeg{net, layer, A, A2, w};
+                    bd.traces.push_back(TraceSeg{net, layer, A2, B2, w});
+                    bd.traces.push_back(TraceSeg{net, layer, B2, B, w});
+                };
+                window.push_back(std::move(c));
+            }
+            if (window.empty()) break;
+            std::vector<char> keep;
+            eval_window(window, keep);
+            if (commit_until_accept(window, keep) >= 0) changed = true;
         }
     }
 

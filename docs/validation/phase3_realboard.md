@@ -141,7 +141,13 @@ above reports the re-run.
 ## Limitations
 
 * All new passes are OFF by default and require a strategy file.
-* Hug (22) and Spread (23) are not implemented; both need route
-  re-planning or moving fixed objects and are reported as open.
+* Hug (22) and Spread (23) are implemented as pass 8: they shift a straight
+  parallel run perpendicular to itself and stitch it back with two short
+  stubs (bounded to 0.5 mm per run, verify+revert). Hug hugs either same-net
+  runs (minimum spacing) or foreign runs (exactly the required clearance);
+  Spread equalises the two gaps around a run bracketed on both sides. They do
+  not re-plan curved or diagonal routes: only existing straight runs move.
+  Real-board sweep: hug applied 1 shift on irregular_array, attempted 8 on
+  high_current_bga and reverted all of them; spread found no bracketed runs.
 * EM full-wave relief comparison remains unvalidated (see
   `em/relief_research.md`); the analytical tier is what the tests cover.

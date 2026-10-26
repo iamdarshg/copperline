@@ -864,22 +864,26 @@ CT_TEST(cli_gloss_runs_requested_passes) {
     std::remove(report.c_str());
 }
 
-// gloss: no pass selected is invalid input; hug/spread are reported as
-// unsupported instead of silently doing nothing; an unrouted board is gated.
+// gloss: no pass selected is invalid input; an unrouted board is gated
+// before any polish runs (gloss is post-route).
 CT_TEST(cli_gloss_guards) {
     CliResult none = run_cli_full("gloss " + fixture("open_2layer.json") + " --json");
     CT_CHECK(none.rc == 2);
     CT_CHECK(none.out.find("invalid_input") != std::string::npos);
-
-    CliResult hug = run_cli_full("gloss " + fixture("open_2layer.json") + " --hug --json");
-    CT_CHECK(hug.rc == 2);
-    CT_CHECK(hug.out.find("unsupported_pass") != std::string::npos);
 
     CliResult gated = run_cli_full("gloss " + fixture("open_2layer.json") +
                                    " --straighten --json");
     CT_CHECK(gated.rc == 4);  // incomplete: input copper is not routed
     JsonValue g = must_parse(gated.out);
     CT_CHECK(g.get_string("status") == "GATED");
+
+    // hug is a real pass now: on an unrouted board it gates, never crashes.
+    CliResult hug = run_cli_full("gloss " + fixture("open_2layer.json") + " --hug --json");
+    CT_CHECK(hug.rc == 4);
+    JsonValue h = must_parse(hug.out);
+    CT_CHECK(h.get_string("status") == "GATED");
+    JsonValue hp = *h.find("passes");
+    CT_CHECK(hp.as_array().size() == 1u);
 }
 
 // Phase 5 item 28: `router setup-report` — pre-route analysis with layer
@@ -921,10 +925,14 @@ CT_TEST(cli_setup_report_writes_report_file) {
     JsonValue v = must_parse(r.out);
     CT_CHECK(v.get_string("schema") == "copperline/setup-report/1");
     CT_CHECK(v.find("nets") != nullptr);
-    std::ifstream rf(path);
-    std::stringstream ss;
-    ss << rf.rdbuf();
-    JsonValue file = must_parse(ss.str());
+    std::string file_text;
+    {
+        std::ifstream rf(path);
+        std::stringstream ss;
+        ss << rf.rdbuf();
+        file_text = ss.str();
+    }
+    JsonValue file = must_parse(file_text);
     CT_CHECK(file.get_string("schema") == "copperline/setup-report/1");
     std::remove(path.c_str());
 }

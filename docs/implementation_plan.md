@@ -23,7 +23,7 @@ behaviour · [em] EM validation · [orch] CLI/orchestration · [🆕] net-new
 | 20 recorner/miter | done | 45° chamfer on degree-2 axis-aligned corners (`orthogonal: true`) |
 | 21 fanout pattern | done | escape-stage inline/staggered preference + direction control |
 | 24 via-minimization | done | `0519043` Via Miser mode (via elimination only) |
-| 22 Hug, 23 Spread | open | require route re-planning / moving fixed objects; reported as `unsupported_pass` by `router gloss` |
+| 22 Hug, 23 Spread | done | pass 8: shift a straight parallel run with perpendicular stubs; hug tightens to same-net spacing, spread equalises the two neighbour gaps; verify+revert, bounded shift |
 | 28 setup-report | done | pre-route rules/layer/drill-pair/width/via JSON (`copperline/setup-report/1`) |
 | 29 fanout | done | `router fanout --pattern --dir` commits escape fanout copper (`copperline/fanout-report/1`) |
 | 30 gloss | done | `router gloss` runs requested polish passes with verify+revert and a JSON report |

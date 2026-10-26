@@ -50,6 +50,13 @@ struct OptimizerOptions {
     // Phase 3 item 18: reroute a pad's exit along the pad's longest axis for
     // asymmetric rectangular pads. OFF by default.
     bool clean_pad_entries = false;
+    // Phase 3 items 22/23: post-route packing passes. Hug moves a straight
+    // parallel segment toward its same-net neighbor to minimum spacing;
+    // Spread moves a segment to the midpoint of its two parallel neighbours
+    // (equalising the two gaps). Both stitch the shifted segment with
+    // perpendicular stubs and verify+revert. OFF by default.
+    bool hug = false;
+    bool spread = false;
 };
 
 struct OptimizerReport {
@@ -70,6 +77,8 @@ struct OptimizerReport {
     bool via_miser_ran = false;   // pass ran in Via Miser mode (item 24)
     bool orthogonal_ran = false;  // pass 6 ran (item 20 miter, strategy-gated)
     bool clean_pad_entries_ran = false;  // pass 7 ran (item 18, strategy-gated)
+    bool hug_ran = false;                // pass 8 hug mode (item 22)
+    bool spread_ran = false;             // pass 8 spread mode (item 23)
     std::size_t peak_bytes = 0;  // bounded scratch (candidates * per-item)
     JsonValue to_json() const;
 };

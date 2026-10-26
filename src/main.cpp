@@ -513,6 +513,8 @@ bool load_strategy(const Flags& f, EngineOptions& opt, std::string& msg) {
     if (root.has("clean_pad_entries"))
         opt.strategy_clean_pad_entries =
             root.get_bool("clean_pad_entries", false);
+    if (root.has("hug")) opt.strategy_hug = root.get_bool("hug", false);
+    if (root.has("spread")) opt.strategy_spread = root.get_bool("spread", false);
     if (root.has("fanout_pattern")) {
         const std::string pattern = root.get_string("fanout_pattern", "auto");
         if (pattern != "auto" && pattern != "inline" && pattern != "staggered") {
@@ -745,6 +747,8 @@ JsonValue capabilities_json() {
     feat["gloss_recorner"] = true;
     feat["gloss_via_min"] = true;
     feat["gloss_clean_pad"] = true;
+    feat["gloss_hug"] = true;
+    feat["gloss_spread"] = true;
     feat["setup_report"] = true;  // Phase 5 item 28
     feat["fanout"] = true;        // Phase 5 item 29
     feat["route_external"] = true;  // Phase 5 item 31 (requires a .dsn input)
@@ -921,23 +925,25 @@ int cmd_gloss(const Flags& f) {
     const bool want_recorner = all || f.gloss_recorner;
     const bool want_via_min = all || f.gloss_via_min;
     const bool want_clean_pad = all || f.gloss_clean_pad;
+    const bool want_hug = all || f.gloss_hug;
+    const bool want_spread = all || f.gloss_spread;
     if (!want_straighten && !want_recorner && !want_via_min && !want_clean_pad &&
-        !f.gloss_hug && !f.gloss_spread) {
+        !want_hug && !want_spread) {
         return fail(f, kInvalidInput, "invalid_input",
                     "gloss: select at least one pass (--straighten --recorner "
-                    "--via-min --clean-pad --gloss-all)");
+                    "--via-min --clean-pad --hug --spread --gloss-all)");
     }
     std::vector<std::string> passes;
     if (want_straighten) passes.push_back("straighten");
     if (want_recorner) passes.push_back("recorner");
     if (want_via_min) passes.push_back("via_min");
     if (want_clean_pad) passes.push_back("clean_pad");
-    std::vector<std::string> unsupported;
-    if (f.gloss_hug) unsupported.push_back("hug");
-    if (f.gloss_spread) unsupported.push_back("spread");
+    if (want_hug) passes.push_back("hug");
+    if (want_spread) passes.push_back("spread");
+    std::vector<std::string> unsupported;  // reserved: no pass is unsupported now
     if (passes.empty()) {
-        return fail(f, kInvalidInput, "unsupported_pass",
-                    "gloss: hug/spread are not implemented; no supported pass requested");
+        return fail(f, kInvalidInput, "invalid_input",
+                    "gloss: no pass selected");
     }
 
     // Gloss runs exactly the requested polish passes (baseline merge/bend
@@ -950,6 +956,8 @@ int cmd_gloss(const Flags& f) {
     opt.straighten = want_straighten;
     opt.orthogonal = want_recorner;
     opt.clean_pad_entries = want_clean_pad;
+    opt.hug = want_hug;
+    opt.spread = want_spread;
 
     const std::string hash_before = geometry_hash(lb.board);
     CleanupOptimizer polish(&lb.board, &resolver, ctx, opt);

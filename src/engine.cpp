@@ -2544,6 +2544,9 @@ RouteReport RouterEngine::run() {
         // Phase 3 item 18: strategy "clean_pad_entries": true enables the pass.
         oo.clean_pad_entries =
             oo.clean_pad_entries || options_.strategy_clean_pad_entries;
+        // Phase 3 items 22/23: hug / spread packing.
+        oo.hug = oo.hug || options_.strategy_hug;
+        oo.spread = oo.spread || options_.strategy_spread;
         // Bound optimizer scratch by the router memory budget.
         oo.max_candidates = std::min<std::size_t>(
             oo.max_candidates, options_.memory_budget_bytes / (4 * options_.per_task_bytes));
