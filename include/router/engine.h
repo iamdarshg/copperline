@@ -212,6 +212,8 @@ struct EngineOptions {
     bool strategy_recovery = true;     // rip-up meta-search
     // Phase 3 item 19: straighten pass (off by default, like memory).
     bool strategy_straighten = false;
+    // Phase 3 item 24: Via Miser optimizer mode (off by default).
+    bool strategy_via_miser = false;
     int strategy_max_epochs = 0;       // 0 = engine default (4096)
     int strategy_recovery_depth = 0;   // 0 = engine default (2)
     int strategy_recovery_beam = 0;    // 0 = engine default (4)

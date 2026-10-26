@@ -85,6 +85,7 @@ JsonValue OptimizerReport::to_json() const {
     r["length_before_mm"] = length_before_mm;
     r["length_after_mm"] = length_after_mm;
     r["straighten_ran"] = straighten_ran;
+    r["via_miser_ran"] = via_miser_ran;
     r["peak_bytes"] = static_cast<double>(peak_bytes);
     return r;
 }
@@ -108,6 +109,7 @@ OptimizerReport CleanupOptimizer::run() {
         return rep;
     }
     rep.ran = true;
+    rep.via_miser_ran = opt_.via_miser;
     rep.bends_before = count_bends(*board_);
     rep.vias_before = static_cast<int>(board_via_count(*board_));
     rep.length_before_mm = board_total_length_mm(*board_);
@@ -223,7 +225,7 @@ OptimizerReport CleanupOptimizer::run() {
     };
 
     // Pass 1: collinear merge of consecutive same-net/same-layer segments.
-    if (opt_.collinear_merge) {
+    if (opt_.collinear_merge && !opt_.via_miser) {
         rep.passes++;
         bool changed = true;
         int guard = 0;
@@ -290,7 +292,7 @@ OptimizerReport CleanupOptimizer::run() {
     // with a direct A-C segment when it shortens and stays legal.
     // Windowed (i, j) row-major enumeration, exactly the old sequence;
     // first accept restarts the full scan (#37).
-    if (opt_.bend_removal) {
+    if (opt_.bend_removal && !opt_.via_miser) {
         rep.passes++;
         bool changed = true;
         int guard = 0;
@@ -410,7 +412,7 @@ OptimizerReport CleanupOptimizer::run() {
     // continues after the accepted net on fresh state; later window
     // verdicts are discarded and re-enumerated so a stale reject can never
     // strand a candidate the serial scan would accept).
-    if (opt_.preferred_layer && !board_->layers.empty()) {
+    if (opt_.preferred_layer && !opt_.via_miser && !board_->layers.empty()) {
         rep.passes++;
         LayerId pref = board_->layers.front().id;
         std::map<NetId, std::vector<std::size_t>> segs_by_net;
@@ -475,7 +477,7 @@ OptimizerReport CleanupOptimizer::run() {
     // sharing an endpoint (no via at the corner) collapse to a direct
     // shortcut when it shortens; every candidate re-verifies and reverts
     // on harm. OFF by default; enabled by strategy "straighten": true.
-    if (opt_.straighten) {
+    if (opt_.straighten && !opt_.via_miser) {
         rep.passes++;
         rep.straighten_ran = true;
         bool changed = true;

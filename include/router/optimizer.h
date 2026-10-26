@@ -39,6 +39,10 @@ struct OptimizerOptions {
     // on verify+revert like every other transform. OFF by default: existing
     // golden geometry is untouched unless a strategy sets "straighten": true.
     bool straighten = false;
+    // Phase 3 item 24: Via Miser mode — the optimizer runs ONLY via
+    // elimination (a focused via-min pass) and skips the other transforms.
+    // OFF by default; enabled by a strategy with "via_miser": true.
+    bool via_miser = false;
 };
 
 struct OptimizerReport {
@@ -56,6 +60,7 @@ struct OptimizerReport {
     double length_before_mm = 0.0;
     double length_after_mm = 0.0;
     bool straighten_ran = false;  // pass 5 ran (strategy-gated)
+    bool via_miser_ran = false;   // pass ran in Via Miser mode (item 24)
     std::size_t peak_bytes = 0;  // bounded scratch (candidates * per-item)
     JsonValue to_json() const;
 };

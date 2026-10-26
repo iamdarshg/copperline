@@ -452,6 +452,7 @@ bool load_strategy(const Flags& f, EngineOptions& opt, std::string& msg) {
     if (root.has("memory")) opt.strategy_memory = root.get_bool("memory", false);
     if (root.has("straighten"))
         opt.strategy_straighten = root.get_bool("straighten", false);
+    if (root.has("via_miser")) opt.strategy_via_miser = root.get_bool("via_miser", false);
     if (root.has("optimizer")) opt.strategy_optimizer = root.get_bool("optimizer", true);
     if (root.has("tuning")) opt.strategy_tuning = root.get_bool("tuning", true);
     if (root.has("recovery")) opt.strategy_recovery = root.get_bool("recovery", true);

@@ -734,4 +734,28 @@ CT_TEST(cli_straighten_strategy_gate) {
              on2.get_number("length_before_mm", 0.0) + 1e-9);
 }
 
+// Phase 3 item 24: Via Miser is strategy-gated — the optimizer report
+// shows via_miser_ran true only when a strategy sets "via_miser": true.
+CT_TEST(cli_via_miser_strategy_gate) {
+    CliResult off = run_cli_full("route " + fixture("open_2layer.json") +
+                                 " --json --seed 42 --no-board-echo");
+    CT_CHECK(off.rc == 0);
+    JsonValue vo = must_parse(off.out);
+    JsonValue oo = *vo.find("optimizer");
+    CT_CHECK(oo.get_bool("via_miser_ran", true) == false);
+
+    CliResult on = run_cli_full("route " + fixture("open_2layer.json") +
+                                " --json --seed 42 --no-board-echo"
+                                " --strategy " + fixture("strategies/via_miser.json"));
+    CT_CHECK(on.rc == 0);
+    JsonValue vn = must_parse(on.out);
+    CT_CHECK(vn.get_string("status") == "COMPLETE");
+    CT_CHECK(vn.get_string("strategy") == "via_miser");
+    JsonValue on2 = *vn.find("optimizer");
+    CT_CHECK(on2.get_bool("via_miser_ran", false) == true);
+    // Via Miser never grows length either (verify+revert gate).
+    CT_CHECK(on2.get_number("length_after_mm", -1.0) <=
+             on2.get_number("length_before_mm", 0.0) + 1e-9);
+}
+
 int main() { return copperline::test::run_all_tests(); }

@@ -322,6 +322,72 @@ CT_TEST(optimizer_straighten_reverts_illegal_shortcut) {
     CT_CHECK(v.verify(b, r, ctx).ok);
 }
 
+// Phase 3 item 24: Via Miser mode runs ONLY via elimination (focused
+// via-min pass) and skips the other optimizer transforms. The legal via
+// is removed either way; Via Miser must not run collinear/bend/preferred
+// layer/straighten machinery. The eliminable via's far end is another via
+// (all-layer), so joining on one layer preserves connectivity.
+CT_TEST(optimizer_via_miser_mode) {
+    auto build = []() {
+        Board b = test::base_2layer();
+        b.nets.push_back(test::make_net(0, "N0"));
+        test::add_terminal(b, 0, 10.0, 10.0, 0);
+        test::add_terminal(b, 0, 16.0, 10.0, 0);
+        const Coord w = mm_to_nm(0.2);
+        b.traces.push_back({0, 0, {mm_to_nm(10.0), mm_to_nm(10.0)},
+                            {mm_to_nm(12.0), mm_to_nm(10.0)}, w});
+        b.traces.push_back({0, 1, {mm_to_nm(12.0), mm_to_nm(10.0)},
+                            {mm_to_nm(14.0), mm_to_nm(10.0)}, w});
+        b.traces.push_back({0, 0, {mm_to_nm(14.0), mm_to_nm(10.0)},
+                            {mm_to_nm(16.0), mm_to_nm(10.0)}, w});
+        Via v1;
+        v1.net = 0;
+        v1.pos = {mm_to_nm(12.0), mm_to_nm(10.0)};
+        v1.top_layer = 0;
+        v1.bottom_layer = 1;
+        v1.outer_d_nm = mm_to_nm(0.6);
+        v1.hole_d_nm = mm_to_nm(0.3);
+        b.vias.push_back(v1);
+        Via v2 = v1;
+        v2.pos = {mm_to_nm(14.0), mm_to_nm(10.0)};
+        b.vias.push_back(v2);
+        return b;
+    };
+
+    {  // default mode: all transforms enabled, legal via still removed
+        Board b = build();
+        RuleResolver r = RuleResolver::defaults_for(b);
+        ElectricalContext ctx;
+        BoardVerifier v;
+        CT_CHECK(v.verify(b, r, ctx).ok);
+        CleanupOptimizer oz(&b, &r, ctx, OptimizerOptions{});
+        OptimizerReport rep = oz.run();
+        CT_CHECK(rep.ran);
+        CT_CHECK(!rep.via_miser_ran);
+        CT_CHECK(rep.vias_after < rep.vias_before);
+        CT_CHECK(v.verify(b, r, ctx).ok);
+    }
+    {  // Via Miser mode: only pass 3 (via elimination) runs at all.
+        Board b = build();
+        RuleResolver r = RuleResolver::defaults_for(b);
+        ElectricalContext ctx;
+        BoardVerifier v;
+        CT_CHECK(v.verify(b, r, ctx).ok);
+        unsigned segs_before = static_cast<unsigned>(b.traces.size());
+        unsigned vias_before = static_cast<unsigned>(b.vias.size());
+        OptimizerOptions opt;
+        opt.via_miser = true;
+        CleanupOptimizer oz(&b, &r, ctx, opt);
+        OptimizerReport rep = oz.run();
+        CT_CHECK(rep.ran);
+        CT_CHECK(rep.via_miser_ran);
+        CT_CHECK(rep.passes == 1);  // via elimination is the ONLY pass
+        CT_CHECK(rep.vias_after < static_cast<int>(vias_before));
+        CT_CHECK(b.traces.size() < segs_before);
+        CT_CHECK(v.verify(b, r, ctx).ok);
+    }
+}
+
 // DSN import preserves net names/pads/layers/classes/widths; SES export
 // round-trips copper back through verify.
 CT_TEST(adapter_dsn_ses_roundtrip) {

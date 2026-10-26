@@ -2,6 +2,7 @@
   "schema": "copperline/strategy/1",
   "strategy": "via_miser",
   "escape": true,
+  "via_miser": true,
   "optimizer": true,
   "tuning": true,
   "recovery": true,

@@ -2514,6 +2514,8 @@ RouteReport RouterEngine::run() {
         OptimizerOptions oo = options_.optimizer;
         // Phase 3 item 19: strategy "straighten": true enables the pass.
         oo.straighten = oo.straighten || options_.strategy_straighten;
+        // Phase 3 item 24: strategy "via_miser": true selects Via Miser mode.
+        oo.via_miser = oo.via_miser || options_.strategy_via_miser;
         // Bound optimizer scratch by the router memory budget.
         oo.max_candidates = std::min<std::size_t>(
             oo.max_candidates, options_.memory_budget_bytes / (4 * options_.per_task_bytes));
