@@ -1010,4 +1010,26 @@ CT_TEST(cli_route_reports_input_drc) {
     CT_CHECK(b.get_number("input_violation_count", 0) > 0);
 }
 
+// `router import` converts to native JSON without routing.
+CT_TEST(cli_import_converts_without_routing) {
+    const std::string out = win_path(std::string(FIXTURE_DIR) + "/_import_test.json");
+    CliResult r = run_cli_full("import " + fixture("minimal.kicad_pcb") +
+                               " --output " + out + " --json");
+    CT_CHECK(r.rc == 0);
+    JsonValue v = must_parse(r.out);
+    CT_CHECK(v.find("nets") != nullptr);
+    CT_CHECK(v.find("board") != nullptr);
+    std::string text;
+    {
+        std::ifstream f(out);
+        std::stringstream ss;
+        ss << f.rdbuf();
+        text = ss.str();
+    }
+    JsonValue file = must_parse(text);
+    CT_CHECK(file.find("nets") != nullptr);
+    CT_CHECK(file.find("layers") != nullptr);
+    std::remove(out.c_str());
+}
+
 int main() { return copperline::test::run_all_tests(); }

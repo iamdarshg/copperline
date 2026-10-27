@@ -843,6 +843,61 @@ CT_TEST(kicad_property_reference_keeps_instances_distinct) {
     CT_CHECK(comps.count("Test:R_0805") == 0);
 }
 
+// A circle pad is rotation invariant. Applying the rotated-rectangle bbox
+// formula inflated round pads by up to sqrt(2) on rotated footprints, which
+// turned real boards (KiCad demos) into false clearance violations.
+CT_TEST(kicad_rotated_circle_pad_not_inflated) {
+    static const char* kPcb =
+        "(kicad_pcb (version 20241229) (generator pcbnew)\n"
+        "  (general)\n"
+        "  (paper \"A4\")\n"
+        "  (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal))\n"
+        "  (setup)\n"
+        "  (net 0 \"\")\n"
+        "  (net 1 \"GND\")\n"
+        "  (gr_line (start 90 90) (end 110 90) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 110 90) (end 110 110) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 110 110) (end 90 110) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 90 110) (end 90 90) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (footprint \"Test:Round\" (layer \"F.Cu\") (at 100 100 45)\n"
+        "    (property \"Reference\" \"J1\" (at 0 -1.5 0))\n"
+        "    (pad \"1\" thru_hole circle (at 0 0) (size 1.6 1.6)\n"
+        "      (drill 0.8) (layers \"*.Cu\") (net 1 \"GND\"))\n"
+        "  )\n"
+        ")\n";
+    KicadPcbImporter kicad;
+    ImportResult ir = kicad.import_text(kPcb, "round_pad.kicad_pcb");
+    // A thru-hole pad fans out to one terminal per copper layer.
+    CT_CHECK(ir.board.terminals.size() == 2);
+    for (const auto& t : ir.board.terminals) {
+        CT_CHECK(t.pad_w_nm == mm_to_nm(1.6));
+        CT_CHECK(t.pad_h_nm == mm_to_nm(1.6));
+    }
+    // A rotated RECT pad still gets its bounding box (conservative).
+    static const char* kRect =
+        "(kicad_pcb (version 20241229) (generator pcbnew)\n"
+        "  (general)\n"
+        "  (paper \"A4\")\n"
+        "  (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal))\n"
+        "  (setup)\n"
+        "  (net 1 \"GND\")\n"
+        "  (gr_line (start 90 90) (end 110 90) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 110 90) (end 110 110) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 110 110) (end 90 110) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 90 110) (end 90 90) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (footprint \"Test:Rect\" (layer \"F.Cu\") (at 100 100 45)\n"
+        "    (property \"Reference\" \"J2\" (at 0 -1.5 0))\n"
+        "    (pad \"1\" smd rect (at 0 0) (size 1 2)\n"
+        "      (layers \"F.Cu\") (net 1 \"GND\"))\n"
+        "  )\n"
+        ")\n";
+    ImportResult ir2 = kicad.import_text(kRect, "rect_pad.kicad_pcb");
+    const Terminal& r = ir2.board.terminals.front();
+    // 1x2 at 45 deg -> ~2.12 x 2.12 AABB.
+    CT_CHECK(r.pad_w_nm > mm_to_nm(2.0));
+    CT_CHECK(r.pad_w_nm < mm_to_nm(2.2));
+}
+
 CT_TEST(kicad_export_roundtrip) {
     KicadPcbImporter kicad;
     ImportResult ir = kicad.import_file(fixture("minimal.kicad_pcb"));

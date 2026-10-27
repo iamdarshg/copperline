@@ -676,8 +676,8 @@ JsonValue capabilities_json() {
     r["version"] = COPPERLINE_VERSION;
     r["phase"] = "prompt-5-release";
     r["commands"] = json_string_array(
-        std::vector<std::string>{"capabilities", "analyze", "verify", "route",
-                                 "gloss", "setup-report", "fanout",
+        std::vector<std::string>{"capabilities", "analyze", "verify", "import",
+                                 "route", "gloss", "setup-report", "fanout",
                                  "route-external", "escape", "benchmark",
                                  "explain-failure"});
     JsonValue planned = JsonValue::array();
@@ -752,6 +752,7 @@ JsonValue capabilities_json() {
     feat["setup_report"] = true;  // Phase 5 item 28
     feat["fanout"] = true;        // Phase 5 item 29
     feat["route_external"] = true;  // Phase 5 item 31 (requires a .dsn input)
+    feat["import"] = true;          // import-only conversion to JSON
     feat["golden_suite"] = true;
     JsonValue unsup = JsonValue::array();
     r["unsupported"] = unsup;
@@ -764,8 +765,9 @@ int cmd_capabilities(const Flags& f) {
         emit_json(f, capabilities_json());
     } else if (!f.quiet) {
         std::cout << "copperline " << COPPERLINE_VERSION << " (prompt-5 release)\n"
-                  << "commands: capabilities, analyze, verify, route, gloss, setup-report,\n"
-                  << "          fanout, route-external, escape, benchmark, explain-failure\n"
+                  << "commands: capabilities, analyze, verify, import, route, gloss,\n"
+                  << "          setup-report, fanout, route-external, escape, benchmark,\n"
+                  << "          explain-failure\n"
                   << "formats: json, kicad_pcb (.kicad_pcb), dsn (.dsn),\n"
                   << "         gerber (.gbr/.gtl/.gbl/...), ipc-2581 (.xml)\n"
                   << "exit codes: 0 ok, 2 invalid input, 3 malformed rules, 4 incomplete,\n"
@@ -1267,6 +1269,27 @@ int cmd_escape(const Flags& f) {
     return r.pads_infeasible == 0 ? kOk : kIncomplete;
 }
 
+// `router import <board> --output <file.json>` — convert a supported input to
+// the native JSON board WITHOUT routing. Useful for inspecting what the
+// importer produced and for strip-and-reroute workflows.
+int cmd_import(const Flags& f) {
+    LoadedBoard lb;
+    int code = 0;
+    std::string err_code, msg;
+    if (!load_board(f, lb, code, err_code, msg)) return fail(f, code, err_code, msg);
+    JsonValue bj = board_to_json(lb.board);
+    if (!f.output.empty()) {
+        std::string err;
+        if (!write_file(f.output, serialize_json(bj, true), err))
+            return fail(f, kInvalidInput, "write_failed", err);
+        if (!f.quiet && !f.json)
+            std::cout << "wrote " << f.output << "\n";
+    }
+    if (f.json) emit_json(f, bj);
+    for (const auto& w : lb.warnings) warn(f, "import: " + w);
+    return kOk;
+}
+
 int cmd_route(const Flags& f) {
     auto cli_now = []() { return std::chrono::steady_clock::now(); };
     const auto t_cli0 = cli_now();
@@ -1702,7 +1725,7 @@ int cmd_explain_failure(const Flags& f) {
 
 int run(const std::vector<std::string>& args) {
     if (args.size() < 2) {
-        std::cerr << "usage: router <capabilities|analyze|verify|route|gloss|setup-report|fanout|route-external|escape|benchmark|explain-failure> [board] [flags]\n"
+        std::cerr << "usage: router <capabilities|analyze|verify|import|route|gloss|setup-report|fanout|route-external|escape|benchmark|explain-failure> [board] [flags]\n"
                      "       router --help | router --version\n";
         return kInvalidInput;
     }
@@ -1759,6 +1782,7 @@ int run(const std::vector<std::string>& args) {
         if (cmd == "analyze") return cmd_analyze(f);
         if (cmd == "verify") return cmd_verify(f);
         if (cmd == "route") return cmd_route(f);
+        if (cmd == "import") return cmd_import(f);
         if (cmd == "gloss") return cmd_gloss(f);
         if (cmd == "setup-report") return cmd_setup_report(f);
         if (cmd == "fanout") return cmd_fanout(f);

@@ -328,11 +328,20 @@ class KicadImport {
             warn("pad " + ref + ":" + p.number + " has no size; using 0.5x0.5mm");
             p.sx = p.sy = 0.5;
         }
-        // Rotated bounding box of the pad shape.
+        // Rotated bounding box of the pad shape. A circle is rotation
+        // invariant: applying the rotated-rectangle formula to it inflates a
+        // round pad by up to sqrt(2), which turns real boards into false
+        // clearance violations.
         double total_rot = (frot + p.rot) * std::numbers::pi / 180.0;
         double cr = std::fabs(std::cos(total_rot)), sr = std::fabs(std::sin(total_rot));
-        double bw = p.sx * cr + p.sy * sr;
-        double bh = p.sx * sr + p.sy * cr;
+        double bw = 0, bh = 0;
+        if (p.shape == "circle") {
+            const double d = std::max(p.sx, p.sy);
+            bw = bh = d;
+        } else {
+            bw = p.sx * cr + p.sy * sr;
+            bh = p.sx * sr + p.sy * cr;
+        }
         // Rotate the offset by the footprint rotation.
         double fr = frot * std::numbers::pi / 180.0;
         double ox = p.dx * std::cos(fr) - p.dy * std::sin(fr);
