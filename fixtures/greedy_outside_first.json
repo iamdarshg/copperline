@@ -41,8 +41,8 @@
           "x_mm": 3.8503,
           "y_mm": 3.8503,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T0",
           "pin": "1"
         }
@@ -67,8 +67,8 @@
           "x_mm": 2.539,
           "y_mm": 6.2695,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T1",
           "pin": "1"
         }
@@ -93,8 +93,8 @@
           "x_mm": 1.8,
           "y_mm": 10.0,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T2",
           "pin": "1"
         }
@@ -119,8 +119,8 @@
           "x_mm": 2.539,
           "y_mm": 13.7305,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T3",
           "pin": "1"
         }
@@ -145,8 +145,8 @@
           "x_mm": 3.8503,
           "y_mm": 16.1497,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T4",
           "pin": "1"
         }
@@ -171,8 +171,8 @@
           "x_mm": 6.2695,
           "y_mm": 2.539,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T5",
           "pin": "1"
         }
@@ -197,8 +197,8 @@
           "x_mm": 4.4503,
           "y_mm": 4.4503,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T6",
           "pin": "1"
         }
@@ -223,8 +223,8 @@
           "x_mm": 2.4,
           "y_mm": 10.0,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T7",
           "pin": "1"
         }
@@ -249,8 +249,8 @@
           "x_mm": 4.4503,
           "y_mm": 15.5497,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T8",
           "pin": "1"
         }
@@ -275,8 +275,8 @@
           "x_mm": 6.2695,
           "y_mm": 17.461,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T9",
           "pin": "1"
         }
@@ -301,8 +301,8 @@
           "x_mm": 10.0,
           "y_mm": 1.8,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T10",
           "pin": "1"
         }
@@ -327,8 +327,8 @@
           "x_mm": 10.0,
           "y_mm": 2.4,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T11",
           "pin": "1"
         }
@@ -353,8 +353,8 @@
           "x_mm": 17.0,
           "y_mm": 10.0,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T12",
           "pin": "1"
         }
@@ -379,8 +379,8 @@
           "x_mm": 10.0,
           "y_mm": 17.6,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T13",
           "pin": "1"
         }
@@ -405,8 +405,8 @@
           "x_mm": 10.0,
           "y_mm": 18.2,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T14",
           "pin": "1"
         }
@@ -431,8 +431,8 @@
           "x_mm": 13.7305,
           "y_mm": 2.539,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T15",
           "pin": "1"
         }
@@ -457,8 +457,8 @@
           "x_mm": 15.5497,
           "y_mm": 4.4503,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T16",
           "pin": "1"
         }
@@ -483,8 +483,8 @@
           "x_mm": 17.6,
           "y_mm": 10.0,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T17",
           "pin": "1"
         }
@@ -509,8 +509,8 @@
           "x_mm": 15.5497,
           "y_mm": 15.5497,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T18",
           "pin": "1"
         }
@@ -535,8 +535,8 @@
           "x_mm": 13.7305,
           "y_mm": 17.461,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T19",
           "pin": "1"
         }
@@ -561,8 +561,8 @@
           "x_mm": 16.1497,
           "y_mm": 3.8503,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T20",
           "pin": "1"
         }
@@ -587,8 +587,8 @@
           "x_mm": 17.461,
           "y_mm": 6.2695,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T21",
           "pin": "1"
         }
@@ -613,8 +613,8 @@
           "x_mm": 18.2,
           "y_mm": 10.0,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T22",
           "pin": "1"
         }
@@ -639,8 +639,8 @@
           "x_mm": 17.461,
           "y_mm": 13.7305,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T23",
           "pin": "1"
         }
@@ -665,8 +665,8 @@
           "x_mm": 16.1497,
           "y_mm": 16.1497,
           "layer": 0,
-          "pad_w_mm": 0.5,
-          "pad_h_mm": 0.5,
+          "pad_w_mm": 0.3,
+          "pad_h_mm": 0.3,
           "component": "T24",
           "pin": "1"
         }

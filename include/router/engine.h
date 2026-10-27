@@ -171,6 +171,11 @@ struct RouteReport {
     std::vector<EpochInfo> epochs;
     std::vector<Hotspot> hotspots;
     std::string board_hash;  // geometry_hash() of committed copper
+    // Pre-route DRC state of the imported board (input copper can be illegal
+    // before routing; agents must be able to tell that apart from a router-
+    // introduced violation).
+    bool input_legal = true;
+    int input_violation_count = 0;
     StateHash128 state_hash{};
     RecoveryInfo recovery;
     EscapeStageInfo escape_stage;  // Post-P4 issue #1: escape summary

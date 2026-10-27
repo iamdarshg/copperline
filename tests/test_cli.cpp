@@ -993,4 +993,21 @@ CT_TEST(cli_route_external_guards) {
     std::remove(win_path(std::string(FIXTURE_DIR) + "/golden_demo.dsn.do").c_str());
 }
 
+// Input DRC state is reported separately from router-introduced violations:
+// an illegal imported board must be distinguishable from a bad route.
+CT_TEST(cli_route_reports_input_drc) {
+    CliResult good = run_cli_full("route " + fixture("open_2layer.json") +
+                                  " --json --no-board-echo --seed 42");
+    CT_CHECK(good.rc == 0);
+    JsonValue g = must_parse(good.out);
+    CT_CHECK(g.get_bool("input_legal", false) == true);
+    CT_CHECK(g.get_number("input_violation_count", -1) == 0);
+
+    CliResult bad = run_cli_full("route " + fixture("violation_board.json") +
+                                 " --json --no-board-echo --seed 42");
+    JsonValue b = must_parse(bad.out);
+    CT_CHECK(b.get_bool("input_legal", true) == false);
+    CT_CHECK(b.get_number("input_violation_count", 0) > 0);
+}
+
 int main() { return copperline::test::run_all_tests(); }

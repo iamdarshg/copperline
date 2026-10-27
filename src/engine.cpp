@@ -65,6 +65,8 @@ JsonValue RouteReport::to_json() const {
     r["total_terminals"] = static_cast<double>(total_terminals);
     r["remaining_terminals"] = static_cast<double>(total_terminals - connected_terminals);
     r["board_hash"] = board_hash;
+    r["input_legal"] = input_legal;
+    r["input_violation_count"] = static_cast<double>(input_violation_count);
     r["state_hash"] = state_hash.to_hex();
     JsonValue st = JsonValue::object();
     st["nets_total"] = static_cast<double>(stats.nets_total);
@@ -393,6 +395,15 @@ RouteReport RouterEngine::run() {
 
     ElectricalContext ctx;
 
+    // Pre-route DRC snapshot: distinguishes an illegal imported board from a
+    // violation introduced by this run (connectivity is expected to be open
+    // before routing, so only legality is measured here).
+    {
+        BoardVerifier input_check;
+        const VerifyResult in = input_check.verify(board_, resolver_, ctx);
+        report.input_legal = in.legal;
+        report.input_violation_count = static_cast<int>(in.violations.size());
+    }
     // ---- Post-P4 issue #1: centre-out escape stage ----
     // Use the same real EscapePlanner as `router escape` BEFORE ordinary
     // connection-task generation. Accepted escape traces/vias are committed
@@ -2276,6 +2287,18 @@ RouteReport RouterEngine::run() {
         const CandidateRoute* last = it != last_attempt.end() ? &it->second : nullptr;
         if (!last) {
             f.reason = "unattempted";
+            // A task whose pad could not escape has a definitive cause; say
+            // so instead of reporting a vague "unattempted".
+            auto ea = escape_infeasible_reason.find(task.a);
+            auto eb = escape_infeasible_reason.find(task.b);
+            if (ea != escape_infeasible_reason.end() ||
+                eb != escape_infeasible_reason.end()) {
+                f.reason = "escape_infeasible";
+                f.best_partial = "pad escape infeasible: " +
+                                 (ea != escape_infeasible_reason.end()
+                                      ? ea->second
+                                      : eb->second);
+            }
             if (n) {
                 bool dummy = false;
                 f.required_current_a =
