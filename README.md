@@ -465,8 +465,15 @@ Latest corpus results (185 board runs; details and the open bug in
 | set | boards | COMPLETE+legal | notes |
 |---|---|---|---|
 | synthetic | 15 | **12** | 3 dense-BGA timeouts, no illegal copper |
-| curated real | 52 | **10** | 20 inputs already DRC-illegal; 8 committed illegal copper (open bug) |
+| curated real | 38 | **9** | fair denominator 26 boards with clean input DRC = 34.6%; 2 still commit illegal copper |
 | wide sweep | 118 | 1 | 97 inputs already DRC-illegal, 17 import failures |
+
+Score any run with the fair denominator (boards whose pads-only input
+verifies legal):
+
+```
+python tools/benchmark_corpus.py build/corpus-out/corpus.json --target 0.70
+```
 
 Memory: the engine budget is `--memory-budget-mb` (accounting), and
 `tools/run_capped.ps1` enforces a hard OS limit on Windows. See

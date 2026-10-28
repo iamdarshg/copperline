@@ -1043,7 +1043,10 @@ bool BoardVerifier::has_local_violation(const Board& board,
         if (!here.intersects(wide)) continue;
         Rect query = here.expanded(max_need + 1);
         for (int j : index.query(query)) {
-            if (j <= static_cast<int>(i)) continue;
+            // Check the pair from either ordering: the touched net's element
+            // may carry the higher index, and skipping j <= i made this check
+            // depend on element order (it silently missed real overlaps).
+            if (j == static_cast<int>(i)) continue;
             const Element& a = elems[i];
             const Element& b = elems[j];
             if (a.net == b.net) continue;

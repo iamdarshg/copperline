@@ -1296,7 +1296,67 @@ RouteReport RouterEngine::run() {
         }
 
         ArbiterResult arb = arbitrate(candidates, board_, resolver_, ctx);
-        commit_candidates(board_, candidates, arb, report.stats);
+        // Per-candidate commit gate: the arbiter checks each candidate against
+        // the committed board and the already-accepted set, but a batch can
+        // still land copper the independent verifier rejects (seen as
+        // -0.08mm trace/trace gaps). Commit one accepted candidate at a time,
+        // validate it against the live board, and roll back only that
+        // candidate. The run degrades to an honest INCOMPLETE instead of a
+        // hard-rule VIOLATION, and legal candidates in the batch survive.
+        {
+            // Account hierarchy aggregates and rejected-candidate expansions
+            // once (commit_candidates does this for every candidate).
+            ArbiterResult accounting;
+            accounting.rejected = arb.rejected;
+            accounting.reject_reason = arb.reject_reason;
+            commit_candidates(board_, candidates, accounting, report.stats);
+
+            ArbiterResult gated;
+            gated.rejected = arb.rejected;
+            gated.reject_reason = arb.reject_reason;
+            BoardVerifier epoch_gate;
+            for (std::size_t k : arb.accepted) {
+                const CandidateRoute& c = candidates[k];
+                const std::size_t t0 = board_.traces.size();
+                const std::size_t v0 = board_.vias.size();
+                const std::size_t len0 = report.stats.length_nm;
+                Rect area{};
+                bool first = true;
+                for (const auto& s : c.traces) {
+                    const Rect sb = s.segment().bounds();
+                    area = first ? sb : rect_union(area, sb);
+                    first = false;
+                    board_.traces.push_back(s);
+                }
+                for (const auto& vv : c.vias) {
+                    const Rect vb = Rect::from_center_size(vv.pos, vv.outer_d_nm,
+                                                           vv.outer_d_nm);
+                    area = first ? vb : rect_union(area, vb);
+                    first = false;
+                    board_.vias.push_back(vv);
+                }
+                const bool illegal =
+                    !first && epoch_gate.has_local_violation(
+                                   board_, resolver_, ctx, c.task.net, area);
+                if (illegal) {
+                    board_.traces.resize(t0);
+                    board_.vias.resize(v0);
+                    report.stats.length_nm = len0;
+                    report.stats.via_count = static_cast<int>(board_.vias.size());
+                    gated.rejected.push_back(k);
+                    gated.reject_reason.push_back("epoch_illegal");
+                    report.stats.expansions_total += c.expansions;
+                    continue;
+                }
+                for (const auto& s : c.traces)
+                    report.stats.length_nm += euclid_len_nm(s.a, s.b);
+                report.stats.via_count += static_cast<int>(c.vias.size());
+                report.stats.tasks_routed++;
+                report.stats.expansions_total += c.expansions;
+                gated.accepted.push_back(k);
+            }
+            arb = std::move(gated);
+        }
         // Record ownership for the accepted candidates (deterministic).
         // Issue #1: global routes are never escape stubs; only the
         // pre-committed escape stage owns is_escape_stub=true geometry.

@@ -13,12 +13,12 @@
   "input_legal": false,
   "input_violations": 66,
   "status": "VIOLATION",
-  "connected": 281,
+  "connected": 154,
   "total": 328,
   "legal": false,
   "violations": 66,
   "import_s": 0.3,
-  "route_s": 21.0
+  "route_s": 20.3
  },
  {
   "board": "custom_pads_test.kicad_pcb",
@@ -39,7 +39,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 0.0
+  "route_s": 0.1
  },
  {
   "board": "ecc83-pp.kicad_pcb",
@@ -60,7 +60,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 1.2
+  "route_s": 1.4
  },
  {
   "board": "ecc83-pp_v2.kicad_pcb",
@@ -81,7 +81,7 @@
   "legal": false,
   "violations": 8,
   "import_s": 0.1,
-  "route_s": 1.4
+  "route_s": 1.0
  },
  {
   "board": "flat_hierarchy.kicad_pcb",
@@ -101,8 +101,8 @@
   "total": 476,
   "legal": false,
   "violations": 0,
-  "import_s": 0.4,
-  "route_s": 24.0
+  "import_s": 0.2,
+  "route_s": 21.5
  },
  {
   "board": "interf_u.kicad_pcb",
@@ -118,12 +118,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "TIMEOUT",
-  "connected": 74,
+  "connected": 54,
   "total": 684,
   "legal": false,
   "violations": 0,
-  "import_s": 0.5,
-  "route_s": 23.7
+  "import_s": 0.1,
+  "route_s": 20.7
  },
  {
   "board": "kit-dev-coldfire-xilinx_5213.kicad_pcb",
@@ -144,7 +144,7 @@
   "legal": null,
   "violations": null,
   "import_s": 0.6,
-  "route_s": 25.0
+  "route_s": 25.1
  },
  {
   "board": "microwave.kicad_pcb",
@@ -164,7 +164,7 @@
   "total": 0,
   "legal": true,
   "violations": 0,
-  "import_s": 0.1,
+  "import_s": 0.0,
   "route_s": 0.0
  },
  {
@@ -180,13 +180,13 @@
   },
   "input_legal": false,
   "input_violations": 24,
-  "status": "TIMEOUT",
-  "connected": null,
-  "total": null,
-  "legal": null,
-  "violations": null,
+  "status": "VIOLATION",
+  "connected": 80,
+  "total": 1160,
+  "legal": false,
+  "violations": 24,
   "import_s": 0.2,
-  "route_s": 25.0
+  "route_s": 20.8
  },
  {
   "board": "multichannel_mixer.kicad_pcb",
@@ -201,13 +201,13 @@
   },
   "input_legal": false,
   "input_violations": 25,
-  "status": "TIMEOUT",
-  "connected": null,
-  "total": null,
-  "legal": null,
-  "violations": null,
-  "import_s": 0.4,
-  "route_s": 25.1
+  "status": "VIOLATION",
+  "connected": 226,
+  "total": 368,
+  "legal": false,
+  "violations": 25,
+  "import_s": 0.3,
+  "route_s": 20.9
  },
  {
   "board": "pic_programmer.kicad_pcb",
@@ -228,7 +228,7 @@
   "legal": false,
   "violations": 0,
   "import_s": 0.2,
-  "route_s": 21.3
+  "route_s": 22.6
  },
  {
   "board": "RoyalBlue54L-Feather.kicad_pcb",
@@ -255,7 +255,7 @@
   "total": 2,
   "legal": false,
   "violations": 0,
-  "import_s": 0.1,
+  "import_s": 0.0,
   "route_s": 0.3
  },
  {
@@ -271,13 +271,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
+  "status": "COMPLETE",
   "connected": 182,
   "total": 182,
-  "legal": false,
-  "violations": 6,
+  "legal": true,
+  "violations": 0,
   "import_s": 0.1,
-  "route_s": 8.0
+  "route_s": 7.2
  },
  {
   "board": "StickHub.kicad_pcb",
@@ -319,7 +319,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.0,
-  "route_s": 0.5
+  "route_s": 0.4
  },
  {
   "board": "carte_test.kicad_pcb",
@@ -335,12 +335,12 @@
   "input_legal": false,
   "input_violations": 62,
   "status": "VIOLATION",
-  "connected": 136,
+  "connected": 130,
   "total": 538,
   "legal": false,
-  "violations": 84,
-  "import_s": 0.2,
-  "route_s": 24.6
+  "violations": 62,
+  "import_s": 0.1,
+  "route_s": 20.9
  },
  {
   "board": "tinytapeout-demo.kicad_pcb",
@@ -355,13 +355,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "TIMEOUT",
-  "connected": null,
-  "total": null,
-  "legal": null,
-  "violations": null,
+  "status": "VIOLATION",
+  "connected": 140,
+  "total": 1611,
+  "legal": false,
+  "violations": 4,
   "import_s": 0.6,
-  "route_s": 25.0
+  "route_s": 22.6
  },
  {
   "board": "video.kicad_pcb",
@@ -381,7 +381,7 @@
   "total": null,
   "legal": null,
   "violations": null,
-  "import_s": 1.0,
+  "import_s": 0.9,
   "route_s": 25.0
  },
  {
@@ -402,302 +402,8 @@
   "total": null,
   "legal": null,
   "violations": null,
-  "import_s": 9.8,
-  "route_s": 25.0
- },
- {
-  "board": "bga_10x10_6l.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\bga_10x10_6l.json",
-  "nets": 100,
-  "pads": 200,
-  "layers": 6,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 27,
-  "status": "VIOLATION",
-  "connected": 100,
-  "total": 200,
-  "legal": false,
-  "violations": 27,
-  "import_s": 0.1,
-  "route_s": 20.2
- },
- {
-  "board": "bga_14x14_12l.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\bga_14x14_12l.json",
-  "nets": 196,
-  "pads": 392,
-  "layers": 12,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 30,
-  "status": "VIOLATION",
-  "connected": 196,
-  "total": 392,
-  "legal": false,
-  "violations": 30,
-  "import_s": 0.1,
-  "route_s": 20.4
- },
- {
-  "board": "bga_6x6_4l.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\bga_6x6_4l.json",
-  "nets": 36,
-  "pads": 72,
-  "layers": 4,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 8,
-  "status": "VIOLATION",
-  "connected": 51,
-  "total": 72,
-  "legal": false,
-  "violations": 8,
-  "import_s": 0.0,
-  "route_s": 22.4
- },
- {
-  "board": "breakout_16.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_16.json",
-  "nets": 16,
-  "pads": 32,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 12,
-  "status": "VIOLATION",
-  "connected": 16,
-  "total": 32,
-  "legal": false,
-  "violations": 12,
-  "import_s": 0.1,
-  "route_s": 2.9
- },
- {
-  "board": "breakout_2.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_2.json",
-  "nets": 2,
-  "pads": 4,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": true,
-  "input_violations": 0,
-  "status": "COMPLETE",
-  "connected": 4,
-  "total": 4,
-  "legal": true,
-  "violations": 0,
-  "import_s": 0.1,
-  "route_s": 0.1
- },
- {
-  "board": "breakout_32.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_32.json",
-  "nets": 32,
-  "pads": 64,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 24,
-  "status": "VIOLATION",
-  "connected": 32,
-  "total": 64,
-  "legal": false,
-  "violations": 24,
-  "import_s": 0.0,
-  "route_s": 6.8
- },
- {
-  "board": "breakout_4.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_4.json",
-  "nets": 4,
-  "pads": 8,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 2,
-  "status": "VIOLATION",
-  "connected": 4,
-  "total": 8,
-  "legal": false,
-  "violations": 2,
-  "import_s": 0.0,
-  "route_s": 0.4
- },
- {
-  "board": "breakout_8.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_8.json",
-  "nets": 8,
-  "pads": 16,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 6,
-  "status": "VIOLATION",
-  "connected": 8,
-  "total": 16,
-  "legal": false,
-  "violations": 6,
-  "import_s": 0.0,
-  "route_s": 2.3
- },
- {
-  "board": "grid_24.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_24.json",
-  "nets": 24,
-  "pads": 48,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 12,
-  "status": "VIOLATION",
-  "connected": 24,
-  "total": 48,
-  "legal": false,
-  "violations": 12,
-  "import_s": 0.0,
-  "route_s": 20.6
- },
- {
-  "board": "grid_64.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_64.json",
-  "nets": 64,
-  "pads": 128,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": false,
-  "input_violations": 48,
-  "status": "VIOLATION",
-  "connected": 64,
-  "total": 128,
-  "legal": false,
-  "violations": 48,
-  "import_s": 0.1,
-  "route_s": 23.7
- },
- {
-  "board": "grid_8.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_8.json",
-  "nets": 8,
-  "pads": 16,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": true,
-  "input_violations": 0,
-  "status": "COMPLETE",
-  "connected": 16,
-  "total": 16,
-  "legal": true,
-  "violations": 0,
-  "import_s": 0.0,
-  "route_s": 0.1
- },
- {
-  "board": "scale_16x4.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\scale_16x4.json",
-  "nets": 64,
-  "pads": 128,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": true,
-  "input_violations": 0,
-  "status": "COMPLETE",
-  "connected": 128,
-  "total": 128,
-  "legal": true,
-  "violations": 0,
-  "import_s": 0.1,
-  "route_s": 2.9
- },
- {
-  "board": "scale_32x6.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\scale_32x6.json",
-  "nets": 192,
-  "pads": 384,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": true,
-  "input_violations": 0,
-  "status": "COMPLETE",
-  "connected": 384,
-  "total": 384,
-  "legal": true,
-  "violations": 0,
-  "import_s": 0.1,
-  "route_s": 16.6
- },
- {
-  "board": "scale_8x2.json",
-  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\scale_8x2.json",
-  "nets": 16,
-  "pads": 32,
-  "layers": 2,
-  "src": {
-   "traces": 0,
-   "vias": 0,
-   "length": 0
-  },
-  "input_legal": true,
-  "input_violations": 0,
-  "status": "COMPLETE",
-  "connected": 32,
-  "total": 32,
-  "legal": true,
-  "violations": 0,
-  "import_s": 0.0,
-  "route_s": 0.1
+  "import_s": 9.0,
+  "route_s": 25.4
  },
  {
   "board": "pico-radio-9-k\u00e9toldalas.kicad_pcb",
@@ -739,7 +445,7 @@
   "legal": false,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 21.9
+  "route_s": 20.7
  },
  {
   "board": "Pico 2 C.kicad_pcb",
@@ -755,12 +461,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "VIOLATION",
-  "connected": 88,
+  "connected": 131,
   "total": 327,
   "legal": false,
-  "violations": 11,
+  "violations": 4,
   "import_s": 0.2,
-  "route_s": 21.5
+  "route_s": 22.1
  },
  {
   "board": "RPI-PICO-R3a-PUBLIC - Official.kicad_pcb",
@@ -776,12 +482,12 @@
   "input_legal": false,
   "input_violations": 14,
   "status": "VIOLATION",
-  "connected": 93,
+  "connected": 103,
   "total": 263,
   "legal": false,
   "violations": 14,
   "import_s": 0.1,
-  "route_s": 21.2
+  "route_s": 21.3
  },
  {
   "board": "RPI-PICO-R3a-PUBLIC.kicad_pcb",
@@ -796,13 +502,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
-  "connected": 107,
+  "status": "TIMEOUT",
+  "connected": 37,
   "total": 282,
   "legal": false,
-  "violations": 7,
+  "violations": 0,
   "import_s": 0.1,
-  "route_s": 24.0
+  "route_s": 21.2
  },
  {
   "board": "Pico WH.kicad_pcb",
@@ -817,13 +523,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
-  "connected": 111,
+  "status": "TIMEOUT",
+  "connected": 0,
   "total": 517,
   "legal": false,
-  "violations": 4,
+  "violations": 0,
   "import_s": 0.2,
-  "route_s": 20.9
+  "route_s": 20.7
  },
  {
   "board": "working_with_schematics.kicad_pcb",
@@ -838,13 +544,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
+  "status": "COMPLETE",
   "connected": 200,
   "total": 200,
-  "legal": false,
-  "violations": 11,
-  "import_s": 0.1,
-  "route_s": 3.5
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 3.3
  },
  {
   "board": "laying_out_a_pcb.kicad_pcb",
@@ -859,13 +565,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
+  "status": "COMPLETE",
   "connected": 200,
   "total": 200,
-  "legal": false,
-  "violations": 56,
-  "import_s": 0.1,
-  "route_s": 2.9
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 3.0
  },
  {
   "board": "stamp_and_module.kicad_pcb",
@@ -880,13 +586,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
+  "status": "COMPLETE",
   "connected": 164,
   "total": 164,
-  "legal": false,
-  "violations": 2,
+  "legal": true,
+  "violations": 0,
   "import_s": 0.1,
-  "route_s": 3.5
+  "route_s": 3.4
  },
  {
   "board": "h_bridge.kicad_pcb",
@@ -922,13 +628,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
-  "connected": 134,
+  "status": "TIMEOUT",
+  "connected": 80,
   "total": 198,
   "legal": false,
-  "violations": 2,
-  "import_s": 0.5,
-  "route_s": 23.5
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 24.1
  },
  {
   "board": "rp2040_nema.kicad_pcb",
@@ -949,7 +655,7 @@
   "legal": false,
   "violations": 0,
   "import_s": 0.2,
-  "route_s": 21.0
+  "route_s": 21.1
  },
  {
   "board": "rp2040_game_con.kicad_pcb",
@@ -970,7 +676,7 @@
   "legal": false,
   "violations": 0,
   "import_s": 0.2,
-  "route_s": 21.6
+  "route_s": 21.1
  },
  {
   "board": "OpenJBOD-RP2040.kicad_pcb",
@@ -986,12 +692,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "TIMEOUT",
-  "connected": 53,
-  "total": 852,
-  "legal": false,
-  "violations": 0,
-  "import_s": 0.6,
-  "route_s": 23.2
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.5,
+  "route_s": 25.1
  },
  {
   "board": "Code-SDR-V2.kicad_pcb",
@@ -1011,7 +717,7 @@
   "total": null,
   "legal": null,
   "violations": null,
-  "import_s": 1.0,
+  "import_s": 1.2,
   "route_s": 25.0
  },
  {
@@ -1032,7 +738,7 @@
   "total": null,
   "legal": null,
   "violations": null,
-  "import_s": 1.0,
+  "import_s": 1.1,
   "route_s": 25.0
  },
  {
@@ -1048,13 +754,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "VIOLATION",
-  "connected": 150,
+  "status": "TIMEOUT",
+  "connected": 30,
   "total": 757,
   "legal": false,
-  "violations": 15,
+  "violations": 0,
   "import_s": 0.4,
-  "route_s": 22.5
+  "route_s": 22.3
  },
  {
   "board": "dev_board.kicad_pcb",

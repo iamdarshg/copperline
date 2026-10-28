@@ -62,33 +62,53 @@ Wide sweep (118 boards): 17 import failures, 97 inputs already DRC-illegal
 (project snapshots with pads closer than their own rules), 4 legal inputs →
 1 COMPLETE+legal. This set measures import robustness more than routing.
 
-## Known bug: illegal copper can still be committed
+## Fix that landed after the first run (2026-10-28)
 
-Eight curated boards end with real overlaps after routing even though their
-input DRC is clean, e.g.:
+The first curated run had 8 boards ending with overlapping copper. Root
+cause: `BoardVerifier::has_local_violation` only examined element pairs where
+the **lower-indexed** element belonged to the touched net (`if (j <= i)
+continue;`), so both the escape gate and the epoch gate silently passed real
+overlaps. Removing that ordering assumption made the gates effective, and
+epoch commits are now validated **per candidate** (commit, check, roll back
+only that candidate) instead of trusting the arbiter's predicates alone.
 
-```
-laying_out_a_pcb.kicad_pcb       conn 200/200  violations 56
-working_with_schematics.kicad_pcb conn 200/200  violations 11
-Pico 2 C.kicad_pcb               conn  88/327  violations 11
-RPI-PICO-R3a-PUBLIC.kicad_pcb    conn 107/282  violations  7
-sonde xilinx.kicad_pcb           conn 182/182  violations  6
-```
+Post-fix curated results (same 20 s budget):
 
-Reproducer (no escape, no recovery, no optimizer, a single epoch):
+| | before | after |
+|---|---|---|
+| eligible (input legal) | 31 | 26 |
+| COMPLETE + legal | 10 | **9** |
+| illegal copper committed | **8** | **2** |
+| legal but incomplete/timeout | 13 | 15 |
+
+Boards that were VIOLATION with 200/200 connected now finish **COMPLETE and
+legal** (`working_with_schematics` 200/200, `laying_out_a_pcb` 200/200,
+`sonde xilinx` 182/182). The two remaining illegal cases
+(`tinytapeout-demo`, `Pico 2 C`, 4 violations each) come from a commit path
+that still bypasses the gate (pair materialization runs after routing).
+
+Fair benchmark: 9/26 = **34.6%** COMPLETE+legal at 20 s per board. 15 of the
+26 are timeouts, not failures — `pic_programmer` (470/470) needed ~300 s in
+`real_boards.md`.
+
+## Remaining: illegal copper from the pair-materialization path
+
+After the gate fix, two curated boards still end illegal
+(`tinytapeout-demo`, `Pico 2 C`, 4 violations each). Both are boards where
+diff-pair corridors are materialized: `engine.cpp` writes
+`mat.traces_p/n` and `mat.vias_p/n` straight into the board **after** the
+routing loop, outside the per-candidate epoch gate. That path still needs the
+same transactional treatment.
+
+Reproducer for the fixed path (kept as a regression scenario):
 
 ```
 router route dev_board.kicad_pcb --threads 4 --timeout 60 \
   --strategy tools/probes/minimal.json   # escape/optimizer/tuning/recovery off
-# -> VIOLATION, 6 overlaps, e.g. "clearance -0.104mm below 0.000mm
-#    between /MP_BST and /TPS_ENSS"
+# before the fix: VIOLATION, 6 overlaps
+# after:          INCOMPLETE, legal=True, 0 violations
 ```
 
-Raising that board's clearance to 0.15 mm makes it worse (148 violations),
-so this is not a zero-clearance edge case: the epoch commit path can place
-copper that the arbiter's own predicates accept but the verifier rejects.
-Escape commits are already gated this way (see `src/engine.cpp`); the epoch
-and pair-materialization commit paths are not. Fixing that is the next task.
 
 ## How to reproduce
 
