@@ -1,0 +1,443 @@
+[
+ {
+  "board": "custom_pads_test.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\custom_pads_test\\custom_pads_test.kicad_pcb",
+  "nets": 3,
+  "pads": 6,
+  "layers": 2,
+  "src": {
+   "traces": 19,
+   "vias": 0,
+   "length": 108.3
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 6,
+  "total": 6,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 0.1
+ },
+ {
+  "board": "ecc83-pp.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\ecc83\\ecc83-pp.kicad_pcb",
+  "nets": 13,
+  "pads": 66,
+  "layers": 2,
+  "src": {
+   "traces": 59,
+   "vias": 0,
+   "length": 211.0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 66,
+  "total": 66,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 1.2
+ },
+ {
+  "board": "flat_hierarchy.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\flat_hierarchy\\flat_hierarchy.kicad_pcb",
+  "nets": 111,
+  "pads": 476,
+  "layers": 2,
+  "src": {
+   "traces": 371,
+   "vias": 7,
+   "length": 1752.5
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 476,
+  "total": 476,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 85.4
+ },
+ {
+  "board": "interf_u.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\interf_u\\interf_u.kicad_pcb",
+  "nets": 173,
+  "pads": 684,
+  "layers": 2,
+  "src": {
+   "traces": 731,
+   "vias": 84,
+   "length": 5101.5
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": 440,
+  "total": 684,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 183.0
+ },
+ {
+  "board": "pic_programmer.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\pic_programmer\\pic_programmer.kicad_pcb",
+  "nets": 111,
+  "pads": 470,
+  "layers": 2,
+  "src": {
+   "traces": 370,
+   "vias": 6,
+   "length": 1745.6
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 470,
+  "total": 470,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 77.9
+ },
+ {
+  "board": "sonde xilinx.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\sonde xilinx\\sonde xilinx.kicad_pcb",
+  "nets": 42,
+  "pads": 182,
+  "layers": 2,
+  "src": {
+   "traces": 208,
+   "vias": 3,
+   "length": 637.8
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": 177,
+  "total": 182,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 180.7
+ },
+ {
+  "board": "test_pads_inside_pads.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\test_pads_inside_pads\\test_pads_inside_pads.kicad_pcb",
+  "nets": 2,
+  "pads": 27,
+  "layers": 2,
+  "src": {
+   "traces": 4,
+   "vias": 0,
+   "length": 32.0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 27,
+  "total": 27,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.4
+ },
+ {
+  "board": "tinytapeout-demo.kicad_pcb",
+  "path": "C:\\Program Files\\KiCad\\9.0\\share\\kicad\\demos\\tiny_tapeout\\tinytapeout-demo.kicad_pcb",
+  "nets": 114,
+  "pads": 1611,
+  "layers": 4,
+  "src": {
+   "traces": 2143,
+   "vias": 405,
+   "length": 7743.9
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.5,
+  "route_s": 185.0
+ },
+ {
+  "board": "pico-radio-9-k\u00e9toldalas.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\pico-radio-9\\kicad\\pico-radio-9-k\u00e9toldalas\\pico-radio-9-k\u00e9toldalas.kicad_pcb",
+  "nets": 66,
+  "pads": 340,
+  "layers": 2,
+  "src": {
+   "traces": 419,
+   "vias": 0,
+   "length": 1524.2
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "INCOMPLETE",
+  "connected": 320,
+  "total": 340,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 105.5
+ },
+ {
+  "board": "pico-radio-9.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\pico-radio-9\\kicad\\pico-radio-9\\pico-radio-9.kicad_pcb",
+  "nets": 69,
+  "pads": 357,
+  "layers": 2,
+  "src": {
+   "traces": 489,
+   "vias": 0,
+   "length": 2067.2
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 357,
+  "total": 357,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 47.7
+ },
+ {
+  "board": "Pico 2 C.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\project-piCo\\KiCad Projects\\Pico 2 C\\Pico 2 C.kicad_pcb",
+  "nets": 68,
+  "pads": 327,
+  "layers": 2,
+  "src": {
+   "traces": 561,
+   "vias": 113,
+   "length": 779.5
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "VIOLATION",
+  "connected": 155,
+  "total": 327,
+  "legal": false,
+  "violations": 4,
+  "import_s": 0.2,
+  "route_s": 181.3
+ },
+ {
+  "board": "RPI-PICO-R3a-PUBLIC.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\project-piCo\\KiCad Projects\\Pico C\\RPI-PICO-R3a-PUBLIC.kicad_pcb",
+  "nets": 64,
+  "pads": 282,
+  "layers": 2,
+  "src": {
+   "traces": 462,
+   "vias": 116,
+   "length": 737.2
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.1,
+  "route_s": 185.0
+ },
+ {
+  "board": "Pico WH.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\project-piCo\\KiCad Projects\\Pico WH - No License\\Pico WH.kicad_pcb",
+  "nets": 110,
+  "pads": 517,
+  "layers": 4,
+  "src": {
+   "traces": 942,
+   "vias": 325,
+   "length": 1078.6
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.2,
+  "route_s": 185.1
+ },
+ {
+  "board": "working_with_schematics.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch01\\working_with_schematics.kicad_pcb",
+  "nets": 57,
+  "pads": 200,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 200,
+  "total": 200,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 3.0
+ },
+ {
+  "board": "laying_out_a_pcb.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch02\\laying_out_a_pcb.kicad_pcb",
+  "nets": 57,
+  "pads": 200,
+  "layers": 2,
+  "src": {
+   "traces": 67,
+   "vias": 0,
+   "length": 220.0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 200,
+  "total": 200,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 2.8
+ },
+ {
+  "board": "stamp_and_module.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch03\\stamp_and_module.kicad_pcb",
+  "nets": 41,
+  "pads": 164,
+  "layers": 2,
+  "src": {
+   "traces": 59,
+   "vias": 4,
+   "length": 298.6
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 164,
+  "total": 164,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 3.2
+ },
+ {
+  "board": "h_bridge.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch04\\h_bridge.kicad_pcb",
+  "nets": 10,
+  "pads": 32,
+  "layers": 2,
+  "src": {
+   "traces": 50,
+   "vias": 7,
+   "length": 88.2
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 32,
+  "total": 32,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 0.6
+ },
+ {
+  "board": "KiCAD_Board_3_Minimal_Full_RP2040.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch05\\KiCAD_Board_3_Minimal_Full_RP2040.kicad_pcb",
+  "nets": 51,
+  "pads": 198,
+  "layers": 2,
+  "src": {
+   "traces": 312,
+   "vias": 30,
+   "length": 1025.8
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.1,
+  "route_s": 185.0
+ },
+ {
+  "board": "rp2040_nema.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch10\\rp2040_nema.kicad_pcb",
+  "nets": 57,
+  "pads": 184,
+  "layers": 2,
+  "src": {
+   "traces": 237,
+   "vias": 26,
+   "length": 475.8
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": 91,
+  "total": 184,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 184.8
+ },
+ {
+  "board": "rp2040_game_con.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\raspberry-pi-pico-with-kicad\\eg\\ch11\\rp2040_game_con\\rp2040_game_con.kicad_pcb",
+  "nets": 57,
+  "pads": 152,
+  "layers": 2,
+  "src": {
+   "traces": 227,
+   "vias": 37,
+   "length": 437.8
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "INCOMPLETE",
+  "connected": 79,
+  "total": 152,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 100.7
+ },
+ {
+  "board": "OpenJBOD-RP2040.kicad_pcb",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\repos\\rp2040\\OpenJBOD-RP2040.kicad_pcb",
+  "nets": 144,
+  "pads": 852,
+  "layers": 4,
+  "src": {
+   "traces": 882,
+   "vias": 134,
+   "length": 2268.9
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.3,
+  "route_s": 185.0
+ }
+]

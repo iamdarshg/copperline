@@ -1314,30 +1314,50 @@ RouteReport RouterEngine::run() {
             ArbiterResult gated;
             gated.rejected = arb.rejected;
             gated.reject_reason = arb.reject_reason;
-            BoardVerifier epoch_gate;
+            // Cheap prefilter: only candidates whose copper can touch another
+            // accepted candidate need the expensive verifier probe. Building
+            // the element index per candidate made routing several times
+            // slower on large boards.
+            std::map<std::size_t, Rect> boxes;
             for (std::size_t k : arb.accepted) {
-                const CandidateRoute& c = candidates[k];
-                const std::size_t t0 = board_.traces.size();
-                const std::size_t v0 = board_.vias.size();
-                const std::size_t len0 = report.stats.length_nm;
                 Rect area{};
                 bool first = true;
-                for (const auto& s : c.traces) {
+                for (const auto& s : candidates[k].traces) {
                     const Rect sb = s.segment().bounds();
                     area = first ? sb : rect_union(area, sb);
                     first = false;
-                    board_.traces.push_back(s);
                 }
-                for (const auto& vv : c.vias) {
+                for (const auto& vv : candidates[k].vias) {
                     const Rect vb = Rect::from_center_size(vv.pos, vv.outer_d_nm,
                                                            vv.outer_d_nm);
                     area = first ? vb : rect_union(area, vb);
                     first = false;
-                    board_.vias.push_back(vv);
                 }
+                if (!first) boxes[k] = area.expanded(mm_to_nm(0.5));
+            }
+            BoardVerifier epoch_gate;
+            for (std::size_t k : arb.accepted) {
+                const CandidateRoute& c = candidates[k];
+                bool ambiguous = false;
+                auto bit = boxes.find(k);
+                if (bit != boxes.end()) {
+                    for (std::size_t other : arb.accepted) {
+                        if (other == k) continue;
+                        auto oit = boxes.find(other);
+                        if (oit != boxes.end() && oit->second.intersects(bit->second)) {
+                            ambiguous = true;
+                            break;
+                        }
+                    }
+                }
+                const std::size_t t0 = board_.traces.size();
+                const std::size_t v0 = board_.vias.size();
+                const std::size_t len0 = report.stats.length_nm;
+                for (const auto& s : c.traces) board_.traces.push_back(s);
+                for (const auto& vv : c.vias) board_.vias.push_back(vv);
                 const bool illegal =
-                    !first && epoch_gate.has_local_violation(
-                                   board_, resolver_, ctx, c.task.net, area);
+                    ambiguous && epoch_gate.has_local_violation(
+                                     board_, resolver_, ctx, c.task.net, bit->second);
                 if (illegal) {
                     board_.traces.resize(t0);
                     board_.vias.resize(v0);
@@ -2197,7 +2217,44 @@ RouteReport RouterEngine::run() {
                 report.diffpairs.push_back(prep);
                 continue;
             }
-            // Atomic commit of both members.
+            // Atomic commit of both members, gated like epoch/escape copper:
+            // materialization runs after the routing loop, so without this
+            // check a corridor can be written that the verifier rejects.
+            const std::size_t t_before = board_.traces.size();
+            const std::size_t v_before = board_.vias.size();
+            const std::size_t len_before = report.stats.length_nm;
+            Rect mat_area{};
+            bool mat_first = true;
+            for (const auto& s : mat.traces_p) {
+                const Rect sb = s.segment().bounds();
+                mat_area = mat_first ? sb : rect_union(mat_area, sb);
+                mat_first = false;
+            }
+            for (const auto& s : mat.traces_n) {
+                const Rect sb = s.segment().bounds();
+                mat_area = mat_first ? sb : rect_union(mat_area, sb);
+                mat_first = false;
+            }
+            for (const auto& s : mat.traces_p) board_.traces.push_back(s);
+            for (const auto& s : mat.traces_n) board_.traces.push_back(s);
+            for (const auto& v : mat.vias_p) board_.vias.push_back(v);
+            for (const auto& v : mat.vias_n) board_.vias.push_back(v);
+            {
+                BoardVerifier pair_gate;
+                if (!mat_first &&
+                    (pair_gate.has_local_violation(board_, resolver_, ctx,
+                                                   pr.net_p, mat_area) ||
+                     pair_gate.has_local_violation(board_, resolver_, ctx,
+                                                   pr.net_n, mat_area))) {
+                    board_.traces.resize(t_before);
+                    board_.vias.resize(v_before);
+                    report.stats.length_nm = len_before;
+                    report.stats.via_count = static_cast<int>(board_.vias.size());
+                    prep.status = "MATERIALIZATION_FAILED:illegal_overlap";
+                    report.diffpairs.push_back(prep);
+                    continue;
+                }
+            }
             OwnedRoute po;
             po.task = tasks[ti];
             po.task_pos = ti;
@@ -2211,10 +2268,6 @@ RouteReport RouterEngine::run() {
             po.is_pair_corridor = true;
             po.pair_id = pr.id;
             po.protection = owned[owned_idx].protection;
-            for (const auto& s : mat.traces_p) board_.traces.push_back(s);
-            for (const auto& s : mat.traces_n) board_.traces.push_back(s);
-            for (const auto& v : mat.vias_p) board_.vias.push_back(v);
-            for (const auto& v : mat.vias_n) board_.vias.push_back(v);
             owned[owned_idx] = po;
             resolver_.rebind(&board_);
             prep.materialized = true;
