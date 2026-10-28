@@ -110,6 +110,27 @@ router route dev_board.kicad_pcb --threads 4 --timeout 60 \
 ```
 
 
+## Building a fair corpus
+
+`tools/build_corpus.py` prepares the set before any routing happens:
+
+- collects `.kicad_pcb`/`.dsn` from directories or a list file;
+- imports each board and **drops boards with fewer than 4 pads** (their
+  netlist lives in an external `.net`, so routing them would trivially
+  "succeed" at 0/0 and inflate the score);
+- dedupes by *board signature* (board size, layer count, net count, pad
+  count) and then by file name, so minor revisions of one board collapse;
+- verifies the pads-only board and **keeps only boards whose input DRC is
+  clean** — a board that is already illegal cannot judge the router.
+
+```
+python tools/build_corpus.py \
+  --sources <repo-dirs-or-list> --out build/bench
+python tools/corpus_harness.py --boards build/bench/boards.txt \
+  --out build/bench/run --timeout 180 --threads 4 --budget-mb 512
+python tools/benchmark_corpus.py build/bench/run/corpus.json --target 0.70
+```
+
 ## How to reproduce
 
 ```
