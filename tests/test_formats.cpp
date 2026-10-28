@@ -893,9 +893,12 @@ CT_TEST(kicad_rotated_circle_pad_not_inflated) {
         ")\n";
     ImportResult ir2 = kicad.import_text(kRect, "rect_pad.kicad_pcb");
     const Terminal& r = ir2.board.terminals.front();
+    // True size is preserved; only the broadphase box is inflated.
+    CT_CHECK(r.pad_w_nm == mm_to_nm(1.0));
+    CT_CHECK(r.pad_h_nm == mm_to_nm(2.0));
     // 1x2 at 45 deg -> ~2.12 x 2.12 AABB.
-    CT_CHECK(r.pad_w_nm > mm_to_nm(2.0));
-    CT_CHECK(r.pad_w_nm < mm_to_nm(2.2));
+    CT_CHECK(r.pad_rect().width() > mm_to_nm(2.0));
+    CT_CHECK(r.pad_rect().width() < mm_to_nm(2.2));
 }
 
 CT_TEST(kicad_export_roundtrip) {

@@ -8,6 +8,43 @@
 
 namespace copperline {
 
+Rect Terminal::pad_rect() const {
+    const double th = rotation_deg * 3.14159265358979323846 / 180.0;
+    const double c = std::fabs(std::cos(th)), s = std::fabs(std::sin(th));
+    const double w = static_cast<double>(pad_w_nm), h = static_cast<double>(pad_h_nm);
+    double hx = 0.0, hy = 0.0;
+    switch (shape) {
+        case PadShape::kCircle:
+            hx = hy = std::max(w, h) / 2.0;
+            break;
+        case PadShape::kOval: {
+            const double lo = std::min(w, h), hi = std::max(w, h);
+            const double r = lo / 2.0, len = (hi - lo) / 2.0;
+            if (w >= h) {
+                hx = len * c + r;
+                hy = len * s + r;
+            } else {
+                hx = len * s + r;
+                hy = len * c + r;
+            }
+            break;
+        }
+        case PadShape::kRoundRect: {
+            const double rc = static_cast<double>(corner_r_nm);
+            hx = (w / 2.0 - rc) * c + (h / 2.0 - rc) * s + rc;
+            hy = (w / 2.0 - rc) * s + (h / 2.0 - rc) * c + rc;
+            break;
+        }
+        case PadShape::kRect:
+        default:
+            hx = w / 2.0 * c + h / 2.0 * s;
+            hy = w / 2.0 * s + h / 2.0 * c;
+            break;
+    }
+    return Rect::from_center_size(pos, static_cast<Coord>(std::llround(2.0 * hx)),
+                                  static_cast<Coord>(std::llround(2.0 * hy)));
+}
+
 const NetInfo* Board::find_net(NetId id) const {
     // Fast path: importers assign dense sequential ids, so the id indexes the
     // vector directly. This runs in the innermost clearance loops (rules,
@@ -289,6 +326,14 @@ void parse_terminal_obj(const JsonValue& t, NetId net, Board& board, TermId& nex
     if (pw <= 0 || ph <= 0) throw BoardError(InputKind::kRule, "terminal pad size must be positive");
     term.pad_w_nm = mm_to_nm(pw);
     term.pad_h_nm = mm_to_nm(ph);
+    // Pad shape fidelity (circle / oval / roundrect, rotation).
+    const std::string shape = t.get_string("shape", "");
+    if (shape == "circle") term.shape = PadShape::kCircle;
+    else if (shape == "oval") term.shape = PadShape::kOval;
+    else if (shape == "roundrect") term.shape = PadShape::kRoundRect;
+    else term.shape = PadShape::kRect;
+    term.rotation_deg = t.get_number("rotation_deg", 0.0);
+    term.corner_r_nm = mm_to_nm(t.get_number("corner_r_mm", 0.0));
     term.component = t.get_string("component");
     term.pin = t.get_string("pin");
     board.terminals.push_back(term);
@@ -878,6 +923,13 @@ JsonValue board_to_json(const Board& board) {
             // report phantom pad-pad violations).
             to["pad_w_mm"] = nm_to_mm(t->pad_w_nm);
             to["pad_h_mm"] = nm_to_mm(t->pad_h_nm);
+            if (t->shape != PadShape::kRect) {
+                to["shape"] = t->shape == PadShape::kCircle ? JsonValue("circle")
+                             : t->shape == PadShape::kOval ? JsonValue("oval")
+                                                          : JsonValue("roundrect");
+            }
+            if (t->rotation_deg != 0.0) to["rotation_deg"] = t->rotation_deg;
+            if (t->corner_r_nm != 0) to["corner_r_mm"] = nm_to_mm(t->corner_r_nm);
             if (!t->component.empty()) to["component"] = t->component;
             if (!t->pin.empty()) to["pin"] = t->pin;
             terms.as_array().push_back(to);

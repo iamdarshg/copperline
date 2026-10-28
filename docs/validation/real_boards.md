@@ -49,6 +49,51 @@ run is reported VIOLATION because the **input board already violates DRC**.
 4. **Custom/RF footprints.** `microwave` imported zero pads: its footprints
    are not in the supported subset.
 
+## Importer fidelity work (2026-10-28)
+
+Fixed:
+- **Circle pads are rotation invariant.** The importer ran every pad through
+  the rotated-rectangle bounding-box formula, inflating a round pad by up to
+  sqrt(2). Regression test `kicad_rotated_circle_pad_not_inflated`.
+- **Pads keep their true size and shape.** `Terminal` now carries
+  `shape` (rect/circle/oval/roundrect), `rotation_deg` and
+  `corner_r_nm`; `pad_rect()` is only the broadphase AABB. The board JSON
+  round-trips these fields.
+- **Shape-aware pad-to-pad DRC.** `pad_gap_nm` models a pad as a convex core
+  (point/segment/rect) Minkowski-summed with a disc, so circles, capsules
+  and rounded rectangles measure exactly. The verifier uses it for
+  pad-vs-pad clearance. Tests: `pad_gap_circles_are_not_squares`,
+  `pad_gap_roundrect_uses_corner_radius` (1.3mm round pads at 1.27mm
+  diagonal now measure 0.496mm instead of 0.000mm).
+
+Effect on the pads-only DRC of the KiCad demos: pic_programmer 46 -> 26,
+flat_hierarchy 48 -> 30, dev_board 156 -> 51 pad pairs flagged (with the
+earlier, pre-shape model).
+
+## Open issue: pad orientation on rotated footprints
+
+KiCad's own DRC (`kicad-cli pcb drc`) reports **0 clearance violations** and
+0 unconnected items on pic_programmer (its 63 findings are all
+`lib_footprint_issues`, i.e. library-link noise). Our importer still reports
+pad pairs below the 0.15mm board default on these boards, so some of the
+pad transform is still wrong. The two conventions tried disagree:
+
+- pad angle absolute: fewer false positives on these boards, but the DIP-14
+  `U2` pads (footprint 90 deg, pad 90 deg, oval 2.4x1.6) end up vertical and
+  appear to overlap the neighbouring diode;
+- pad angle footprint-relative (`frot + pad`): `U2` is fine, but the P3
+  connector pads (oval 1.6x2.8, pad angle 270) end up rotated into their
+  neighbours.
+
+Neither is self-consistent, so the bug is probably in how the pad's local
+`size` axis and the rotation are combined, or in the pad offset rotation.
+Resolving it needs an independent oracle: export F.Cu as Gerber (or
+IPC-2581) with `kicad-cli` and compare flash positions/apertures against our
+import. That is the next step; until then the importer is **not** claimed to
+match KiCad's pad geometry, and re-routing real boards still starts from a
+slightly wrong copper model.
+
+
 ## Honest verdict
 
 The router is not yet able to reproduce real KiCad routing on these boards,
@@ -56,6 +101,6 @@ and the dominant blocker is **import fidelity**, not the routing engine:
 - where the import is clean, routing completes legally;
 - where it is not, the router is asked to route a geometrically wrong board.
 
-Next work, in order of impact: shape-accurate pads (oval/roundrect/rotated
-rect as capsules/rounded rects in the verifier), per-class clearance import,
-and zone-fill import so planes can be kept rather than stripped.
+Next work, in order of impact: finish the pad transform (orientation oracle
+above), per-class clearance import, and zone-fill import so planes can be
+kept rather than stripped.

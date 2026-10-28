@@ -328,19 +328,27 @@ class KicadImport {
             warn("pad " + ref + ":" + p.number + " has no size; using 0.5x0.5mm");
             p.sx = p.sy = 0.5;
         }
-        // Rotated bounding box of the pad shape. A circle is rotation
-        // invariant: applying the rotated-rectangle formula to it inflates a
-        // round pad by up to sqrt(2), which turns real boards into false
-        // clearance violations.
-        double total_rot = (frot + p.rot) * std::numbers::pi / 180.0;
-        double cr = std::fabs(std::cos(total_rot)), sr = std::fabs(std::sin(total_rot));
-        double bw = 0, bh = 0;
-        if (p.shape == "circle") {
-            const double d = std::max(p.sx, p.sy);
-            bw = bh = d;
-        } else {
-            bw = p.sx * cr + p.sy * sr;
-            bh = p.sx * sr + p.sy * cr;
+        // True pad shape. Keep the real size and rotation; the verifier's
+        // shape-aware pad distance handles circles/ovals/roundrects. (The old
+        // code baked a rotated bounding box into pad_w/pad_h, which inflated
+        // rotated pads and produced false clearance violations.)
+        PadShape shape = PadShape::kRect;
+        if (p.shape == "circle") shape = PadShape::kCircle;
+        else if (p.shape == "oval") shape = PadShape::kOval;
+        else if (p.shape == "roundrect") shape = PadShape::kRoundRect;
+        // Total pad rotation: KiCad stores the pad angle relative to its
+        // footprint, so the drawn orientation is footprint + pad angle.
+        double pad_rot = frot + p.rot;
+        Coord corner_r = 0;
+        if (shape == PadShape::kRoundRect) {
+            // KiCad stores (roundrect_rratio r) relative to the short side
+            // (default 0.25); a literal radius may also be present.
+            double rr = 0.25;
+            if (const SexprNode* rratio = pad->find_child("roundrect_rratio")) {
+                auto v = tail_atoms(rratio);
+                if (!v.empty()) rr = num(v[0], "roundrect rratio");
+            }
+            corner_r = mm_to_nm(rr * std::min(p.sx, p.sy));
         }
         // Rotate the offset by the footprint rotation.
         double fr = frot * std::numbers::pi / 180.0;
@@ -373,8 +381,11 @@ class KicadImport {
             t.net = nit->second;
             t.pos = {mm_to_nm(px), mm_to_nm(py)};
             t.layer = lid;
-            t.pad_w_nm = mm_to_nm(bw);
-            t.pad_h_nm = mm_to_nm(bh);
+            t.pad_w_nm = mm_to_nm(p.sx);
+            t.pad_h_nm = mm_to_nm(p.sy);
+            t.shape = shape;
+            t.rotation_deg = pad_rot;
+            t.corner_r_nm = corner_r;
             t.component = ref;
             t.pin = p.number;
             b.terminals.push_back(t);

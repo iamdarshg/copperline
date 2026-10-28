@@ -60,16 +60,32 @@ struct Layer {
     bool grid_on = false;
 };
 
+// Copper pad shape. The router needs the true shape for DRC parity with real
+// boards: modelling a 1.3 mm round pad as a 1.3 mm square makes a diagonal
+// neighbour at 1.27 mm pitch look like a 0 mm clearance violation.
+enum class PadShape : int {
+    kRect = 0,      // axis-aligned (in pad frame) rectangle
+    kCircle = 1,    // rotation invariant
+    kOval = 2,      // capsule: semicircular ends along the long axis
+    kRoundRect = 3, // rectangle with rounded corners (corner_r_nm)
+};
+
 struct Terminal {
     TermId id = 0;
     NetId net = -1;
     Point pos{};
     LayerId layer = 0;
-    Coord pad_w_nm = 0;  // copper extent of the pad
+    Coord pad_w_nm = 0;  // copper extent of the pad (true size, not inflated)
     Coord pad_h_nm = 0;
     std::string component;  // e.g. "U1"
     std::string pin;        // e.g. "A3"
-    Rect pad_rect() const { return Rect::from_center_size(pos, pad_w_nm, pad_h_nm); }
+    // Pad shape fidelity (appended so positional initialisers keep working).
+    PadShape shape = PadShape::kRect;
+    double rotation_deg = 0.0;  // absolute pad rotation
+    Coord corner_r_nm = 0;      // roundrect corner radius
+    // Conservative axis-aligned bounding box of the true shape (broadphase
+    // and legacy callers). Shape starts at the centre; rotation-aware.
+    Rect pad_rect() const;
 };
 
 struct TraceSeg {

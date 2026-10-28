@@ -7,6 +7,7 @@
 #include <set>
 
 #include "router/diffpair.h"
+#include "router/pad_geometry.h"
 #include "router/simplify.h"
 #include "router/spatial_index.h"
 #include "router/via_bundle.h"
@@ -656,7 +657,7 @@ PairVerifyDetail verify_one_pair(const Board& board, const DiffPair& pr,
         for (const auto& a : pads_p) {
             for (const auto& b : pads_n) {
                 if (a.layer != b.layer) continue;
-                Coord g = rect_gap(a.pad_rect(), b.pad_rect());
+                Coord g = pad_gap_nm(a, b);
                 if (g < lo) {
                     exact_too_close = true;
                     close_at = {(a.pos.x + b.pos.x) / 2, (a.pos.y + b.pos.y) / 2};
