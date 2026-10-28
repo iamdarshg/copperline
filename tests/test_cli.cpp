@@ -1032,4 +1032,20 @@ CT_TEST(cli_import_converts_without_routing) {
     std::remove(out.c_str());
 }
 
+// --memory-budget-mb bounds the engine's batch/scratch accounting (not RSS);
+// pair it with tools/run_capped.ps1 for a hard OS limit.
+CT_TEST(cli_memory_budget_flag) {
+    CliResult r = run_cli_full("route " + fixture("open_2layer.json") +
+                               " --json --no-board-echo --seed 42"
+                               " --memory-budget-mb 256");
+    CT_CHECK(r.rc == 0);
+    JsonValue v = must_parse(r.out);
+    JsonValue params = *v.find("params");
+    CT_CHECK(params.get_number("memory_budget_mb", -1) == 256);
+
+    CliResult bad = run_cli_full("route " + fixture("open_2layer.json") +
+                                 " --memory-budget-mb 10 --json");
+    CT_CHECK(bad.rc == 2);
+}
+
 int main() { return copperline::test::run_all_tests(); }

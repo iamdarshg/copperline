@@ -75,6 +75,9 @@ struct Flags {
     bool max_multiply_nodes_set = false;
     bool no_tuning = false;  // issue #15: disable post-route length tuning
     bool no_optimizer = false;  // Prompt 5: disable cleanup optimizer
+    // Hard-ish router memory bound (MB). Caps the batch width and scratch
+    // accounting; combine with an OS-level cap for a hard limit.
+    int memory_budget_mb = 0;  // 0 = engine default (600 MB)
     // Phase 5 item 30: `router gloss` pass selection.
     bool gloss_straighten = false;
     bool gloss_recorner = false;
@@ -208,6 +211,19 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
             }
             if (f.timeout_s < 0) {
                 err = "--timeout must be >= 0";
+                return false;
+            }
+            ++i;
+        } else if (a == "--memory-budget-mb") {
+            if (!need_value(i, "--memory-budget-mb", v)) return false;
+            try {
+                f.memory_budget_mb = std::stoi(v);
+            } catch (...) {
+                err = "bad --memory-budget-mb value";
+                return false;
+            }
+            if (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536) {
+                err = "--memory-budget-mb must be 64..65536";
                 return false;
             }
             ++i;
@@ -1321,6 +1337,10 @@ int cmd_route(const Flags& f) {
 
     EngineOptions opt;
     opt.seed = f.seed;
+    if (f.memory_budget_mb > 0) {
+        opt.memory_budget_bytes =
+            static_cast<std::size_t>(f.memory_budget_mb) * 1024ULL * 1024ULL;
+    }
     // Issue #3: default to all CPUs (hardware_concurrency); explicit
     // --threads wins. Batch formation stays thread-independent so geometry
     // is deterministic; memory stays bounded (sparse interference + batch
