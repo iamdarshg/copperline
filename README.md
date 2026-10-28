@@ -430,6 +430,39 @@ the report. `router explain-failure report.json --json` renders schema
 verifier gate), plus determinism (threads 1 vs 4 identical `board_hash`),
 optimizer monotonicity and the DSN→SES round-trip.
 
+## Routing corpus (real + synthetic boards)
+
+A corpus harness runs the whole pipeline on many boards — import, strip the
+existing copper, verify the pads-only board, route, verify again:
+
+```
+python tools/gen_boards.py --out build/corpus-boards        # synthetic spread
+python tools/corpus_harness.py --boards fixtures build/corpus-boards \
+  --out build/corpus-out --timeout 20 --threads 2 --budget-mb 256
+```
+
+Sources exercised (see `docs/validation/corpus.md` for the board-by-board
+table):
+
+| source | what it contributes |
+|---|---|
+| KiCad 9 demo suite (`kicad/demos`) | real 2-4 layer boards, incl. `pic_programmer`, `ecc83`, `flat_hierarchy`, `kit-dev-coldfire`, `stickhub`, `vme-wren` |
+| `OpenJBOD/rp2040` | dense RP2040 controller board |
+| `sabogalc/project-piCo` | reverse-engineered Pico boards |
+| `bt-soft/pico-radio-9` | mixed-signal radio board |
+| `raspberrypipress/raspberry-pi-pico-with-kicad` | book example boards |
+| local projects (`drone-arm`, `Code-SDR`, `dev-board`) | ESC, flight controller, SDR (up to 1728 pads) |
+| `tools/gen_boards.py` | breakouts → grid → dense BGA (0.6-0.8 mm) → board-scale detours → 12-layer Pi-class |
+
+Optional GitHub workflow: `.github/workflows/corpus.yml` (manual
+`workflow_dispatch` or weekly) builds the router, generates the synthetic
+corpus, runs the harness over `fixtures/` + generated boards, prints a status
+summary and uploads `corpus.json` as an artifact.
+
+Memory: the engine budget is `--memory-budget-mb` (accounting), and
+`tools/run_capped.ps1` enforces a hard OS limit on Windows. See
+`docs/validation/scale_and_memory.md`.
+
 ## Determinism & benchmarks (Prompt 5)
 
 Identical `(board, rules, workers, seed, version)` → identical

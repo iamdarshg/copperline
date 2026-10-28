@@ -1,0 +1,57 @@
+name: corpus
+
+# Optional: run the routing corpus and publish the results artifact.
+# Manual dispatch (or a weekly scheduled run); it is not required for PRs.
+on:
+  workflow_dispatch:
+    inputs:
+      timeout:
+        description: "Per-board routing timeout (seconds)"
+        required: false
+        default: "20"
+  schedule:
+    - cron: "0 4 * * 1"   # Mondays 04:00 UTC
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build g++
+
+      - name: Build router
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 4 --target router
+
+      - name: Generate synthetic corpus
+        run: python3 tools/gen_boards.py --out build/corpus-boards
+
+      - name: Run corpus (fixtures + generated)
+        run: |
+          python3 tools/corpus_harness.py \
+            --boards fixtures build/corpus-boards \
+            --out build/corpus-out \
+            --timeout "${{ github.event.inputs.timeout || '20' }}" \
+            --threads 2 --budget-mb 256
+
+      - name: Summarize
+        run: |
+          python3 - <<'PY'
+          import json, collections
+          rows = json.load(open("build/corpus-out/corpus.json"))
+          c = collections.Counter(r.get("status") for r in rows)
+          ok = sum(1 for r in rows if r.get("status") == "COMPLETE" and r.get("legal"))
+          print(f"{len(rows)} boards, {ok} COMPLETE+legal")
+          for k, v in c.most_common():
+              print(f"  {k}: {v}")
+          PY
+
+      - name: Upload corpus results
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-results
+          path: build/corpus-out/corpus.json

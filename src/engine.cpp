@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "router/density.h"
+#include "router/board_stats.h"
 #include "router/escape.h"
 #include "router/portfolio.h"
 #include "router/route_tree.h"
@@ -437,15 +438,50 @@ RouteReport RouterEngine::run() {
         for (const auto& fp : esc.footprints) {
             std::map<TermId, const PadEscapeResult*> by_term;
             for (const auto& p : fp.pads) by_term[p.terminal] = &p;
+            std::set<TermId> rejected;
             for (TermId tid : fp.commit_order) {
                 auto it = by_term.find(tid);
                 if (it == by_term.end() || !it->second->has_viable ||
                     it->second->candidates.empty())
                     continue;
                 const EscapeCandidate& best = it->second->candidates.front();
-                OwnedRoute o;
                 const Terminal* term = board_.find_terminal(tid);
-                o.task.net = term ? term->net : -1;
+                const NetId net = term ? term->net : -1;
+                const std::size_t t_before = board_.traces.size();
+                const std::size_t v_before = board_.vias.size();
+                const std::size_t len_before = report.stats.length_nm;
+                Rect area{};
+                bool first_box = true;
+                for (const auto& s : best.traces) {
+                    board_.traces.push_back(s);
+                    const Rect sb = s.segment().bounds();
+                    area = first_box ? sb : rect_union(area, sb);
+                    first_box = false;
+                }
+                for (const auto& v : best.vias) {
+                    board_.vias.push_back(v);
+                    const Rect vb =
+                        Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
+                    area = first_box ? vb : rect_union(area, vb);
+                    first_box = false;
+                }
+                // Escape commits must pass the independent verifier: the
+                // planner checks each pad against its scratch board, but pads
+                // planned concurrently can still land copper on top of each
+                // other. Revert anything illegal and record the pad instead
+                // of leaving a hard-rule VIOLATION on the board.
+                BoardVerifier escape_gate;
+                if (first_box ||
+                    escape_gate.has_local_violation(board_, resolver_, ctx, net,
+                                                    area)) {
+                    board_.traces.resize(t_before);
+                    board_.vias.resize(v_before);
+                    report.stats.length_nm = len_before;
+                    rejected.insert(tid);
+                    continue;
+                }
+                OwnedRoute o;
+                o.task.net = net;
                 o.task.a = tid;
                 o.task.b = -1;  // portal stub: no second terminal
                 o.task_pos = -1;  // not a global task; see recovery mapping
@@ -457,24 +493,22 @@ RouteReport RouterEngine::run() {
                 o.protection = route_protection_score(true, 0.0, 0,
                                                       /*is_fixed=*/false,
                                                       RecoveryMode::FAST);
-                for (const auto& s : best.traces) {
-                    board_.traces.push_back(s);
+                for (const auto& s : best.traces)
                     report.stats.length_nm += euclid_len_nm(s.a, s.b);
-                }
-                for (const auto& v : best.vias) {
-                    board_.vias.push_back(v);
-                    report.stats.via_count++;
-                }
+                report.stats.via_count += static_cast<int>(best.vias.size());
                 owned.push_back(o);
                 report.escape_stage.escaped_terminals.push_back(tid);
             }
             for (const auto& p : fp.pads) {
                 escape_centre_depth[p.terminal] = p.centre_depth;
-                if (!p.has_viable) {
+                const bool gate_rejected = rejected.count(p.terminal) != 0;
+                if (!p.has_viable || gate_rejected) {
                     report.escape_stage.unresolved_terminals.push_back(p.terminal);
-                    std::string reason = p.infeasibility.recorded
+                    std::string reason =
+                        gate_rejected ? "clearance_conflict"
+                                      : (p.infeasibility.recorded
                                              ? p.infeasibility.reason
-                                             : "no_candidate";
+                                             : "no_candidate");
                     report.escape_stage.unresolved_reasons.push_back(reason);
                     escape_infeasible_reason[p.terminal] = reason;
                 }

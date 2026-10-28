@@ -569,4 +569,23 @@ CT_TEST(route_ripup_protects_real_escape_stubs) {
     }
 }
 
+// INVARIANT: the escape stage must never commit copper that the independent
+// verifier rejects. On a dense BGA the planner's concurrent pad planning used
+// to merge stubs that overlap each other (0.0mm gaps), turning the run into a
+// hard-rule VIOLATION instead of an honest INCOMPLETE.
+CT_TEST(escape_never_commits_illegal_copper_on_dense_bga) {
+    Board b = load_fixture_board("bga_escape_dense.json");
+    RuleResolver r = RuleResolver::defaults_for(b);
+    CT_CHECK(b.terminals.size() >= 300);
+    EngineOptions opt;
+    opt.threads = 8;
+    opt.max_epochs = 1;   // keep the test fast: the escape stage is the target
+    opt.timeout_s = 10;
+    RouterEngine engine(std::move(b), std::move(r), opt);
+    const RouteReport rep = engine.run();
+    CT_CHECK(rep.verification.legal);
+    CT_CHECK(rep.status != "VIOLATION");
+    CT_CHECK(rep.result_category != "HARD_RULE_VIOLATION");
+}
+
 int main() { return copperline::test::run_all_tests(); }

@@ -1,0 +1,5554 @@
+{
+"schema": "copperline/board/1",
+"board": {
+"width_mm": 45.0,
+"height_mm": 45.0
+},
+"layers": [
+{
+"id": 0,
+"name": "Top"
+},
+{
+"id": 1,
+"name": "In1"
+},
+{
+"id": 2,
+"name": "In2"
+},
+{
+"id": 3,
+"name": "In3"
+},
+{
+"id": 4,
+"name": "In4"
+},
+{
+"id": 5,
+"name": "In5"
+},
+{
+"id": 6,
+"name": "In6"
+},
+{
+"id": 7,
+"name": "In7"
+},
+{
+"id": 8,
+"name": "In8"
+},
+{
+"id": 9,
+"name": "In9"
+},
+{
+"id": 10,
+"name": "In10"
+},
+{
+"id": 11,
+"name": "Bottom"
+}
+],
+"defaults": {
+"trace_width_mm": 0.1,
+"clearance_mm": 0.1,
+"via_outer_mm": 0.45,
+"via_hole_mm": 0.2,
+"default_current_a": 0.5
+},
+"nets": [
+{
+"id": 0,
+"name": "BGA_0_0",
+"terminals": [
+{
+"id": 0,
+"x_mm": 19.8,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "00"
+},
+{
+"id": 1,
+"x_mm": 4.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "0"
+}
+]
+},
+{
+"id": 1,
+"name": "BGA_0_1",
+"terminals": [
+{
+"id": 2,
+"x_mm": 20.6,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "01"
+},
+{
+"id": 3,
+"x_mm": 5.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "1"
+}
+]
+},
+{
+"id": 2,
+"name": "BGA_0_2",
+"terminals": [
+{
+"id": 4,
+"x_mm": 21.4,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "02"
+},
+{
+"id": 5,
+"x_mm": 7.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "2"
+}
+]
+},
+{
+"id": 3,
+"name": "BGA_0_3",
+"terminals": [
+{
+"id": 6,
+"x_mm": 22.2,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "03"
+},
+{
+"id": 7,
+"x_mm": 8.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "3"
+}
+]
+},
+{
+"id": 4,
+"name": "BGA_0_4",
+"terminals": [
+{
+"id": 8,
+"x_mm": 23.0,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "04"
+},
+{
+"id": 9,
+"x_mm": 10.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "4"
+}
+]
+},
+{
+"id": 5,
+"name": "BGA_0_5",
+"terminals": [
+{
+"id": 10,
+"x_mm": 23.8,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "05"
+},
+{
+"id": 11,
+"x_mm": 11.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "5"
+}
+]
+},
+{
+"id": 6,
+"name": "BGA_0_6",
+"terminals": [
+{
+"id": 12,
+"x_mm": 24.6,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "06"
+},
+{
+"id": 13,
+"x_mm": 13.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "6"
+}
+]
+},
+{
+"id": 7,
+"name": "BGA_0_7",
+"terminals": [
+{
+"id": 14,
+"x_mm": 25.4,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "07"
+},
+{
+"id": 15,
+"x_mm": 14.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "7"
+}
+]
+},
+{
+"id": 8,
+"name": "BGA_0_8",
+"terminals": [
+{
+"id": 16,
+"x_mm": 26.2,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "08"
+},
+{
+"id": 17,
+"x_mm": 16.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "8"
+}
+]
+},
+{
+"id": 9,
+"name": "BGA_0_9",
+"terminals": [
+{
+"id": 18,
+"x_mm": 27.0,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "09"
+},
+{
+"id": 19,
+"x_mm": 17.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "9"
+}
+]
+},
+{
+"id": 10,
+"name": "BGA_0_10",
+"terminals": [
+{
+"id": 20,
+"x_mm": 27.8,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "010"
+},
+{
+"id": 21,
+"x_mm": 19.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "10"
+}
+]
+},
+{
+"id": 11,
+"name": "BGA_0_11",
+"terminals": [
+{
+"id": 22,
+"x_mm": 28.6,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "011"
+},
+{
+"id": 23,
+"x_mm": 20.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "11"
+}
+]
+},
+{
+"id": 12,
+"name": "BGA_0_12",
+"terminals": [
+{
+"id": 24,
+"x_mm": 29.4,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "012"
+},
+{
+"id": 25,
+"x_mm": 22.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "12"
+}
+]
+},
+{
+"id": 13,
+"name": "BGA_0_13",
+"terminals": [
+{
+"id": 26,
+"x_mm": 30.2,
+"y_mm": 19.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "013"
+},
+{
+"id": 27,
+"x_mm": 23.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "13"
+}
+]
+},
+{
+"id": 14,
+"name": "BGA_1_0",
+"terminals": [
+{
+"id": 28,
+"x_mm": 19.8,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "10"
+},
+{
+"id": 29,
+"x_mm": 25.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "14"
+}
+]
+},
+{
+"id": 15,
+"name": "BGA_1_1",
+"terminals": [
+{
+"id": 30,
+"x_mm": 20.6,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "11"
+},
+{
+"id": 31,
+"x_mm": 26.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "15"
+}
+]
+},
+{
+"id": 16,
+"name": "BGA_1_2",
+"terminals": [
+{
+"id": 32,
+"x_mm": 21.4,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "12"
+},
+{
+"id": 33,
+"x_mm": 28.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "16"
+}
+]
+},
+{
+"id": 17,
+"name": "BGA_1_3",
+"terminals": [
+{
+"id": 34,
+"x_mm": 22.2,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "13"
+},
+{
+"id": 35,
+"x_mm": 29.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "17"
+}
+]
+},
+{
+"id": 18,
+"name": "BGA_1_4",
+"terminals": [
+{
+"id": 36,
+"x_mm": 23.0,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "14"
+},
+{
+"id": 37,
+"x_mm": 31.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "18"
+}
+]
+},
+{
+"id": 19,
+"name": "BGA_1_5",
+"terminals": [
+{
+"id": 38,
+"x_mm": 23.8,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "15"
+},
+{
+"id": 39,
+"x_mm": 32.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "19"
+}
+]
+},
+{
+"id": 20,
+"name": "BGA_1_6",
+"terminals": [
+{
+"id": 40,
+"x_mm": 24.6,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "16"
+},
+{
+"id": 41,
+"x_mm": 34.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "20"
+}
+]
+},
+{
+"id": 21,
+"name": "BGA_1_7",
+"terminals": [
+{
+"id": 42,
+"x_mm": 25.4,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "17"
+},
+{
+"id": 43,
+"x_mm": 35.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "21"
+}
+]
+},
+{
+"id": 22,
+"name": "BGA_1_8",
+"terminals": [
+{
+"id": 44,
+"x_mm": 26.2,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "18"
+},
+{
+"id": 45,
+"x_mm": 37.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "22"
+}
+]
+},
+{
+"id": 23,
+"name": "BGA_1_9",
+"terminals": [
+{
+"id": 46,
+"x_mm": 27.0,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "19"
+},
+{
+"id": 47,
+"x_mm": 38.5,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "23"
+}
+]
+},
+{
+"id": 24,
+"name": "BGA_1_10",
+"terminals": [
+{
+"id": 48,
+"x_mm": 27.8,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "110"
+},
+{
+"id": 49,
+"x_mm": 40.0,
+"y_mm": 2.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "24"
+}
+]
+},
+{
+"id": 25,
+"name": "BGA_1_11",
+"terminals": [
+{
+"id": 50,
+"x_mm": 28.6,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "111"
+},
+{
+"id": 51,
+"x_mm": 4.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "25"
+}
+]
+},
+{
+"id": 26,
+"name": "BGA_1_12",
+"terminals": [
+{
+"id": 52,
+"x_mm": 29.4,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "112"
+},
+{
+"id": 53,
+"x_mm": 5.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "26"
+}
+]
+},
+{
+"id": 27,
+"name": "BGA_1_13",
+"terminals": [
+{
+"id": 54,
+"x_mm": 30.2,
+"y_mm": 20.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "113"
+},
+{
+"id": 55,
+"x_mm": 7.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "27"
+}
+]
+},
+{
+"id": 28,
+"name": "BGA_2_0",
+"terminals": [
+{
+"id": 56,
+"x_mm": 19.8,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "20"
+},
+{
+"id": 57,
+"x_mm": 8.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "28"
+}
+]
+},
+{
+"id": 29,
+"name": "BGA_2_1",
+"terminals": [
+{
+"id": 58,
+"x_mm": 20.6,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "21"
+},
+{
+"id": 59,
+"x_mm": 10.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "29"
+}
+]
+},
+{
+"id": 30,
+"name": "BGA_2_2",
+"terminals": [
+{
+"id": 60,
+"x_mm": 21.4,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "22"
+},
+{
+"id": 61,
+"x_mm": 11.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "30"
+}
+]
+},
+{
+"id": 31,
+"name": "BGA_2_3",
+"terminals": [
+{
+"id": 62,
+"x_mm": 22.2,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "23"
+},
+{
+"id": 63,
+"x_mm": 13.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "31"
+}
+]
+},
+{
+"id": 32,
+"name": "BGA_2_4",
+"terminals": [
+{
+"id": 64,
+"x_mm": 23.0,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "24"
+},
+{
+"id": 65,
+"x_mm": 14.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "32"
+}
+]
+},
+{
+"id": 33,
+"name": "BGA_2_5",
+"terminals": [
+{
+"id": 66,
+"x_mm": 23.8,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "25"
+},
+{
+"id": 67,
+"x_mm": 16.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "33"
+}
+]
+},
+{
+"id": 34,
+"name": "BGA_2_6",
+"terminals": [
+{
+"id": 68,
+"x_mm": 24.6,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "26"
+},
+{
+"id": 69,
+"x_mm": 17.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "34"
+}
+]
+},
+{
+"id": 35,
+"name": "BGA_2_7",
+"terminals": [
+{
+"id": 70,
+"x_mm": 25.4,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "27"
+},
+{
+"id": 71,
+"x_mm": 19.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "35"
+}
+]
+},
+{
+"id": 36,
+"name": "BGA_2_8",
+"terminals": [
+{
+"id": 72,
+"x_mm": 26.2,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "28"
+},
+{
+"id": 73,
+"x_mm": 20.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "36"
+}
+]
+},
+{
+"id": 37,
+"name": "BGA_2_9",
+"terminals": [
+{
+"id": 74,
+"x_mm": 27.0,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "29"
+},
+{
+"id": 75,
+"x_mm": 22.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "37"
+}
+]
+},
+{
+"id": 38,
+"name": "BGA_2_10",
+"terminals": [
+{
+"id": 76,
+"x_mm": 27.8,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "210"
+},
+{
+"id": 77,
+"x_mm": 23.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "38"
+}
+]
+},
+{
+"id": 39,
+"name": "BGA_2_11",
+"terminals": [
+{
+"id": 78,
+"x_mm": 28.6,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "211"
+},
+{
+"id": 79,
+"x_mm": 25.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "39"
+}
+]
+},
+{
+"id": 40,
+"name": "BGA_2_12",
+"terminals": [
+{
+"id": 80,
+"x_mm": 29.4,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "212"
+},
+{
+"id": 81,
+"x_mm": 26.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "40"
+}
+]
+},
+{
+"id": 41,
+"name": "BGA_2_13",
+"terminals": [
+{
+"id": 82,
+"x_mm": 30.2,
+"y_mm": 21.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "213"
+},
+{
+"id": 83,
+"x_mm": 28.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "41"
+}
+]
+},
+{
+"id": 42,
+"name": "BGA_3_0",
+"terminals": [
+{
+"id": 84,
+"x_mm": 19.8,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "30"
+},
+{
+"id": 85,
+"x_mm": 29.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "42"
+}
+]
+},
+{
+"id": 43,
+"name": "BGA_3_1",
+"terminals": [
+{
+"id": 86,
+"x_mm": 20.6,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "31"
+},
+{
+"id": 87,
+"x_mm": 31.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "43"
+}
+]
+},
+{
+"id": 44,
+"name": "BGA_3_2",
+"terminals": [
+{
+"id": 88,
+"x_mm": 21.4,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "32"
+},
+{
+"id": 89,
+"x_mm": 32.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "44"
+}
+]
+},
+{
+"id": 45,
+"name": "BGA_3_3",
+"terminals": [
+{
+"id": 90,
+"x_mm": 22.2,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "33"
+},
+{
+"id": 91,
+"x_mm": 34.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "45"
+}
+]
+},
+{
+"id": 46,
+"name": "BGA_3_4",
+"terminals": [
+{
+"id": 92,
+"x_mm": 23.0,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "34"
+},
+{
+"id": 93,
+"x_mm": 35.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "46"
+}
+]
+},
+{
+"id": 47,
+"name": "BGA_3_5",
+"terminals": [
+{
+"id": 94,
+"x_mm": 23.8,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "35"
+},
+{
+"id": 95,
+"x_mm": 37.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "47"
+}
+]
+},
+{
+"id": 48,
+"name": "BGA_3_6",
+"terminals": [
+{
+"id": 96,
+"x_mm": 24.6,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "36"
+},
+{
+"id": 97,
+"x_mm": 38.5,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "48"
+}
+]
+},
+{
+"id": 49,
+"name": "BGA_3_7",
+"terminals": [
+{
+"id": 98,
+"x_mm": 25.4,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "37"
+},
+{
+"id": 99,
+"x_mm": 40.0,
+"y_mm": 3.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "49"
+}
+]
+},
+{
+"id": 50,
+"name": "BGA_3_8",
+"terminals": [
+{
+"id": 100,
+"x_mm": 26.2,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "38"
+},
+{
+"id": 101,
+"x_mm": 4.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "50"
+}
+]
+},
+{
+"id": 51,
+"name": "BGA_3_9",
+"terminals": [
+{
+"id": 102,
+"x_mm": 27.0,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "39"
+},
+{
+"id": 103,
+"x_mm": 5.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "51"
+}
+]
+},
+{
+"id": 52,
+"name": "BGA_3_10",
+"terminals": [
+{
+"id": 104,
+"x_mm": 27.8,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "310"
+},
+{
+"id": 105,
+"x_mm": 7.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "52"
+}
+]
+},
+{
+"id": 53,
+"name": "BGA_3_11",
+"terminals": [
+{
+"id": 106,
+"x_mm": 28.6,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "311"
+},
+{
+"id": 107,
+"x_mm": 8.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "53"
+}
+]
+},
+{
+"id": 54,
+"name": "BGA_3_12",
+"terminals": [
+{
+"id": 108,
+"x_mm": 29.4,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "312"
+},
+{
+"id": 109,
+"x_mm": 10.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "54"
+}
+]
+},
+{
+"id": 55,
+"name": "BGA_3_13",
+"terminals": [
+{
+"id": 110,
+"x_mm": 30.2,
+"y_mm": 22.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "313"
+},
+{
+"id": 111,
+"x_mm": 11.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "55"
+}
+]
+},
+{
+"id": 56,
+"name": "BGA_4_0",
+"terminals": [
+{
+"id": 112,
+"x_mm": 19.8,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "40"
+},
+{
+"id": 113,
+"x_mm": 13.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "56"
+}
+]
+},
+{
+"id": 57,
+"name": "BGA_4_1",
+"terminals": [
+{
+"id": 114,
+"x_mm": 20.6,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "41"
+},
+{
+"id": 115,
+"x_mm": 14.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "57"
+}
+]
+},
+{
+"id": 58,
+"name": "BGA_4_2",
+"terminals": [
+{
+"id": 116,
+"x_mm": 21.4,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "42"
+},
+{
+"id": 117,
+"x_mm": 16.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "58"
+}
+]
+},
+{
+"id": 59,
+"name": "BGA_4_3",
+"terminals": [
+{
+"id": 118,
+"x_mm": 22.2,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "43"
+},
+{
+"id": 119,
+"x_mm": 17.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "59"
+}
+]
+},
+{
+"id": 60,
+"name": "BGA_4_4",
+"terminals": [
+{
+"id": 120,
+"x_mm": 23.0,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "44"
+},
+{
+"id": 121,
+"x_mm": 19.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "60"
+}
+]
+},
+{
+"id": 61,
+"name": "BGA_4_5",
+"terminals": [
+{
+"id": 122,
+"x_mm": 23.8,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "45"
+},
+{
+"id": 123,
+"x_mm": 20.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "61"
+}
+]
+},
+{
+"id": 62,
+"name": "BGA_4_6",
+"terminals": [
+{
+"id": 124,
+"x_mm": 24.6,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "46"
+},
+{
+"id": 125,
+"x_mm": 22.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "62"
+}
+]
+},
+{
+"id": 63,
+"name": "BGA_4_7",
+"terminals": [
+{
+"id": 126,
+"x_mm": 25.4,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "47"
+},
+{
+"id": 127,
+"x_mm": 23.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "63"
+}
+]
+},
+{
+"id": 64,
+"name": "BGA_4_8",
+"terminals": [
+{
+"id": 128,
+"x_mm": 26.2,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "48"
+},
+{
+"id": 129,
+"x_mm": 25.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "64"
+}
+]
+},
+{
+"id": 65,
+"name": "BGA_4_9",
+"terminals": [
+{
+"id": 130,
+"x_mm": 27.0,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "49"
+},
+{
+"id": 131,
+"x_mm": 26.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "65"
+}
+]
+},
+{
+"id": 66,
+"name": "BGA_4_10",
+"terminals": [
+{
+"id": 132,
+"x_mm": 27.8,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "410"
+},
+{
+"id": 133,
+"x_mm": 28.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "66"
+}
+]
+},
+{
+"id": 67,
+"name": "BGA_4_11",
+"terminals": [
+{
+"id": 134,
+"x_mm": 28.6,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "411"
+},
+{
+"id": 135,
+"x_mm": 29.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "67"
+}
+]
+},
+{
+"id": 68,
+"name": "BGA_4_12",
+"terminals": [
+{
+"id": 136,
+"x_mm": 29.4,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "412"
+},
+{
+"id": 137,
+"x_mm": 31.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "68"
+}
+]
+},
+{
+"id": 69,
+"name": "BGA_4_13",
+"terminals": [
+{
+"id": 138,
+"x_mm": 30.2,
+"y_mm": 23.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "413"
+},
+{
+"id": 139,
+"x_mm": 32.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "69"
+}
+]
+},
+{
+"id": 70,
+"name": "BGA_5_0",
+"terminals": [
+{
+"id": 140,
+"x_mm": 19.8,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "50"
+},
+{
+"id": 141,
+"x_mm": 34.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "70"
+}
+]
+},
+{
+"id": 71,
+"name": "BGA_5_1",
+"terminals": [
+{
+"id": 142,
+"x_mm": 20.6,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "51"
+},
+{
+"id": 143,
+"x_mm": 35.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "71"
+}
+]
+},
+{
+"id": 72,
+"name": "BGA_5_2",
+"terminals": [
+{
+"id": 144,
+"x_mm": 21.4,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "52"
+},
+{
+"id": 145,
+"x_mm": 37.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "72"
+}
+]
+},
+{
+"id": 73,
+"name": "BGA_5_3",
+"terminals": [
+{
+"id": 146,
+"x_mm": 22.2,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "53"
+},
+{
+"id": 147,
+"x_mm": 38.5,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "73"
+}
+]
+},
+{
+"id": 74,
+"name": "BGA_5_4",
+"terminals": [
+{
+"id": 148,
+"x_mm": 23.0,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "54"
+},
+{
+"id": 149,
+"x_mm": 40.0,
+"y_mm": 5.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "74"
+}
+]
+},
+{
+"id": 75,
+"name": "BGA_5_5",
+"terminals": [
+{
+"id": 150,
+"x_mm": 23.8,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "55"
+},
+{
+"id": 151,
+"x_mm": 4.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "75"
+}
+]
+},
+{
+"id": 76,
+"name": "BGA_5_6",
+"terminals": [
+{
+"id": 152,
+"x_mm": 24.6,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "56"
+},
+{
+"id": 153,
+"x_mm": 5.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "76"
+}
+]
+},
+{
+"id": 77,
+"name": "BGA_5_7",
+"terminals": [
+{
+"id": 154,
+"x_mm": 25.4,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "57"
+},
+{
+"id": 155,
+"x_mm": 7.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "77"
+}
+]
+},
+{
+"id": 78,
+"name": "BGA_5_8",
+"terminals": [
+{
+"id": 156,
+"x_mm": 26.2,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "58"
+},
+{
+"id": 157,
+"x_mm": 8.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "78"
+}
+]
+},
+{
+"id": 79,
+"name": "BGA_5_9",
+"terminals": [
+{
+"id": 158,
+"x_mm": 27.0,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "59"
+},
+{
+"id": 159,
+"x_mm": 10.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "79"
+}
+]
+},
+{
+"id": 80,
+"name": "BGA_5_10",
+"terminals": [
+{
+"id": 160,
+"x_mm": 27.8,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "510"
+},
+{
+"id": 161,
+"x_mm": 11.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "80"
+}
+]
+},
+{
+"id": 81,
+"name": "BGA_5_11",
+"terminals": [
+{
+"id": 162,
+"x_mm": 28.6,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "511"
+},
+{
+"id": 163,
+"x_mm": 13.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "81"
+}
+]
+},
+{
+"id": 82,
+"name": "BGA_5_12",
+"terminals": [
+{
+"id": 164,
+"x_mm": 29.4,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "512"
+},
+{
+"id": 165,
+"x_mm": 14.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "82"
+}
+]
+},
+{
+"id": 83,
+"name": "BGA_5_13",
+"terminals": [
+{
+"id": 166,
+"x_mm": 30.2,
+"y_mm": 23.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "513"
+},
+{
+"id": 167,
+"x_mm": 16.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "83"
+}
+]
+},
+{
+"id": 84,
+"name": "BGA_6_0",
+"terminals": [
+{
+"id": 168,
+"x_mm": 19.8,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "60"
+},
+{
+"id": 169,
+"x_mm": 17.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "84"
+}
+]
+},
+{
+"id": 85,
+"name": "BGA_6_1",
+"terminals": [
+{
+"id": 170,
+"x_mm": 20.6,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "61"
+},
+{
+"id": 171,
+"x_mm": 19.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "85"
+}
+]
+},
+{
+"id": 86,
+"name": "BGA_6_2",
+"terminals": [
+{
+"id": 172,
+"x_mm": 21.4,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "62"
+},
+{
+"id": 173,
+"x_mm": 20.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "86"
+}
+]
+},
+{
+"id": 87,
+"name": "BGA_6_3",
+"terminals": [
+{
+"id": 174,
+"x_mm": 22.2,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "63"
+},
+{
+"id": 175,
+"x_mm": 22.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "87"
+}
+]
+},
+{
+"id": 88,
+"name": "BGA_6_4",
+"terminals": [
+{
+"id": 176,
+"x_mm": 23.0,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "64"
+},
+{
+"id": 177,
+"x_mm": 23.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "88"
+}
+]
+},
+{
+"id": 89,
+"name": "BGA_6_5",
+"terminals": [
+{
+"id": 178,
+"x_mm": 23.8,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "65"
+},
+{
+"id": 179,
+"x_mm": 25.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "89"
+}
+]
+},
+{
+"id": 90,
+"name": "BGA_6_6",
+"terminals": [
+{
+"id": 180,
+"x_mm": 24.6,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "66"
+},
+{
+"id": 181,
+"x_mm": 26.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "90"
+}
+]
+},
+{
+"id": 91,
+"name": "BGA_6_7",
+"terminals": [
+{
+"id": 182,
+"x_mm": 25.4,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "67"
+},
+{
+"id": 183,
+"x_mm": 28.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "91"
+}
+]
+},
+{
+"id": 92,
+"name": "BGA_6_8",
+"terminals": [
+{
+"id": 184,
+"x_mm": 26.2,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "68"
+},
+{
+"id": 185,
+"x_mm": 29.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "92"
+}
+]
+},
+{
+"id": 93,
+"name": "BGA_6_9",
+"terminals": [
+{
+"id": 186,
+"x_mm": 27.0,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "69"
+},
+{
+"id": 187,
+"x_mm": 31.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "93"
+}
+]
+},
+{
+"id": 94,
+"name": "BGA_6_10",
+"terminals": [
+{
+"id": 188,
+"x_mm": 27.8,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "610"
+},
+{
+"id": 189,
+"x_mm": 32.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "94"
+}
+]
+},
+{
+"id": 95,
+"name": "BGA_6_11",
+"terminals": [
+{
+"id": 190,
+"x_mm": 28.6,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "611"
+},
+{
+"id": 191,
+"x_mm": 34.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "95"
+}
+]
+},
+{
+"id": 96,
+"name": "BGA_6_12",
+"terminals": [
+{
+"id": 192,
+"x_mm": 29.4,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "612"
+},
+{
+"id": 193,
+"x_mm": 35.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "96"
+}
+]
+},
+{
+"id": 97,
+"name": "BGA_6_13",
+"terminals": [
+{
+"id": 194,
+"x_mm": 30.2,
+"y_mm": 24.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "613"
+},
+{
+"id": 195,
+"x_mm": 37.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "97"
+}
+]
+},
+{
+"id": 98,
+"name": "BGA_7_0",
+"terminals": [
+{
+"id": 196,
+"x_mm": 19.8,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "70"
+},
+{
+"id": 197,
+"x_mm": 38.5,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "98"
+}
+]
+},
+{
+"id": 99,
+"name": "BGA_7_1",
+"terminals": [
+{
+"id": 198,
+"x_mm": 20.6,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "71"
+},
+{
+"id": 199,
+"x_mm": 40.0,
+"y_mm": 6.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "99"
+}
+]
+},
+{
+"id": 100,
+"name": "BGA_7_2",
+"terminals": [
+{
+"id": 200,
+"x_mm": 21.4,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "72"
+},
+{
+"id": 201,
+"x_mm": 4.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "100"
+}
+]
+},
+{
+"id": 101,
+"name": "BGA_7_3",
+"terminals": [
+{
+"id": 202,
+"x_mm": 22.2,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "73"
+},
+{
+"id": 203,
+"x_mm": 5.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "101"
+}
+]
+},
+{
+"id": 102,
+"name": "BGA_7_4",
+"terminals": [
+{
+"id": 204,
+"x_mm": 23.0,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "74"
+},
+{
+"id": 205,
+"x_mm": 7.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "102"
+}
+]
+},
+{
+"id": 103,
+"name": "BGA_7_5",
+"terminals": [
+{
+"id": 206,
+"x_mm": 23.8,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "75"
+},
+{
+"id": 207,
+"x_mm": 8.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "103"
+}
+]
+},
+{
+"id": 104,
+"name": "BGA_7_6",
+"terminals": [
+{
+"id": 208,
+"x_mm": 24.6,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "76"
+},
+{
+"id": 209,
+"x_mm": 10.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "104"
+}
+]
+},
+{
+"id": 105,
+"name": "BGA_7_7",
+"terminals": [
+{
+"id": 210,
+"x_mm": 25.4,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "77"
+},
+{
+"id": 211,
+"x_mm": 11.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "105"
+}
+]
+},
+{
+"id": 106,
+"name": "BGA_7_8",
+"terminals": [
+{
+"id": 212,
+"x_mm": 26.2,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "78"
+},
+{
+"id": 213,
+"x_mm": 13.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "106"
+}
+]
+},
+{
+"id": 107,
+"name": "BGA_7_9",
+"terminals": [
+{
+"id": 214,
+"x_mm": 27.0,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "79"
+},
+{
+"id": 215,
+"x_mm": 14.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "107"
+}
+]
+},
+{
+"id": 108,
+"name": "BGA_7_10",
+"terminals": [
+{
+"id": 216,
+"x_mm": 27.8,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "710"
+},
+{
+"id": 217,
+"x_mm": 16.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "108"
+}
+]
+},
+{
+"id": 109,
+"name": "BGA_7_11",
+"terminals": [
+{
+"id": 218,
+"x_mm": 28.6,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "711"
+},
+{
+"id": 219,
+"x_mm": 17.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "109"
+}
+]
+},
+{
+"id": 110,
+"name": "BGA_7_12",
+"terminals": [
+{
+"id": 220,
+"x_mm": 29.4,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "712"
+},
+{
+"id": 221,
+"x_mm": 19.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "110"
+}
+]
+},
+{
+"id": 111,
+"name": "BGA_7_13",
+"terminals": [
+{
+"id": 222,
+"x_mm": 30.2,
+"y_mm": 25.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "713"
+},
+{
+"id": 223,
+"x_mm": 20.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "111"
+}
+]
+},
+{
+"id": 112,
+"name": "BGA_8_0",
+"terminals": [
+{
+"id": 224,
+"x_mm": 19.8,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "80"
+},
+{
+"id": 225,
+"x_mm": 22.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "112"
+}
+]
+},
+{
+"id": 113,
+"name": "BGA_8_1",
+"terminals": [
+{
+"id": 226,
+"x_mm": 20.6,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "81"
+},
+{
+"id": 227,
+"x_mm": 23.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "113"
+}
+]
+},
+{
+"id": 114,
+"name": "BGA_8_2",
+"terminals": [
+{
+"id": 228,
+"x_mm": 21.4,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "82"
+},
+{
+"id": 229,
+"x_mm": 25.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "114"
+}
+]
+},
+{
+"id": 115,
+"name": "BGA_8_3",
+"terminals": [
+{
+"id": 230,
+"x_mm": 22.2,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "83"
+},
+{
+"id": 231,
+"x_mm": 26.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "115"
+}
+]
+},
+{
+"id": 116,
+"name": "BGA_8_4",
+"terminals": [
+{
+"id": 232,
+"x_mm": 23.0,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "84"
+},
+{
+"id": 233,
+"x_mm": 28.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "116"
+}
+]
+},
+{
+"id": 117,
+"name": "BGA_8_5",
+"terminals": [
+{
+"id": 234,
+"x_mm": 23.8,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "85"
+},
+{
+"id": 235,
+"x_mm": 29.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "117"
+}
+]
+},
+{
+"id": 118,
+"name": "BGA_8_6",
+"terminals": [
+{
+"id": 236,
+"x_mm": 24.6,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "86"
+},
+{
+"id": 237,
+"x_mm": 31.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "118"
+}
+]
+},
+{
+"id": 119,
+"name": "BGA_8_7",
+"terminals": [
+{
+"id": 238,
+"x_mm": 25.4,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "87"
+},
+{
+"id": 239,
+"x_mm": 32.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "119"
+}
+]
+},
+{
+"id": 120,
+"name": "BGA_8_8",
+"terminals": [
+{
+"id": 240,
+"x_mm": 26.2,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "88"
+},
+{
+"id": 241,
+"x_mm": 34.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "120"
+}
+]
+},
+{
+"id": 121,
+"name": "BGA_8_9",
+"terminals": [
+{
+"id": 242,
+"x_mm": 27.0,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "89"
+},
+{
+"id": 243,
+"x_mm": 35.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "121"
+}
+]
+},
+{
+"id": 122,
+"name": "BGA_8_10",
+"terminals": [
+{
+"id": 244,
+"x_mm": 27.8,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "810"
+},
+{
+"id": 245,
+"x_mm": 37.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "122"
+}
+]
+},
+{
+"id": 123,
+"name": "BGA_8_11",
+"terminals": [
+{
+"id": 246,
+"x_mm": 28.6,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "811"
+},
+{
+"id": 247,
+"x_mm": 38.5,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "123"
+}
+]
+},
+{
+"id": 124,
+"name": "BGA_8_12",
+"terminals": [
+{
+"id": 248,
+"x_mm": 29.4,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "812"
+},
+{
+"id": 249,
+"x_mm": 40.0,
+"y_mm": 8.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "124"
+}
+]
+},
+{
+"id": 125,
+"name": "BGA_8_13",
+"terminals": [
+{
+"id": 250,
+"x_mm": 30.2,
+"y_mm": 26.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "813"
+},
+{
+"id": 251,
+"x_mm": 4.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "125"
+}
+]
+},
+{
+"id": 126,
+"name": "BGA_9_0",
+"terminals": [
+{
+"id": 252,
+"x_mm": 19.8,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "90"
+},
+{
+"id": 253,
+"x_mm": 5.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "126"
+}
+]
+},
+{
+"id": 127,
+"name": "BGA_9_1",
+"terminals": [
+{
+"id": 254,
+"x_mm": 20.6,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "91"
+},
+{
+"id": 255,
+"x_mm": 7.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "127"
+}
+]
+},
+{
+"id": 128,
+"name": "BGA_9_2",
+"terminals": [
+{
+"id": 256,
+"x_mm": 21.4,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "92"
+},
+{
+"id": 257,
+"x_mm": 8.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "128"
+}
+]
+},
+{
+"id": 129,
+"name": "BGA_9_3",
+"terminals": [
+{
+"id": 258,
+"x_mm": 22.2,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "93"
+},
+{
+"id": 259,
+"x_mm": 10.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "129"
+}
+]
+},
+{
+"id": 130,
+"name": "BGA_9_4",
+"terminals": [
+{
+"id": 260,
+"x_mm": 23.0,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "94"
+},
+{
+"id": 261,
+"x_mm": 11.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "130"
+}
+]
+},
+{
+"id": 131,
+"name": "BGA_9_5",
+"terminals": [
+{
+"id": 262,
+"x_mm": 23.8,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "95"
+},
+{
+"id": 263,
+"x_mm": 13.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "131"
+}
+]
+},
+{
+"id": 132,
+"name": "BGA_9_6",
+"terminals": [
+{
+"id": 264,
+"x_mm": 24.6,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "96"
+},
+{
+"id": 265,
+"x_mm": 14.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "132"
+}
+]
+},
+{
+"id": 133,
+"name": "BGA_9_7",
+"terminals": [
+{
+"id": 266,
+"x_mm": 25.4,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "97"
+},
+{
+"id": 267,
+"x_mm": 16.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "133"
+}
+]
+},
+{
+"id": 134,
+"name": "BGA_9_8",
+"terminals": [
+{
+"id": 268,
+"x_mm": 26.2,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "98"
+},
+{
+"id": 269,
+"x_mm": 17.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "134"
+}
+]
+},
+{
+"id": 135,
+"name": "BGA_9_9",
+"terminals": [
+{
+"id": 270,
+"x_mm": 27.0,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "99"
+},
+{
+"id": 271,
+"x_mm": 19.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "135"
+}
+]
+},
+{
+"id": 136,
+"name": "BGA_9_10",
+"terminals": [
+{
+"id": 272,
+"x_mm": 27.8,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "910"
+},
+{
+"id": 273,
+"x_mm": 20.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "136"
+}
+]
+},
+{
+"id": 137,
+"name": "BGA_9_11",
+"terminals": [
+{
+"id": 274,
+"x_mm": 28.6,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "911"
+},
+{
+"id": 275,
+"x_mm": 22.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "137"
+}
+]
+},
+{
+"id": 138,
+"name": "BGA_9_12",
+"terminals": [
+{
+"id": 276,
+"x_mm": 29.4,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "912"
+},
+{
+"id": 277,
+"x_mm": 23.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "138"
+}
+]
+},
+{
+"id": 139,
+"name": "BGA_9_13",
+"terminals": [
+{
+"id": 278,
+"x_mm": 30.2,
+"y_mm": 27.0,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "913"
+},
+{
+"id": 279,
+"x_mm": 25.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "139"
+}
+]
+},
+{
+"id": 140,
+"name": "BGA_10_0",
+"terminals": [
+{
+"id": 280,
+"x_mm": 19.8,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "100"
+},
+{
+"id": 281,
+"x_mm": 26.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "140"
+}
+]
+},
+{
+"id": 141,
+"name": "BGA_10_1",
+"terminals": [
+{
+"id": 282,
+"x_mm": 20.6,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "101"
+},
+{
+"id": 283,
+"x_mm": 28.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "141"
+}
+]
+},
+{
+"id": 142,
+"name": "BGA_10_2",
+"terminals": [
+{
+"id": 284,
+"x_mm": 21.4,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "102"
+},
+{
+"id": 285,
+"x_mm": 29.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "142"
+}
+]
+},
+{
+"id": 143,
+"name": "BGA_10_3",
+"terminals": [
+{
+"id": 286,
+"x_mm": 22.2,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "103"
+},
+{
+"id": 287,
+"x_mm": 31.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "143"
+}
+]
+},
+{
+"id": 144,
+"name": "BGA_10_4",
+"terminals": [
+{
+"id": 288,
+"x_mm": 23.0,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "104"
+},
+{
+"id": 289,
+"x_mm": 32.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "144"
+}
+]
+},
+{
+"id": 145,
+"name": "BGA_10_5",
+"terminals": [
+{
+"id": 290,
+"x_mm": 23.8,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "105"
+},
+{
+"id": 291,
+"x_mm": 34.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "145"
+}
+]
+},
+{
+"id": 146,
+"name": "BGA_10_6",
+"terminals": [
+{
+"id": 292,
+"x_mm": 24.6,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "106"
+},
+{
+"id": 293,
+"x_mm": 35.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "146"
+}
+]
+},
+{
+"id": 147,
+"name": "BGA_10_7",
+"terminals": [
+{
+"id": 294,
+"x_mm": 25.4,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "107"
+},
+{
+"id": 295,
+"x_mm": 37.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "147"
+}
+]
+},
+{
+"id": 148,
+"name": "BGA_10_8",
+"terminals": [
+{
+"id": 296,
+"x_mm": 26.2,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "108"
+},
+{
+"id": 297,
+"x_mm": 38.5,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "148"
+}
+]
+},
+{
+"id": 149,
+"name": "BGA_10_9",
+"terminals": [
+{
+"id": 298,
+"x_mm": 27.0,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "109"
+},
+{
+"id": 299,
+"x_mm": 40.0,
+"y_mm": 9.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "149"
+}
+]
+},
+{
+"id": 150,
+"name": "BGA_10_10",
+"terminals": [
+{
+"id": 300,
+"x_mm": 27.8,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1010"
+},
+{
+"id": 301,
+"x_mm": 4.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "150"
+}
+]
+},
+{
+"id": 151,
+"name": "BGA_10_11",
+"terminals": [
+{
+"id": 302,
+"x_mm": 28.6,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1011"
+},
+{
+"id": 303,
+"x_mm": 5.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "151"
+}
+]
+},
+{
+"id": 152,
+"name": "BGA_10_12",
+"terminals": [
+{
+"id": 304,
+"x_mm": 29.4,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1012"
+},
+{
+"id": 305,
+"x_mm": 7.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "152"
+}
+]
+},
+{
+"id": 153,
+"name": "BGA_10_13",
+"terminals": [
+{
+"id": 306,
+"x_mm": 30.2,
+"y_mm": 27.8,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1013"
+},
+{
+"id": 307,
+"x_mm": 8.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "153"
+}
+]
+},
+{
+"id": 154,
+"name": "BGA_11_0",
+"terminals": [
+{
+"id": 308,
+"x_mm": 19.8,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "110"
+},
+{
+"id": 309,
+"x_mm": 10.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "154"
+}
+]
+},
+{
+"id": 155,
+"name": "BGA_11_1",
+"terminals": [
+{
+"id": 310,
+"x_mm": 20.6,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "111"
+},
+{
+"id": 311,
+"x_mm": 11.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "155"
+}
+]
+},
+{
+"id": 156,
+"name": "BGA_11_2",
+"terminals": [
+{
+"id": 312,
+"x_mm": 21.4,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "112"
+},
+{
+"id": 313,
+"x_mm": 13.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "156"
+}
+]
+},
+{
+"id": 157,
+"name": "BGA_11_3",
+"terminals": [
+{
+"id": 314,
+"x_mm": 22.2,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "113"
+},
+{
+"id": 315,
+"x_mm": 14.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "157"
+}
+]
+},
+{
+"id": 158,
+"name": "BGA_11_4",
+"terminals": [
+{
+"id": 316,
+"x_mm": 23.0,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "114"
+},
+{
+"id": 317,
+"x_mm": 16.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "158"
+}
+]
+},
+{
+"id": 159,
+"name": "BGA_11_5",
+"terminals": [
+{
+"id": 318,
+"x_mm": 23.8,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "115"
+},
+{
+"id": 319,
+"x_mm": 17.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "159"
+}
+]
+},
+{
+"id": 160,
+"name": "BGA_11_6",
+"terminals": [
+{
+"id": 320,
+"x_mm": 24.6,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "116"
+},
+{
+"id": 321,
+"x_mm": 19.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "160"
+}
+]
+},
+{
+"id": 161,
+"name": "BGA_11_7",
+"terminals": [
+{
+"id": 322,
+"x_mm": 25.4,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "117"
+},
+{
+"id": 323,
+"x_mm": 20.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "161"
+}
+]
+},
+{
+"id": 162,
+"name": "BGA_11_8",
+"terminals": [
+{
+"id": 324,
+"x_mm": 26.2,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "118"
+},
+{
+"id": 325,
+"x_mm": 22.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "162"
+}
+]
+},
+{
+"id": 163,
+"name": "BGA_11_9",
+"terminals": [
+{
+"id": 326,
+"x_mm": 27.0,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "119"
+},
+{
+"id": 327,
+"x_mm": 23.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "163"
+}
+]
+},
+{
+"id": 164,
+"name": "BGA_11_10",
+"terminals": [
+{
+"id": 328,
+"x_mm": 27.8,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1110"
+},
+{
+"id": 329,
+"x_mm": 25.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "164"
+}
+]
+},
+{
+"id": 165,
+"name": "BGA_11_11",
+"terminals": [
+{
+"id": 330,
+"x_mm": 28.6,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1111"
+},
+{
+"id": 331,
+"x_mm": 26.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "165"
+}
+]
+},
+{
+"id": 166,
+"name": "BGA_11_12",
+"terminals": [
+{
+"id": 332,
+"x_mm": 29.4,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1112"
+},
+{
+"id": 333,
+"x_mm": 28.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "166"
+}
+]
+},
+{
+"id": 167,
+"name": "BGA_11_13",
+"terminals": [
+{
+"id": 334,
+"x_mm": 30.2,
+"y_mm": 28.6,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1113"
+},
+{
+"id": 335,
+"x_mm": 29.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "167"
+}
+]
+},
+{
+"id": 168,
+"name": "BGA_12_0",
+"terminals": [
+{
+"id": 336,
+"x_mm": 19.8,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "120"
+},
+{
+"id": 337,
+"x_mm": 31.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "168"
+}
+]
+},
+{
+"id": 169,
+"name": "BGA_12_1",
+"terminals": [
+{
+"id": 338,
+"x_mm": 20.6,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "121"
+},
+{
+"id": 339,
+"x_mm": 32.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "169"
+}
+]
+},
+{
+"id": 170,
+"name": "BGA_12_2",
+"terminals": [
+{
+"id": 340,
+"x_mm": 21.4,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "122"
+},
+{
+"id": 341,
+"x_mm": 34.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "170"
+}
+]
+},
+{
+"id": 171,
+"name": "BGA_12_3",
+"terminals": [
+{
+"id": 342,
+"x_mm": 22.2,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "123"
+},
+{
+"id": 343,
+"x_mm": 35.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "171"
+}
+]
+},
+{
+"id": 172,
+"name": "BGA_12_4",
+"terminals": [
+{
+"id": 344,
+"x_mm": 23.0,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "124"
+},
+{
+"id": 345,
+"x_mm": 37.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "172"
+}
+]
+},
+{
+"id": 173,
+"name": "BGA_12_5",
+"terminals": [
+{
+"id": 346,
+"x_mm": 23.8,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "125"
+},
+{
+"id": 347,
+"x_mm": 38.5,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "173"
+}
+]
+},
+{
+"id": 174,
+"name": "BGA_12_6",
+"terminals": [
+{
+"id": 348,
+"x_mm": 24.6,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "126"
+},
+{
+"id": 349,
+"x_mm": 40.0,
+"y_mm": 11.0,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "174"
+}
+]
+},
+{
+"id": 175,
+"name": "BGA_12_7",
+"terminals": [
+{
+"id": 350,
+"x_mm": 25.4,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "127"
+},
+{
+"id": 351,
+"x_mm": 4.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "175"
+}
+]
+},
+{
+"id": 176,
+"name": "BGA_12_8",
+"terminals": [
+{
+"id": 352,
+"x_mm": 26.2,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "128"
+},
+{
+"id": 353,
+"x_mm": 5.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "176"
+}
+]
+},
+{
+"id": 177,
+"name": "BGA_12_9",
+"terminals": [
+{
+"id": 354,
+"x_mm": 27.0,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "129"
+},
+{
+"id": 355,
+"x_mm": 7.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "177"
+}
+]
+},
+{
+"id": 178,
+"name": "BGA_12_10",
+"terminals": [
+{
+"id": 356,
+"x_mm": 27.8,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1210"
+},
+{
+"id": 357,
+"x_mm": 8.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "178"
+}
+]
+},
+{
+"id": 179,
+"name": "BGA_12_11",
+"terminals": [
+{
+"id": 358,
+"x_mm": 28.6,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1211"
+},
+{
+"id": 359,
+"x_mm": 10.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "179"
+}
+]
+},
+{
+"id": 180,
+"name": "BGA_12_12",
+"terminals": [
+{
+"id": 360,
+"x_mm": 29.4,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1212"
+},
+{
+"id": 361,
+"x_mm": 11.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "180"
+}
+]
+},
+{
+"id": 181,
+"name": "BGA_12_13",
+"terminals": [
+{
+"id": 362,
+"x_mm": 30.2,
+"y_mm": 29.4,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1213"
+},
+{
+"id": 363,
+"x_mm": 13.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "181"
+}
+]
+},
+{
+"id": 182,
+"name": "BGA_13_0",
+"terminals": [
+{
+"id": 364,
+"x_mm": 19.8,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "130"
+},
+{
+"id": 365,
+"x_mm": 14.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "182"
+}
+]
+},
+{
+"id": 183,
+"name": "BGA_13_1",
+"terminals": [
+{
+"id": 366,
+"x_mm": 20.6,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "131"
+},
+{
+"id": 367,
+"x_mm": 16.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "183"
+}
+]
+},
+{
+"id": 184,
+"name": "BGA_13_2",
+"terminals": [
+{
+"id": 368,
+"x_mm": 21.4,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "132"
+},
+{
+"id": 369,
+"x_mm": 17.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "184"
+}
+]
+},
+{
+"id": 185,
+"name": "BGA_13_3",
+"terminals": [
+{
+"id": 370,
+"x_mm": 22.2,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "133"
+},
+{
+"id": 371,
+"x_mm": 19.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "185"
+}
+]
+},
+{
+"id": 186,
+"name": "BGA_13_4",
+"terminals": [
+{
+"id": 372,
+"x_mm": 23.0,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "134"
+},
+{
+"id": 373,
+"x_mm": 20.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "186"
+}
+]
+},
+{
+"id": 187,
+"name": "BGA_13_5",
+"terminals": [
+{
+"id": 374,
+"x_mm": 23.8,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "135"
+},
+{
+"id": 375,
+"x_mm": 22.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "187"
+}
+]
+},
+{
+"id": 188,
+"name": "BGA_13_6",
+"terminals": [
+{
+"id": 376,
+"x_mm": 24.6,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "136"
+},
+{
+"id": 377,
+"x_mm": 23.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "188"
+}
+]
+},
+{
+"id": 189,
+"name": "BGA_13_7",
+"terminals": [
+{
+"id": 378,
+"x_mm": 25.4,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "137"
+},
+{
+"id": 379,
+"x_mm": 25.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "189"
+}
+]
+},
+{
+"id": 190,
+"name": "BGA_13_8",
+"terminals": [
+{
+"id": 380,
+"x_mm": 26.2,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "138"
+},
+{
+"id": 381,
+"x_mm": 26.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "190"
+}
+]
+},
+{
+"id": 191,
+"name": "BGA_13_9",
+"terminals": [
+{
+"id": 382,
+"x_mm": 27.0,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "139"
+},
+{
+"id": 383,
+"x_mm": 28.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "191"
+}
+]
+},
+{
+"id": 192,
+"name": "BGA_13_10",
+"terminals": [
+{
+"id": 384,
+"x_mm": 27.8,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1310"
+},
+{
+"id": 385,
+"x_mm": 29.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "192"
+}
+]
+},
+{
+"id": 193,
+"name": "BGA_13_11",
+"terminals": [
+{
+"id": 386,
+"x_mm": 28.6,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1311"
+},
+{
+"id": 387,
+"x_mm": 31.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "193"
+}
+]
+},
+{
+"id": 194,
+"name": "BGA_13_12",
+"terminals": [
+{
+"id": 388,
+"x_mm": 29.4,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1312"
+},
+{
+"id": 389,
+"x_mm": 32.5,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "194"
+}
+]
+},
+{
+"id": 195,
+"name": "BGA_13_13",
+"terminals": [
+{
+"id": 390,
+"x_mm": 30.2,
+"y_mm": 30.2,
+"layer": 0,
+"pad_w_mm": 0.4,
+"pad_h_mm": 0.4,
+"shape": "circle",
+"component": "U1",
+"pin": "1313"
+},
+{
+"id": 391,
+"x_mm": 34.0,
+"y_mm": 12.5,
+"layer": 0,
+"pad_w_mm": 0.6,
+"pad_h_mm": 0.6,
+"shape": "circle",
+"component": "J1",
+"pin": "195"
+}
+]
+}
+]
+}
