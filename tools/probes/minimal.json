@@ -1,0 +1,12 @@
+{
+  "schema": "copperline/strategy/1",
+  "strategy": "minimal_probe",
+  "escape": false,
+  "optimizer": false,
+  "tuning": false,
+  "recovery": false,
+  "max_epochs": 1,
+  "recovery_depth": 0,
+  "recovery_beam": 0,
+  "astar_scale": 1.0
+}

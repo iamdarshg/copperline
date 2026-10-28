@@ -1,21 +1,23 @@
 """Generate a spread of synthetic boards for the corpus harness.
 
-Families: breakout (few nets), mid (grid), dense BGA (0.6-0.8mm pitch),
-board-scale (long detours). Deterministic, no external inputs, so CI can run
-the same corpus anywhere.
+Families: breakout (few nets), grid (cells), dense BGA (0.6-0.8mm pitch),
+board-scale (long detours). Every board is DRC-legal by construction (pads
+are placed on a grid with clearance for the configured pad size), so a
+routing failure cannot be blamed on the fixture.
 
-Usage: python tools/gen_boards.py --out <dir> [--count 20]
+Usage: python tools/gen_boards.py --out <dir>
 """
 
 import argparse
 import json
+import math
 import os
 
 
 def board_doc(layers, w, h, width, clear, via):
     return {
         "schema": "copperline/board/1",
-        "board": {"width_mm": w, "height_mm": h},
+        "board": {"width_mm": round(w, 3), "height_mm": round(h, 3)},
         "layers": [{"id": i, "name": ("Top" if i == 0 else
                                       "Bottom" if i == layers - 1
                                       else f"In{i}")}
@@ -47,62 +49,72 @@ def renumber(doc):
             tid += 1
 
 
-def breakout(pairs, spacing=2.54, pad=1.2):
-    rows = (pairs + 9) // 10
-    w = 10 * spacing + 4
-    h = rows * spacing + 8
+def breakout(pairs, pitch=2.54, pad=1.0):
+    """Two vertical columns of pads: J1 on the left, J2 on the right."""
+    rows = pairs
+    w = 20.0
+    h = rows * pitch + 6.0
     doc = board_doc(2, w, h, 0.25, 0.2, 0.6)
     for k in range(pairs):
-        x0 = 2 + (k % 10) * spacing
-        y0 = 4 + (k // 10) * spacing
-        add_net(doc, f"N{k}", [(x0, y0, "J1", str(k), pad),
-                               (x0 + 6.0, y0, "J2", str(k), pad)])
+        y = 3.0 + k * pitch
+        add_net(doc, f"N{k}", [(4.0, y, "J1", str(k), pad),
+                               (w - 4.0, y, "J2", str(k), pad)])
     renumber(doc)
     return doc
 
 
-def grid(nets, pitch=1.27, layers=2):
-    w = 10 * pitch + 6
-    h = ((nets + 9) // 10) * pitch + 6
-    doc = board_doc(layers, w, h, 0.15, 0.15, 0.5)
+def grid(nets, cell=5.08, pad=0.8, layers=2):
+    """Cells on a 5.08mm lattice; pads sit at opposite corners of a cell."""
+    cols = max(1, int(math.ceil(math.sqrt(nets))))
+    rows = (nets + cols - 1) // cols
+    w = cols * cell + 4.0
+    h = rows * cell + 4.0
+    doc = board_doc(layers, w, h, 0.2, 0.2, 0.5)
     for k in range(nets):
-        x0 = 3 + (k % 10) * pitch
-        y0 = 3 + (k // 10) * pitch
-        add_net(doc, f"G{k}", [(x0, y0, "U1", str(k), 0.5),
-                               (x0 + 0.9 * pitch, y0 + 0.9 * pitch, "U2",
-                                str(k), 0.5)])
+        cx = 3.0 + (k % cols) * cell
+        cy = 3.0 + (k // cols) * cell
+        add_net(doc, f"G{k}", [(cx, cy, "U1", str(k), pad),
+                               (cx + 2.54, cy + 2.54, "U2", str(k), pad)])
     renumber(doc)
     return doc
 
 
 def dense_bga(n, layers=6, pitch=0.8, pad=0.4, width=0.1, clear=0.1,
               via=0.45):
-    span = n * 1.5 + 10
-    doc = board_doc(layers, span, span, width, clear, via)
+    """Centred BGA cluster plus a perimeter fan-out field."""
+    cluster = n * pitch
     per_row = max(1, (n * n + 7) // 8)
+    rows = (n * n + per_row - 1) // per_row
+    field_w = (per_row - 1) * 2.0 + 2.0
+    field_h = (rows - 1) * 2.0 + 2.0
+    w = max(cluster + 16.0, field_w + 8.0)
+    h = 6.0 + cluster + 6.0 + field_h
+    doc = board_doc(layers, w, h, width, clear, via)
+    cx0 = w / 2.0
+    cy0 = 6.0 + cluster / 2.0
     k = 0
     for row in range(n):
         for col in range(n):
-            cx = span / 2 + (col - (n - 1) / 2) * pitch
-            cy = span / 2 + (row - (n - 1) / 2) * pitch
-            px = 3 + (k % per_row) * 1.5
-            py = 3 + (k // per_row) * 1.5
-            add_net(doc, f"B{row}_{col}", [(cx, cy, "U1", f"{row}{col}", pad),
-                                           (px, py, "J1", str(k), 0.6)])
+            px = cx0 + (col - (n - 1) / 2.0) * pitch
+            py = cy0 + (row - (n - 1) / 2.0) * pitch
+            fx = 4.0 + (k % per_row) * 2.0
+            fy = 6.0 + cluster + 6.0 + (k // per_row) * 2.0
+            add_net(doc, f"B{row}_{col}", [(px, py, "U1", f"{row}{col}", pad),
+                                           (fx, fy, "J1", str(k), 0.6)])
             k += 1
     renumber(doc)
     return doc
 
 
 def board_scale(cols, rows, layers=2):
+    """Independent nets whose two pads are separated by a wall gap."""
     cw, ch = 12.0, 8.0
     doc = board_doc(layers, cols * cw, rows * ch, 0.2, 0.2, 0.6)
     for r in range(rows):
         for c in range(cols):
             x0, y0 = c * cw, r * ch
-            # A wall between the two pads forces a detour.
-            add_net(doc, f"S{r}_{c}", [(x0 + 2, y0 + 4, "U1", str(c), 0.8),
-                                       (x0 + cw - 2, y0 + 4, "U2", str(c), 0.8)])
+            add_net(doc, f"S{r}_{c}", [(x0 + 2.0, y0 + 4.0, "U1", str(c), 0.8),
+                                       (x0 + cw - 2.0, y0 + 4.0, "U2", str(c), 0.8)])
     renumber(doc)
     return doc
 
@@ -120,9 +132,9 @@ def main():
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
-    for k, pairs in enumerate((2, 4, 8, 16, 32)):
+    for pairs in (2, 4, 8, 16, 32):
         write(args.out, f"breakout_{pairs}", breakout(pairs))
-    for k, nets in enumerate((8, 24, 64)):
+    for nets in (8, 24, 64, 128):
         write(args.out, f"grid_{nets}", grid(nets))
     for n, layers in ((6, 4), (10, 6), (14, 12)):
         write(args.out, f"bga_{n}x{n}_{layers}l", dense_bga(n, layers))

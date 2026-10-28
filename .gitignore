@@ -13,3 +13,4 @@ em_openems/
 em_openems_test/
 routed_probe.json
 probe_report.json
+build-linux/

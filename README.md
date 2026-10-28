@@ -459,6 +459,15 @@ Optional GitHub workflow: `.github/workflows/corpus.yml` (manual
 corpus, runs the harness over `fixtures/` + generated boards, prints a status
 summary and uploads `corpus.json` as an artifact.
 
+Latest corpus results (185 board runs; details and the open bug in
+`docs/validation/corpus.md`):
+
+| set | boards | COMPLETE+legal | notes |
+|---|---|---|---|
+| synthetic | 15 | **12** | 3 dense-BGA timeouts, no illegal copper |
+| curated real | 52 | **10** | 20 inputs already DRC-illegal; 8 committed illegal copper (open bug) |
+| wide sweep | 118 | 1 | 97 inputs already DRC-illegal, 17 import failures |
+
 Memory: the engine budget is `--memory-budget-mb` (accounting), and
 `tools/run_capped.ps1` enforces a hard OS limit on Windows. See
 `docs/validation/scale_and_memory.md`.

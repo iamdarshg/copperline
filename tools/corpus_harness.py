@@ -124,7 +124,7 @@ def main():
                "--memory-budget-mb", str(args.budget_mb),
                "--timeout", str(args.timeout), "--report", rep,
                "--output", routed]
-        rt, route_s, route_to = run(cmd, args.timeout + 60)
+        rt, route_s, route_to = run(cmd, args.timeout + 5)
         status = "TIMEOUT" if route_to else "NO_REPORT"
         conn = total = None
         legal = None

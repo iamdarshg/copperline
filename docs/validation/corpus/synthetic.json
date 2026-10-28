@@ -1,0 +1,317 @@
+[
+ {
+  "board": "bga_10x10_6l.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\bga_10x10_6l.json",
+  "nets": 100,
+  "pads": 200,
+  "layers": 6,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": 0,
+  "total": 200,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 20.1
+ },
+ {
+  "board": "bga_14x14_12l.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\bga_14x14_12l.json",
+  "nets": 196,
+  "pads": 392,
+  "layers": 12,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": 0,
+  "total": 392,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 20.4
+ },
+ {
+  "board": "bga_6x6_4l.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\bga_6x6_4l.json",
+  "nets": 36,
+  "pads": 72,
+  "layers": 4,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "TIMEOUT",
+  "connected": 48,
+  "total": 72,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 20.9
+ },
+ {
+  "board": "breakout_16.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_16.json",
+  "nets": 16,
+  "pads": 32,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 32,
+  "total": 32,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.4
+ },
+ {
+  "board": "breakout_2.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_2.json",
+  "nets": 2,
+  "pads": 4,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 4,
+  "total": 4,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.0
+ },
+ {
+  "board": "breakout_32.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_32.json",
+  "nets": 32,
+  "pads": 64,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 64,
+  "total": 64,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 1.0
+ },
+ {
+  "board": "breakout_4.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_4.json",
+  "nets": 4,
+  "pads": 8,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 8,
+  "total": 8,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.1
+ },
+ {
+  "board": "breakout_8.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\breakout_8.json",
+  "nets": 8,
+  "pads": 16,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 16,
+  "total": 16,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.1
+ },
+ {
+  "board": "grid_128.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_128.json",
+  "nets": 128,
+  "pads": 256,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 256,
+  "total": 256,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 6.1
+ },
+ {
+  "board": "grid_24.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_24.json",
+  "nets": 24,
+  "pads": 48,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 48,
+  "total": 48,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.1,
+  "route_s": 0.4
+ },
+ {
+  "board": "grid_64.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_64.json",
+  "nets": 64,
+  "pads": 128,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 128,
+  "total": 128,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 1.5
+ },
+ {
+  "board": "grid_8.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\grid_8.json",
+  "nets": 8,
+  "pads": 16,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 16,
+  "total": 16,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.1
+ },
+ {
+  "board": "scale_16x4.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\scale_16x4.json",
+  "nets": 64,
+  "pads": 128,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 128,
+  "total": 128,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 2.9
+ },
+ {
+  "board": "scale_32x6.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\scale_32x6.json",
+  "nets": 192,
+  "pads": 384,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 384,
+  "total": 384,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 16.6
+ },
+ {
+  "board": "scale_8x2.json",
+  "path": "C:\\Users\\Darsh Gupta\\AppData\\Local\\Temp\\opencode\\genboards\\scale_8x2.json",
+  "nets": 16,
+  "pads": 32,
+  "layers": 2,
+  "src": {
+   "traces": 0,
+   "vias": 0,
+   "length": 0
+  },
+  "input_legal": true,
+  "input_violations": 0,
+  "status": "COMPLETE",
+  "connected": 32,
+  "total": 32,
+  "legal": true,
+  "violations": 0,
+  "import_s": 0.0,
+  "route_s": 0.1
+ }
+]
