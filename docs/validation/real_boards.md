@@ -52,23 +52,67 @@ run is reported VIOLATION because the **input board already violates DRC**.
 ## Importer fidelity work (2026-10-28)
 
 Fixed:
-- **Circle pads are rotation invariant.** The importer ran every pad through
-  the rotated-rectangle bounding-box formula, inflating a round pad by up to
-  sqrt(2). Regression test `kicad_rotated_circle_pad_not_inflated`.
-- **Pads keep their true size and shape.** `Terminal` now carries
-  `shape` (rect/circle/oval/roundrect), `rotation_deg` and
-  `corner_r_nm`; `pad_rect()` is only the broadphase AABB. The board JSON
-  round-trips these fields.
-- **Shape-aware pad-to-pad DRC.** `pad_gap_nm` models a pad as a convex core
-  (point/segment/rect) Minkowski-summed with a disc, so circles, capsules
-  and rounded rectangles measure exactly. The verifier uses it for
-  pad-vs-pad clearance. Tests: `pad_gap_circles_are_not_squares`,
-  `pad_gap_roundrect_uses_corner_radius` (1.3mm round pads at 1.27mm
-  diagonal now measure 0.496mm instead of 0.000mm).
 
-Effect on the pads-only DRC of the KiCad demos: pic_programmer 46 -> 26,
-flat_hierarchy 48 -> 30, dev_board 156 -> 51 pad pairs flagged (with the
-earlier, pre-shape model).
+- **Pad rotation sign.** KiCad's Y axis points down, so a pad offset in a
+  footprint rotated by `theta` is rotated by `-theta` in the plane the
+  geometry code uses. Verified against `kicad-cli pcb export ipc2581`:
+  pic_programmer's U2.8 has file offset (7.62, 15.24) in a 90-degree
+  footprint and KiCad places it at +(15.24, -7.62); we were placing it at
+  (-15.24, +7.62), which shifted whole rotated footprints by tens of mm.
+  After the fix **all 234 pad positions of pic_programmer match the
+  IPC-2581 oracle exactly** (0.000 mm).
+- **Design clearance.** The importer now reads the sibling `.kicad_pro`
+  (Default net-class clearance, else `design_settings.rules.min_clearance`)
+  and adopts it as the board clearance. KiCad demos such as flat_hierarchy
+  declare `min_clearance: 0`, which is why KiCad reports no clearance
+  violations on their 0.14mm DIP pad gaps; we were applying our 0.15mm
+  default and reporting phantom DRC.
+- **Board defaults now round-trip through JSON.** The writer omitted the
+  `defaults` block entirely, so `import -> JSON -> route` silently reverted
+  to loader defaults (losing the imported clearance and trace width).
+- Shape-aware pads (previous commit): circles/ovals/roundrects measure
+  exactly instead of by bounding box.
+
+Result on the six boards, **pads-only DRC before routing**:
+
+| board | before | now | KiCad's own clearance DRC |
+|---|---|---|---|
+| ecc83-pp | 4 | **0** | 0 |
+| pic_programmer | 46 | **0** | 0 |
+| interf_u | 28 | **0** | 0 |
+| flat_hierarchy | 48 | **0** | 0 |
+| custom_pads_test | 0 | **0** | 3 |
+| dev_board | 156 | **0** | n/a |
+
+Tests added: `kicad_rotated_footprint_pad_offset_matches_kicad` (oracle
+golden positions), `kicad_pad_shapes_import` (shape/size/corner radius),
+`kicad_project_clearance_and_defaults_roundtrip` (clearance import +
+JSON defaults), `pad_gap_circles_are_not_squares`,
+`pad_gap_roundrect_uses_corner_radius`.
+
+## Re-route results after the importer fixes
+
+Strip copper (traces/vias/zones), verify the pads-only board, then route:
+
+| board | nets | pads | status | connected | legal | time |
+|---|---|---|---|---|---|---|
+| custom_pads_test | 3 | 6 | **COMPLETE** | 6/6 | true | 0.1 s |
+| ecc83-pp | 13 | 66 | **COMPLETE** | 66/66 | true | 1.3 s |
+| pic_programmer | 111 | 470 | **COMPLETE** | 470/470 | true | 64 s |
+| flat_hierarchy | 111 | 476 | **COMPLETE** | 476/476 | true | 74 s |
+| interf_u | 173 | 684 | INCOMPLETE | 484/684 | true | 243 s |
+
+Before the fixes these were all VIOLATION (except custom_pads); the two
+111-net demos now route completely and legally. interf_u is still short:
+it is a 4-layer design whose power/GND distribution relied on zones, which
+are stripped (see the zone limitation above).
+
+## Open issue: copper zones
+
+Zones are still imported as their outline rather than the filled polygons,
+so they are stripped before re-routing. Keeping them needs zone-fill import;
+until then plane-dependent nets are routed as traces.
+
 
 ## Open issue: pad orientation on rotated footprints
 

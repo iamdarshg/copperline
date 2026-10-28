@@ -10,6 +10,8 @@
 #include "router/ipc2581.h"
 #include "router/verifier.h"
 
+#include <filesystem>
+#include <fstream>
 #include <set>
 
 using namespace copperline;
@@ -899,6 +901,176 @@ CT_TEST(kicad_rotated_circle_pad_not_inflated) {
     // 1x2 at 45 deg -> ~2.12 x 2.12 AABB.
     CT_CHECK(r.pad_rect().width() > mm_to_nm(2.0));
     CT_CHECK(r.pad_rect().width() < mm_to_nm(2.2));
+}
+
+// Oracle-locked pad transform (kicad-cli IPC-2581 ground truth): a pad offset
+// in a rotated footprint is rotated by -(footprint rotation), because KiCad's
+// Y axis points down. This exact case (U2.8 of pic_programmer: file offset
+// (7.62,15.24), footprint 90) used to land at (-15.24,+7.62) instead of
+// (+15.24,-7.62), which misplaced every pad of rotated footprints.
+CT_TEST(kicad_rotated_footprint_pad_offset_matches_kicad) {
+    static const char* kPcb =
+        "(kicad_pcb (version 20241229) (generator pcbnew)\n"
+        "  (general)\n"
+        "  (paper \"A4\")\n"
+        "  (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal))\n"
+        "  (setup)\n"
+        "  (net 0 \"\")\n"
+        "  (net 1 \"A\")\n"
+        "  (net 2 \"B\")\n"
+        "  (gr_line (start 0 0) (end 40 0) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 40 0) (end 40 40) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 40 40) (end 0 40) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 0 40) (end 0 0) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (footprint \"Test:DIP\" (layer \"F.Cu\") (at 10 10 90)\n"
+        "    (property \"Reference\" \"U9\" (at 0 0 0))\n"
+        "    (pad \"1\" smd oval (at 0 0 90) (size 2.4 1.6)\n"
+        "      (layers \"F.Cu\") (net 1 \"A\"))\n"
+        "    (pad \"8\" smd oval (at 7.62 15.24 90) (size 2.4 1.6)\n"
+        "      (layers \"F.Cu\") (net 2 \"B\"))\n"
+        "  )\n"
+        ")\n";
+    KicadPcbImporter kicad;
+    ImportResult ir = kicad.import_text(kPcb, "rot_fp.kicad_pcb");
+    CT_CHECK(ir.board.terminals.size() == 2);
+    // Board origin is (0,0): imported coordinates are absolute.
+    const Terminal* p8 = nullptr;
+    for (const auto& t : ir.board.terminals)
+        if (t.pin == "8") p8 = &t;
+    CT_CHECK(p8 != nullptr);
+    // (7.62,15.24) rotated -90 -> (15.24,-7.62); footprint at (10,10).
+    CT_CHECK(p8->pos.x == mm_to_nm(25.24));
+    CT_CHECK(p8->pos.y == mm_to_nm(2.38));
+    // Shape fidelity: oval, true size, footprint+pad rotation.
+    CT_CHECK(p8->shape == PadShape::kOval);
+    CT_CHECK(p8->pad_w_nm == mm_to_nm(2.4));
+    CT_CHECK(p8->pad_h_nm == mm_to_nm(1.6));
+    CT_CHECK_NEAR(p8->rotation_deg, -180.0, 1e-9);
+}
+
+// Pad shapes/sizes survive import: circle, oval, roundrect (corner radius),
+// and the true size is never inflated by the broadphase box.
+CT_TEST(kicad_pad_shapes_import) {
+    static const char* kPcb =
+        "(kicad_pcb (version 20241229) (generator pcbnew)\n"
+        "  (general)\n"
+        "  (paper \"A4\")\n"
+        "  (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal))\n"
+        "  (setup)\n"
+        "  (net 0 \"\")\n"
+        "  (net 1 \"A\")\n"
+        "  (net 2 \"B\")\n"
+        "  (net 3 \"C\")\n"
+        "  (gr_line (start 0 0) (end 40 0) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 40 0) (end 40 40) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 40 40) (end 0 40) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 0 40) (end 0 0) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (footprint \"Test:Shapes\" (layer \"F.Cu\") (at 10 10)\n"
+        "    (property \"Reference\" \"J9\" (at 0 0 0))\n"
+        "    (pad \"1\" smd circle (at 0 0) (size 1.3 1.3)\n"
+        "      (layers \"F.Cu\") (net 1 \"A\"))\n"
+        "    (pad \"2\" smd oval (at 5 0) (size 2.4 1.6)\n"
+        "      (layers \"F.Cu\") (net 2 \"B\"))\n"
+        "    (pad \"3\" smd roundrect (at 10 0) (size 1.6 1.2)\n"
+        "      (layers \"F.Cu\") (net 3 \"C\") (roundrect_rratio 0.25))\n"
+        "  )\n"
+        ")\n";
+    KicadPcbImporter kicad;
+    ImportResult ir = kicad.import_text(kPcb, "shapes.kicad_pcb");
+    CT_CHECK(ir.board.terminals.size() == 3);
+    for (const auto& t : ir.board.terminals) {
+        if (t.pin == "1") {
+            CT_CHECK(t.shape == PadShape::kCircle);
+            CT_CHECK(t.pad_w_nm == mm_to_nm(1.3));
+            CT_CHECK(t.pad_h_nm == mm_to_nm(1.3));
+            // A circle's box is its diameter, never inflated.
+            CT_CHECK(t.pad_rect().width() == mm_to_nm(1.3));
+        } else if (t.pin == "2") {
+            CT_CHECK(t.shape == PadShape::kOval);
+            CT_CHECK(t.pad_w_nm == mm_to_nm(2.4));
+            CT_CHECK(t.pad_h_nm == mm_to_nm(1.6));
+        } else {
+            CT_CHECK(t.shape == PadShape::kRoundRect);
+            CT_CHECK(t.pad_w_nm == mm_to_nm(1.6));
+            CT_CHECK(t.corner_r_nm == mm_to_nm(0.3));  // 25% of the short side
+        }
+    }
+}
+
+// The design's clearance comes from the sibling .kicad_pro, and board
+// defaults survive a JSON round-trip (dropping them re-introduced phantom
+// DRC at the loader default).
+CT_TEST(kicad_project_clearance_and_defaults_roundtrip) {
+    namespace fs = std::filesystem;
+    static const char* kPcb =
+        "(kicad_pcb (version 20241229) (generator pcbnew)\n"
+        "  (general)\n"
+        "  (paper \"A4\")\n"
+        "  (layers (0 \"F.Cu\" signal) (31 \"B.Cu\" signal))\n"
+        "  (setup)\n"
+        "  (net 2 \"B\")\n"
+        "  (net 1 \"A\")\n"
+        "  (gr_line (start 0 0) (end 20 0) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 20 0) (end 20 20) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 20 20) (end 0 20) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (gr_line (start 0 20) (end 0 0) (layer \"Edge.Cuts\") (width 0.05))\n"
+        "  (footprint \"Test:P\" (layer \"F.Cu\") (at 5 5)\n"
+        "    (property \"Reference\" \"J1\" (at 0 0 0))\n"
+        "    (pad \"1\" smd circle (at 0 0) (size 1 1)\n"
+        "      (layers \"F.Cu\") (net 1 \"A\"))\n"
+        "  )\n"
+        ")\n";
+    static const char* kProj =
+        "{ \"board\": { \"design_settings\": { \"rules\": "
+        "{ \"min_clearance\": 0.05 } } } }";
+    const std::string base =
+        (fs::temp_directory_path() / "copperline_proj_test").string();
+    const std::string pcb = base + ".kicad_pcb";
+    const std::string proj = base + ".kicad_pro";
+    {
+        std::ofstream f(pcb);
+        f << kPcb;
+    }
+    {
+        std::ofstream f(proj);
+        f << kProj;
+    }
+    KicadPcbImporter kicad;
+    ImportResult ir = kicad.import_file(pcb);
+    CT_CHECK(ir.board.defaults.clearance_nm == mm_to_nm(0.05));
+    // JSON round-trip keeps the defaults.
+    JsonValue j = board_to_json(ir.board);
+    const JsonValue* d = j.find("defaults");
+    CT_CHECK(d != nullptr);
+    CT_CHECK_NEAR(d->get_number("clearance_mm", -1), 0.05, 1e-9);
+    fs::remove(pcb);
+    fs::remove(proj);
+}
+
+// A zero minimum clearance is a legitimate design rule (flat_hierarchy
+// declares min_clearance 0); the loader must accept it instead of rejecting
+// the board as malformed.
+CT_TEST(json_board_accepts_zero_clearance) {
+    namespace fs = std::filesystem;
+    const std::string path =
+        (fs::temp_directory_path() / "copperline_zero_clearance.json").string();
+    {
+        std::ofstream f(path);
+        f << "{ \"schema\": \"copperline/board/1\","
+             "  \"board\": {\"width_mm\": 10, \"height_mm\": 10},"
+             "  \"layers\": [{\"id\": 0, \"name\": \"Top\"},"
+             "                {\"id\": 1, \"name\": \"Bottom\"}],"
+             "  \"defaults\": {\"trace_width_mm\": 0.2, \"clearance_mm\": 0,"
+             "                 \"via_outer_mm\": 0.6, \"via_hole_mm\": 0.3},"
+             "  \"nets\": [{\"id\": 0, \"name\": \"N\", \"terminals\": ["
+             "    {\"id\": 0, \"x_mm\": 2, \"y_mm\": 2, \"layer\": 0, \"component\": \"U1\", \"pin\": \"1\"},"
+             "    {\"id\": 1, \"x_mm\": 8, \"y_mm\": 2, \"layer\": 0, \"component\": \"U2\", \"pin\": \"1\"}]}]"
+             "}";
+    }
+    ImportResult ir = import_board_auto(path);
+    CT_CHECK(ir.board.defaults.clearance_nm == 0);
+    CT_CHECK(ir.board.terminals.size() == 2);
+    fs::remove(path);
 }
 
 CT_TEST(kicad_export_roundtrip) {

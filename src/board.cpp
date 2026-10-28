@@ -596,7 +596,15 @@ ImportResult JsonBoardImporter::import_value(const JsonValue& root, const std::s
             }
         };
         need_pos("trace_width_mm", board.defaults.trace_width_nm);
-        need_pos("clearance_mm", board.defaults.clearance_nm);
+        // Clearance may legitimately be 0: KiCad projects can declare a
+        // zero minimum copper clearance, in which case gaps smaller than our
+        // default are simply not violations.
+        if (def->has("clearance_mm")) {
+            const double v = def->get_number("clearance_mm", -1);
+            if (v < 0)
+                throw BoardError(InputKind::kRule, "clearance_mm must be >= 0");
+            board.defaults.clearance_nm = mm_to_nm(v);
+        }
         need_pos("via_outer_mm", board.defaults.via_outer_nm);
         need_pos("via_hole_mm", board.defaults.via_hole_nm);
         if (def->has("default_current_a")) {
@@ -855,6 +863,19 @@ JsonValue board_to_json(const Board& board) {
     b["width_mm"] = nm_to_mm(board.width_nm);
     b["height_mm"] = nm_to_mm(board.height_nm);
     root["board"] = b;
+
+    // Board defaults (width/clearance/via geometry). Without this block a
+    // round-trip through JSON loses imported rule values such as a design's
+    // clearance, which then reappears as phantom DRC at the loader default.
+    {
+        JsonValue d = JsonValue::object();
+        d["trace_width_mm"] = nm_to_mm(board.defaults.trace_width_nm);
+        d["clearance_mm"] = nm_to_mm(board.defaults.clearance_nm);
+        d["via_outer_mm"] = nm_to_mm(board.defaults.via_outer_nm);
+        d["via_hole_mm"] = nm_to_mm(board.defaults.via_hole_nm);
+        d["default_current_a"] = board.defaults.default_current_a;
+        root["defaults"] = d;
+    }
 
     JsonValue layers = JsonValue::array();
     for (const auto& l : board.layers) {

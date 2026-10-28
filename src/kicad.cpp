@@ -336,9 +336,12 @@ class KicadImport {
         if (p.shape == "circle") shape = PadShape::kCircle;
         else if (p.shape == "oval") shape = PadShape::kOval;
         else if (p.shape == "roundrect") shape = PadShape::kRoundRect;
-        // Total pad rotation: KiCad stores the pad angle relative to its
-        // footprint, so the drawn orientation is footprint + pad angle.
-        double pad_rot = frot + p.rot;
+        // Total pad rotation. KiCad stores the pad angle relative to its
+        // footprint, and its Y axis points down: a file rotation of +theta is
+        // a -theta rotation in the coordinate system the geometry code uses.
+        // Verified against kicad-cli's IPC-2581 export (U2.8: file offset
+        // (7.62,15.24) at footprint 90 lands at +(15.24,-7.62)).
+        double pad_rot = -(frot + p.rot);
         Coord corner_r = 0;
         if (shape == PadShape::kRoundRect) {
             // KiCad stores (roundrect_rratio r) relative to the short side
@@ -350,8 +353,9 @@ class KicadImport {
             }
             corner_r = mm_to_nm(rr * std::min(p.sx, p.sy));
         }
-        // Rotate the offset by the footprint rotation.
-        double fr = frot * std::numbers::pi / 180.0;
+        // Rotate the offset by the footprint rotation (negated: KiCad's Y
+        // axis points down, see the rotation note above).
+        double fr = -frot * std::numbers::pi / 180.0;
         double ox = p.dx * std::cos(fr) - p.dy * std::sin(fr);
         double oy = p.dx * std::sin(fr) + p.dy * std::cos(fr);
         double px = fx + ox, py = fy + oy;
@@ -754,7 +758,55 @@ class KicadPcbImporterImpl : public BoardImporter {
         if (!f) throw BoardError(InputKind::kInvalid, "cannot open file: " + path);
         std::ostringstream ss;
         ss << f.rdbuf();
-        return import_text(ss.str(), path);
+        ImportResult r = import_text(ss.str(), path);
+        // Honour the design's own clearance rule from the sibling project
+        // file. KiCad demos with min_clearance 0 are not violated by 0.14mm
+        // pad gaps; applying our 0.15mm default would report phantom DRC
+        // errors on every one of them.
+        apply_project_clearance(path, r.board);
+        return r;
+    }
+
+    // Read <base>.kicad_pro next to the board and adopt its clearance rule:
+    // the Default net class clearance when specified, else design_settings
+    // min_clearance. Best effort: a missing/malformed project keeps the
+    // board default and never fails the import.
+    static void apply_project_clearance(const std::string& board_path, Board& board) {
+        const std::size_t dot = board_path.find_last_of('.');
+        if (dot == std::string::npos) return;
+        const std::string proj = board_path.substr(0, dot) + ".kicad_pro";
+        std::ifstream pf(proj, std::ios::binary);
+        if (!pf) return;
+        std::ostringstream ps;
+        ps << pf.rdbuf();
+        double clearance = -1.0;
+        try {
+            const JsonValue j = parse_json(ps.str());
+            const JsonValue* b = j.find("board");
+            if (!b) return;
+            // Net class clearance wins when the project carries one.
+            if (const JsonValue* ns = b->find("net_settings")) {
+                if (const JsonValue* classes = ns->find("classes")) {
+                    for (const auto& c : classes->as_array()) {
+                        const double v = c.get_number("clearance", -1.0);
+                        if (v >= 0.0) {
+                            clearance = v;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (clearance < 0.0) {
+                if (const JsonValue* ds = b->find("design_settings")) {
+                    if (const JsonValue* rules = ds->find("rules")) {
+                        clearance = rules->get_number("min_clearance", -1.0);
+                    }
+                }
+            }
+        } catch (...) {
+            return;
+        }
+        if (clearance >= 0.0) board.defaults.clearance_nm = mm_to_nm(clearance);
     }
     ImportResult import_text(const std::string& text, const std::string& path) const {
         return KicadImport().run(text, path);
