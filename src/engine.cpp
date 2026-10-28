@@ -1052,7 +1052,24 @@ RouteReport RouterEngine::run() {
         std::vector<ConnectionTask> ordered_tasks;
         std::vector<int> ordered_idx;
         {
-            std::vector<int> order = remaining;
+            // Deprioritise tasks that keep failing: after kDeferAfterFailures
+            // attempts a task sinks to the back of the queue so routable work
+            // is not starved, and when *only* those remain the loop stops
+            // instead of retrying them until the deadline.
+            constexpr int kDeferAfterFailures = 3;
+            auto is_deferred = [&](int ti) {
+                return ti >= 0 && ti < static_cast<int>(fail_count.size()) &&
+                       fail_count[ti] >= kDeferAfterFailures;
+            };
+            std::vector<int> order;
+            order.reserve(remaining.size());
+            for (int ti : remaining)
+                if (!is_deferred(ti)) order.push_back(ti);
+            if (order.empty()) {
+                // Everything left has failed repeatedly: give up on this pass
+                // rather than burning the budget on it.
+                break;
+            }
             std::sort(order.begin(), order.end(), [&](int a, int b) {
                 bool sa = last_epoch[a] < epoch - 1;
                 bool sb = last_epoch[b] < epoch - 1;
