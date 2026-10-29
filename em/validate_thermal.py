@@ -108,13 +108,20 @@ def net_joule_w(net: dict, traces: list, cfg: dict) -> dict:
     a_dc = width * t_cu
     a_ac = rf.ac_area_mm2(width, t_cu, delta)
     ratio = min(1.0, a_ac / a_dc) if a_dc > 0 else 0.0
-    r_ohm = rho * (length * 1e-3) / (a_dc * 1e-6 * ratio) if a_dc > 0 else 0.0
+    # Joule heating carries the net's *DC* current (ampacity current), so the
+    # full copper cross-section conducts it. Applying the RF skin-depth ratio
+    # here inflated the resistance ~12x at 2.45 GHz and produced junction
+    # temperatures like 443 C for 2 A in a 0.5 mm trace (physically ~60 C).
+    # The skin ratio stays as an RF reference (r_rf_ohm), not as the DC model.
+    r_ohm = rho * (length * 1e-3) / (a_dc * 1e-6) if a_dc > 0 else 0.0
+    r_rf = r_ohm / ratio if ratio > 0 else 0.0
     joule = current * current * r_ohm
     return {
         "length_mm": round(length, 3),
         "width_mm": round(width, 4),
         "current_a": round(current, 3),
         "r_ohm": round(r_ohm, 6),
+        "r_rf_ohm": round(r_rf, 6),
         "skin_ratio": round(ratio, 4),
         "joule_w": round(joule, 4),
     }

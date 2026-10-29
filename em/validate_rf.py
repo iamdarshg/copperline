@@ -104,6 +104,21 @@ def evaluate_net(net: dict, traces: list, cfg: dict) -> dict:
     rfc = cfg["rf"]
     targets = rfc.get("targets", {})
     tgt = targets.get(net["name"], {})
+    # RF checks only make sense for nets with an explicit RF intent (a declared
+    # impedance target). Evaluating plain DC/power nets at the RF frequency
+    # failed them on S11/S21/RF-ampacity for no reason.
+    rf_intent = bool(tgt.get("z0_ohm") or net.get("impedance_ohms") or
+                     net.get("impedance_target_ohms"))
+    if not rf_intent:
+        return {
+            "net": net["name"],
+            "rf_intent": False,
+            "traces": len(traces),
+            "length_mm": round(sum(trace_length_mm(t) for t in traces), 3),
+            "checks": [],
+            "pass": True,
+            "detail": "no impedance target: RF limits not applicable",
+        }
 
     freq = rfc.get("freq_ghz", 2.45)
     eps_r = stackup.get("eps_r", 4.4)
