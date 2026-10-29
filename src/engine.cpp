@@ -21,6 +21,31 @@
 
 namespace copperline {
 
+namespace {
+// Debug aid (COPPERLINE_TRACE_PROVENANCE=1): every copper commit prints its
+// stage and geometry, so a verifier violation on the final board can be traced
+// back to the stage that wrote it. Off by default; no effect on routing.
+bool trace_provenance_on() {
+    static const bool on = std::getenv("COPPERLINE_TRACE_PROVENANCE") != nullptr;
+    return on;
+}
+void prov_trace(const char* stage, const TraceSeg& s) {
+    if (!trace_provenance_on()) return;
+    std::fprintf(stderr,
+                 "PROV %s net=%d L=%d (%.4f,%.4f)->(%.4f,%.4f) w=%.4f\n", stage,
+                 static_cast<int>(s.net), static_cast<int>(s.layer),
+                 nm_to_mm(s.a.x), nm_to_mm(s.a.y), nm_to_mm(s.b.x),
+                 nm_to_mm(s.b.y), nm_to_mm(s.width_nm));
+}
+void prov_via(const char* stage, const Via& v) {
+    if (!trace_provenance_on()) return;
+    std::fprintf(stderr, "PROV %s VIA net=%d (%.4f,%.4f) d=%.4f span=%d..%d\n",
+                 stage, static_cast<int>(v.net), nm_to_mm(v.pos.x),
+                 nm_to_mm(v.pos.y), nm_to_mm(v.outer_d_nm),
+                 static_cast<int>(v.top_layer), static_cast<int>(v.bottom_layer));
+}
+}  // namespace
+
 JsonValue EscapeStageInfo::to_json() const {
     JsonValue r = JsonValue::object();
     r["pads_total"] = static_cast<double>(pads_total);
@@ -84,6 +109,7 @@ JsonValue RouteReport::to_json() const {
     st["candidates_accepted"] = static_cast<double>(stats.candidates_accepted);
     st["candidates_rejected"] = static_cast<double>(stats.candidates_rejected);
     st["epochs"] = static_cast<double>(stats.epochs_count);
+    st["deferred_retries"] = static_cast<double>(stats.deferred_retries);
     // Issue #10: hierarchical-guidance aggregates.
     st["hierarchy_guided_tasks"] = static_cast<double>(stats.hierarchy_guided_tasks);
     st["hierarchy_fallback_tasks"] = static_cast<double>(stats.hierarchy_fallback_tasks);
@@ -444,42 +470,84 @@ RouteReport RouterEngine::run() {
                 if (it == by_term.end() || !it->second->has_viable ||
                     it->second->candidates.empty())
                     continue;
-                const EscapeCandidate& best = it->second->candidates.front();
                 const Terminal* term = board_.find_terminal(tid);
                 const NetId net = term ? term->net : -1;
+                // Without a terminal we cannot attribute the copper to a net,
+                // so the gate cannot judge it; refuse the pad (fail closed).
+                if (!term) {
+                    rejected.insert(tid);
+                    continue;
+                }
                 const std::size_t t_before = board_.traces.size();
                 const std::size_t v_before = board_.vias.size();
                 const std::size_t len_before = report.stats.length_nm;
-                Rect area{};
-                bool first_box = true;
-                for (const auto& s : best.traces) {
-                    board_.traces.push_back(s);
-                    const Rect sb = s.segment().bounds();
-                    area = first_box ? sb : rect_union(area, sb);
-                    first_box = false;
-                }
-                for (const auto& v : best.vias) {
-                    board_.vias.push_back(v);
-                    const Rect vb =
-                        Rect::from_center_size(v.pos, v.outer_d_nm, v.outer_d_nm);
-                    area = first_box ? vb : rect_union(area, vb);
-                    first_box = false;
-                }
-                // Escape commits must pass the independent verifier: the
-                // planner checks each pad against its scratch board, but pads
-                // planned concurrently can still land copper on top of each
-                // other. Revert anything illegal and record the pad instead
-                // of leaving a hard-rule VIOLATION on the board.
-                BoardVerifier escape_gate;
-                if (first_box ||
-                    escape_gate.has_local_violation(board_, resolver_, ctx, net,
-                                                    area)) {
+                // Try every planned candidate for this pad, best first. Pads
+                // are planned concurrently on scratch boards, so the best
+                // candidate for one pad can be blocked by a sibling's copper;
+                // dropping the pad entirely then costs every connection that
+                // would have grown from it. Fall through the candidate list
+                // and only report the pad unresolved when all of them are
+                // blocked.
+                const EscapeCandidate* chosen = nullptr;
+                bool gate_hit = false;
+                for (const auto& best : it->second->candidates) {
+                    Rect area{};
+                    bool first_box = true;
+                    for (const auto& s : best.traces) {
+                        board_.traces.push_back(s);
+                        // Copper extent (centreline + half width): the
+                        // legality probe below must see the copper, not the
+                        // centreline.
+                        const Rect sb =
+                            s.segment().bounds().expanded(s.width_nm / 2);
+                        area = first_box ? sb : rect_union(area, sb);
+                        first_box = false;
+                    }
+                    for (const auto& v : best.vias) {
+                        board_.vias.push_back(v);
+                        const Rect vb = Rect::from_center_size(
+                            v.pos, v.outer_d_nm, v.outer_d_nm);
+                        area = first_box ? vb : rect_union(area, vb);
+                        first_box = false;
+                    }
+                    // Escape commits must pass the independent verifier: the
+                    // planner checks each pad against its scratch board, but
+                    // pads planned concurrently can still land copper on top
+                    // of each other. Revert anything illegal and try the next
+                    // candidate instead of leaving a hard-rule VIOLATION.
+                    BoardVerifier escape_gate;
+                    gate_hit =
+                        first_box ||
+                        escape_gate.has_local_violation(board_, resolver_, ctx,
+                                                        net, area);
+                    if (trace_provenance_on())
+                        std::fprintf(
+                            stderr,
+                            "PROV gate_escape tid=%d net=%d term=%d "
+                            "first=%d area=(%.4f,%.4f)-(%.4f,%.4f) "
+                            "rejected=%d\n",
+                            static_cast<int>(tid), static_cast<int>(net),
+                            term ? 1 : 0, first_box ? 1 : 0,
+                            nm_to_mm(area.x1), nm_to_mm(area.y1),
+                            nm_to_mm(area.x2), nm_to_mm(area.y2),
+                            gate_hit ? 1 : 0);
+                    if (!gate_hit) {
+                        chosen = &best;
+                        break;
+                    }
                     board_.traces.resize(t_before);
                     board_.vias.resize(v_before);
+                }
+                if (chosen == nullptr) {
                     report.stats.length_nm = len_before;
                     rejected.insert(tid);
                     continue;
                 }
+                const EscapeCandidate& best = *chosen;
+                // Log only the candidate that survived the gate, so the
+                // provenance stream matches the copper that was committed.
+                for (const auto& s : best.traces) prov_trace("escape", s);
+                for (const auto& v : best.vias) prov_via("escape", v);
                 OwnedRoute o;
                 o.task.net = net;
                 o.task.a = tid;
@@ -686,6 +754,8 @@ RouteReport RouterEngine::run() {
         return std::max(da, db);
     };
     std::vector<int> fail_count(tasks.size(), 0);
+    // Bounded "second wind" counter per task (see the deferral block).
+    std::vector<int> second_wind(tasks.size(), 0);
     std::vector<Corridor> corridors(tasks.size());
     // S1: corridor cache per board generation (Stream-1 probable_corridor
     // calls only; cache lives on our side). probable_corridor depends only
@@ -856,6 +926,7 @@ RouteReport RouterEngine::run() {
             task_done.push_back(0);
             task_superseded.push_back(0);
             fail_count.push_back(0);
+            second_wind.push_back(0);
             last_epoch.push_back(-1);
             DifficultyVector dv = compute_difficulty(board_, resolver_, tasks.back(), ctx,
                                                      density.terminal_density, depth_of, 0);
@@ -1054,9 +1125,14 @@ RouteReport RouterEngine::run() {
         {
             // Deprioritise tasks that keep failing: after kDeferAfterFailures
             // attempts a task sinks to the back of the queue so routable work
-            // is not starved, and when *only* those remain the loop stops
-            // instead of retrying them until the deadline.
-            constexpr int kDeferAfterFailures = 3;
+            // is not starved. When *only* those remain we no longer give up
+            // outright: each task gets a bounded number of "second wind"
+            // passes with a reset failure count (recovery may have freed the
+            // blocking copper in the meantime). Only after that does the run
+            // report the task as unroutable, which is the honest moment to
+            // stop.
+            constexpr int kDeferAfterFailures = 6;
+            constexpr int kMaxSecondWind = 3;
             auto is_deferred = [&](int ti) {
                 return ti >= 0 && ti < static_cast<int>(fail_count.size()) &&
                        fail_count[ti] >= kDeferAfterFailures;
@@ -1066,9 +1142,21 @@ RouteReport RouterEngine::run() {
             for (int ti : remaining)
                 if (!is_deferred(ti)) order.push_back(ti);
             if (order.empty()) {
-                // Everything left has failed repeatedly: give up on this pass
-                // rather than burning the budget on it.
-                break;
+                int rearmed = 0;
+                for (int ti : remaining) {
+                    if (ti < 0 || ti >= static_cast<int>(second_wind.size()))
+                        continue;
+                    if (second_wind[ti] >= kMaxSecondWind) continue;
+                    second_wind[ti]++;
+                    fail_count[ti] = 0;
+                    ++rearmed;
+                }
+                if (rearmed == 0) {
+                    // Every remaining task has exhausted its retries.
+                    break;
+                }
+                report.stats.deferred_retries += rearmed;
+                for (int ti : remaining) order.push_back(ti);
             }
             std::sort(order.begin(), order.end(), [&](int a, int b) {
                 bool sa = last_epoch[a] < epoch - 1;
@@ -1340,7 +1428,7 @@ RouteReport RouterEngine::run() {
                 Rect area{};
                 bool first = true;
                 for (const auto& s : candidates[k].traces) {
-                    const Rect sb = s.segment().bounds();
+                    const Rect sb = s.segment().bounds().expanded(s.width_nm / 2);
                     area = first ? sb : rect_union(area, sb);
                     first = false;
                 }
@@ -1370,8 +1458,14 @@ RouteReport RouterEngine::run() {
                 const std::size_t t0 = board_.traces.size();
                 const std::size_t v0 = board_.vias.size();
                 const std::size_t len0 = report.stats.length_nm;
-                for (const auto& s : c.traces) board_.traces.push_back(s);
-                for (const auto& vv : c.vias) board_.vias.push_back(vv);
+                for (const auto& s : c.traces) {
+                    prov_trace("epoch", s);
+                    board_.traces.push_back(s);
+                }
+                for (const auto& vv : c.vias) {
+                    prov_via("epoch", vv);
+                    board_.vias.push_back(vv);
+                }
                 const bool illegal =
                     ambiguous && epoch_gate.has_local_violation(
                                      board_, resolver_, ctx, c.task.net, bit->second);
@@ -1554,6 +1648,10 @@ RouteReport RouterEngine::run() {
             if (std::find(rec.modes_attempted.begin(), rec.modes_attempted.end(), mode_name) ==
                 rec.modes_attempted.end())
                 rec.modes_attempted.push_back(mode_name);
+            // Count the attempt here, not on commit: a generation that finds no
+            // improving branch is still a rip-up attempt, and the failure
+            // report must say what was actually tried.
+            ++rec.generations;
             AStarConfig mode_cfg;
             HierarchyConfig rec_hier;
             int width = 0;
@@ -1819,7 +1917,17 @@ RouteReport RouterEngine::run() {
             }
             if (one_ply_best < 0) {
                 rec.transposition_hits = transposition.hits();
-                break;  // everything pruned: give up deterministically
+                // Every branch repeated a state the transposition table has
+                // already seen. That is not evidence the task is impossible:
+                // escalate to the next (stronger) recovery mode, which widens
+                // A* and reshapes the children, and press the failed corridors
+                // harder. Only the strongest mode may stop the search.
+                if (mode == RecoveryMode::EXHAUSTIVE_LOCAL) break;
+                for (int ti : remaining)
+                    congestion.add_history_rect(corridors[ti].rect,
+                                                2.0 * active_budget.history_growth);
+                stall.note_epoch(0);
+                continue;
             }
             // Issue #22: bounded multi-ply lookahead over immutable branch
             // states. Depth=1 reproduces one-ply exactly (no lookahead).
@@ -1933,7 +2041,6 @@ RouteReport RouterEngine::run() {
                 }
                 for (const auto& r : results) report.stats.expansions_total += r.expansions;
                 stall.note_epoch(0);
-                ++rec.generations;
                 continue;
             }
             // Commit the winning branch atomically: replace copper + ownership.
@@ -2057,7 +2164,6 @@ RouteReport RouterEngine::run() {
                     options_.progress(ev);
                 }
             }
-            rec.generations++;
             rec.ripups += (int)moves[best].owned_idx.size();
             stall.reset();
             // Strengthen history around the repaired region so later
@@ -2249,19 +2355,31 @@ RouteReport RouterEngine::run() {
             Rect mat_area{};
             bool mat_first = true;
             for (const auto& s : mat.traces_p) {
-                const Rect sb = s.segment().bounds();
+                const Rect sb = s.segment().bounds().expanded(s.width_nm / 2);
                 mat_area = mat_first ? sb : rect_union(mat_area, sb);
                 mat_first = false;
             }
             for (const auto& s : mat.traces_n) {
-                const Rect sb = s.segment().bounds();
+                const Rect sb = s.segment().bounds().expanded(s.width_nm / 2);
                 mat_area = mat_first ? sb : rect_union(mat_area, sb);
                 mat_first = false;
             }
-            for (const auto& s : mat.traces_p) board_.traces.push_back(s);
-            for (const auto& s : mat.traces_n) board_.traces.push_back(s);
-            for (const auto& v : mat.vias_p) board_.vias.push_back(v);
-            for (const auto& v : mat.vias_n) board_.vias.push_back(v);
+            for (const auto& s : mat.traces_p) {
+                prov_trace("pair", s);
+                board_.traces.push_back(s);
+            }
+            for (const auto& s : mat.traces_n) {
+                prov_trace("pair", s);
+                board_.traces.push_back(s);
+            }
+            for (const auto& v : mat.vias_p) {
+                prov_via("pair", v);
+                board_.vias.push_back(v);
+            }
+            for (const auto& v : mat.vias_n) {
+                prov_via("pair", v);
+                board_.vias.push_back(v);
+            }
             {
                 BoardVerifier pair_gate;
                 if (!mat_first &&

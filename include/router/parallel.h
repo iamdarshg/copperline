@@ -380,6 +380,9 @@ struct RouteStats {
     int candidates_accepted = 0;
     int candidates_rejected = 0;
     int epochs_count = 0;
+    // Second-wind passes: how many times repeatedly-failing tasks were
+    // re-armed for a fresh set of attempts instead of being abandoned.
+    int deferred_retries = 0;
     // Issue #10: hierarchical-guidance aggregates over greedy-epoch
     // candidates (recovery branches report exact expansions only).
     int hierarchy_guided_tasks = 0;

@@ -258,3 +258,56 @@ CT_TEST(nearby_unstitched_via_still_fails_via_current) {
 }
 
 int main() { return copperline::test::run_all_tests(); }
+
+// Regression (Pico 2 C, 2026-10): at ZERO design clearance two foreign traces
+// on the same layer overlapped by 0.0725mm and were committed anyway. The
+// signed verifier caught it but the epoch commit gate (has_local_violation)
+// did not, so illegal copper shipped. Both must reject the overlap: with
+// clearance 0 the predicate has to demand strictly disjoint copper, not just
+// "distance >= 0" (an unsigned distance saturates at 0 on overlap).
+CT_TEST(zero_clearance_trace_overlap_detected) {
+    auto build = [](double dx_mm, Coord clear_nm) {
+        Board b = base_2layer(40.0, 40.0);
+        b.defaults.clearance_nm = clear_nm;
+        b.nets.push_back(make_net(0, "A"));
+        b.nets.push_back(make_net(1, "B"));
+        const TermId a0 = add_terminal(b, 0, 10.0, 1.0);
+        const TermId a1 = add_terminal(b, 0, 10.0, 9.0);
+        const TermId b0 = add_terminal(b, 1, 10.0 + dx_mm, 8.0);
+        const TermId b1 = add_terminal(b, 1, 11.0 + dx_mm, 8.0);
+        // Vertical A at x=10.00 (half width 0.1 -> copper to x=10.10).
+        b.traces.push_back({0, 0, b.find_terminal(a0)->pos,
+                            b.find_terminal(a1)->pos, mm_to_nm(0.2)});
+        // Horizontal B: centreline gap dx, both traces 0.2mm wide, so the
+        // copper edges overlap by 0.2 - dx.
+        b.traces.push_back({1, 0, b.find_terminal(b0)->pos,
+                            b.find_terminal(b1)->pos, mm_to_nm(0.2)});
+        return b;
+    };
+    ElectricalContext ctx;
+    BoardVerifier v;
+
+    // dx = 0.1275mm -> 0.0725mm of copper overlap at zero clearance.
+    Board b = build(0.1275, 0);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    VerifyResult vr = v.verify(b, r, ctx);
+    CT_CHECK(!vr.legal);
+    CT_CHECK(!vr.violations.empty());
+
+    // The commit gate must reach the same verdict for the touched net...
+    Rect area = b.traces[1].segment().bounds().expanded(mm_to_nm(0.1));
+    CT_CHECK(v.has_local_violation(b, r, ctx, 1, area));
+    // ... and for the other net in the pair (element order must not matter).
+    Rect area_a = b.traces[0].segment().bounds().expanded(mm_to_nm(0.1));
+    CT_CHECK(v.has_local_violation(b, r, ctx, 0, area_a));
+    // Callers historically passed the raw centreline box; at zero clearance
+    // that must still be caught (this was the escape-gate hole).
+    CT_CHECK(v.has_local_violation(b, r, ctx, 1, b.traces[1].segment().bounds()));
+
+    // Same shape, 0.6mm apart with a 0.2mm rule: 0.4mm between copper edges,
+    // so the predicate is not simply always-fail.
+    Board ok = build(0.6, mm_to_nm(0.2));
+    RuleResolver r_ok = RuleResolver::defaults_for(ok);
+    VerifyResult vr_ok = v.verify(ok, r_ok, ctx);
+    CT_CHECK(vr_ok.legal);
+}

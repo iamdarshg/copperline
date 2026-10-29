@@ -1026,7 +1026,14 @@ bool BoardVerifier::has_local_violation(const Board& board,
     };
     Coord max_need = 0;
     for (const auto& o : board.nets) max_need = std::max(max_need, need_for(net, o.id));
-    const Rect wide = area.expanded(max_need + 1);
+    // `area` is the caller's copper extent. Even if a caller passes only the
+    // centreline box, expand by the widest half width on the board so a
+    // foreign element whose copper reaches into `area` is never filtered out.
+    // Without this, zero-clearance designs missed real overlaps: the filter
+    // margin was 1nm while the copper extended 100um past the centreline.
+    Coord hw_max = 0;
+    for (const auto& t : board.traces) hw_max = std::max(hw_max, t.width_nm / 2);
+    const Rect wide = area.expanded(max_need + hw_max + 1);
     std::vector<Element> elems = collect_elements(board);
     SpatialIndex index(mm_to_nm(1.0));
     for (std::size_t i = 0; i < elems.size(); ++i) {
@@ -1041,7 +1048,7 @@ bool BoardVerifier::has_local_violation(const Board& board,
         if (elems[i].net != net) continue;
         Rect here = elem_bounds(elems[i]);
         if (!here.intersects(wide)) continue;
-        Rect query = here.expanded(max_need + 1);
+        Rect query = here.expanded(max_need + hw_max + 1);
         for (int j : index.query(query)) {
             // Check the pair from either ordering: the touched net's element
             // may carry the higher index, and skipping j <= i made this check
@@ -1437,9 +1444,21 @@ VerifyResult BoardVerifier::verify(const Board& board, const RuleResolver& resol
                 v.net_b = b.net;
                 v.rule = source;
                 double gap_mm = elem_gap_mm(a, b);
+                auto kind_name = [](Element::Kind k) {
+                    switch (k) {
+                        case Element::Kind::kTrace: return "trace";
+                        case Element::Kind::kPad: return "pad";
+                        case Element::Kind::kVia: return "via";
+                        case Element::Kind::kPlane: return "plane";
+                    }
+                    return "?";
+                };
                 v.detail = "clearance " + std::to_string(gap_mm) + "mm below " +
                            std::to_string(nm_to_mm(need)) + "mm between " +
-                           (na ? na->name : "?") + " and " + (nb ? nb->name : "?");
+                           (na ? na->name : "?") + " (" + kind_name(a.kind) +
+                           ", L" + std::to_string(a.layer) + ") and " +
+                           (nb ? nb->name : "?") + " (" + kind_name(b.kind) +
+                           ", L" + std::to_string(b.layer) + ")";
                 // Explainability (issue #6): when a per-net floor raised the
                 // stage-1 candidate, report both so agents can see why.
                 ClearanceResolution res = resolver.clearanceResolution(a.net, b.net, 0, ctx);
