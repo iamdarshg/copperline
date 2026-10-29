@@ -1459,7 +1459,13 @@ RouteReport RouterEngine::run() {
                     break;
                 }
             }
-            if (accepted) {
+            // An accepted candidate that still leaves the task unconnected is
+            // a failure in effect: without this the task is retried forever
+            // (fail_count never rises) and the run spins to the deadline.
+            // Pair-corridor tasks are exempt: their connectivity is completed
+            // by materialization, not by the accepted corridor itself.
+            if (accepted && (tasks[ti].is_pair_corridor ||
+                             task_already_connected(board_, tasks[ti]))) {
                 task_done[ti] = 1;
             } else {
                 if (ti < (int)in_batch.size() && in_batch[ti]) fail_count[ti]++;
