@@ -39,7 +39,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 1.2
+  "route_s": 1.1
  },
  {
   "board": "flat_hierarchy.kicad_pcb",
@@ -59,8 +59,8 @@
   "total": 476,
   "legal": true,
   "violations": 0,
-  "import_s": 0.2,
-  "route_s": 85.4
+  "import_s": 0.3,
+  "route_s": 89.3
  },
  {
   "board": "interf_u.kicad_pcb",
@@ -76,12 +76,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "TIMEOUT",
-  "connected": 440,
-  "total": 684,
-  "legal": false,
-  "violations": 0,
-  "import_s": 0.1,
-  "route_s": 183.0
+  "connected": null,
+  "total": null,
+  "legal": null,
+  "violations": null,
+  "import_s": 0.2,
+  "route_s": 185.0
  },
  {
   "board": "pic_programmer.kicad_pcb",
@@ -102,7 +102,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.2,
-  "route_s": 77.9
+  "route_s": 78.4
  },
  {
   "board": "sonde xilinx.kicad_pcb",
@@ -117,13 +117,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "TIMEOUT",
-  "connected": 177,
+  "status": "COMPLETE",
+  "connected": 182,
   "total": 182,
-  "legal": false,
+  "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 180.7
+  "route_s": 8.6
  },
  {
   "board": "test_pads_inside_pads.kicad_pcb",
@@ -143,8 +143,8 @@
   "total": 27,
   "legal": true,
   "violations": 0,
-  "import_s": 0.0,
-  "route_s": 0.4
+  "import_s": 0.1,
+  "route_s": 0.6
  },
  {
   "board": "tinytapeout-demo.kicad_pcb",
@@ -164,8 +164,8 @@
   "total": null,
   "legal": null,
   "violations": null,
-  "import_s": 0.5,
-  "route_s": 185.0
+  "import_s": 0.8,
+  "route_s": 185.1
  },
  {
   "board": "pico-radio-9-k\u00e9toldalas.kicad_pcb",
@@ -181,12 +181,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "INCOMPLETE",
-  "connected": 320,
+  "connected": 324,
   "total": 340,
   "legal": false,
   "violations": 0,
-  "import_s": 0.1,
-  "route_s": 105.5
+  "import_s": 0.2,
+  "route_s": 50.9
  },
  {
   "board": "pico-radio-9.kicad_pcb",
@@ -207,7 +207,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 47.7
+  "route_s": 33.2
  },
  {
   "board": "Pico 2 C.kicad_pcb",
@@ -223,12 +223,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "VIOLATION",
-  "connected": 155,
+  "connected": 246,
   "total": 327,
   "legal": false,
   "violations": 4,
-  "import_s": 0.2,
-  "route_s": 181.3
+  "import_s": 1.6,
+  "route_s": 181.6
  },
  {
   "board": "RPI-PICO-R3a-PUBLIC.kicad_pcb",
@@ -244,12 +244,12 @@
   "input_legal": true,
   "input_violations": 0,
   "status": "TIMEOUT",
-  "connected": null,
-  "total": null,
-  "legal": null,
-  "violations": null,
-  "import_s": 0.1,
-  "route_s": 185.0
+  "connected": 112,
+  "total": 282,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 180.6
  },
  {
   "board": "Pico WH.kicad_pcb",
@@ -291,7 +291,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 3.0
+  "route_s": 3.3
  },
  {
   "board": "laying_out_a_pcb.kicad_pcb",
@@ -311,7 +311,7 @@
   "total": 200,
   "legal": true,
   "violations": 0,
-  "import_s": 0.0,
+  "import_s": 0.1,
   "route_s": 2.8
  },
  {
@@ -333,7 +333,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 3.2
+  "route_s": 3.1
  },
  {
   "board": "h_bridge.kicad_pcb",
@@ -354,7 +354,7 @@
   "legal": true,
   "violations": 0,
   "import_s": 0.1,
-  "route_s": 0.6
+  "route_s": 0.8
  },
  {
   "board": "KiCAD_Board_3_Minimal_Full_RP2040.kicad_pcb",
@@ -369,13 +369,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "TIMEOUT",
-  "connected": null,
-  "total": null,
-  "legal": null,
-  "violations": null,
-  "import_s": 0.1,
-  "route_s": 185.0
+  "status": "INCOMPLETE",
+  "connected": 109,
+  "total": 198,
+  "legal": false,
+  "violations": 0,
+  "import_s": 0.2,
+  "route_s": 100.7
  },
  {
   "board": "rp2040_nema.kicad_pcb",
@@ -390,13 +390,13 @@
   },
   "input_legal": true,
   "input_violations": 0,
-  "status": "TIMEOUT",
-  "connected": 91,
+  "status": "INCOMPLETE",
+  "connected": 103,
   "total": 184,
   "legal": false,
   "violations": 0,
   "import_s": 0.2,
-  "route_s": 184.8
+  "route_s": 82.2
  },
  {
   "board": "rp2040_game_con.kicad_pcb",
@@ -417,7 +417,7 @@
   "legal": false,
   "violations": 0,
   "import_s": 0.2,
-  "route_s": 100.7
+  "route_s": 44.3
  },
  {
   "board": "OpenJBOD-RP2040.kicad_pcb",
@@ -437,7 +437,7 @@
   "total": null,
   "legal": null,
   "violations": null,
-  "import_s": 0.3,
-  "route_s": 185.0
+  "import_s": 0.5,
+  "route_s": 185.1
  }
 ]

@@ -110,24 +110,38 @@ router route dev_board.kicad_pcb --threads 4 --timeout 60 \
 ```
 
 
-## Benchmark: clean corpus at 180 s (2026-10-28)
+## Benchmark: clean corpus at 180 s (2026-10-29)
 
 Corpus built with `tools/build_corpus.py` (signature dedupe, pads >= 4, input
-DRC clean): **21 boards**, 180 s each, 4 threads, 512 MB budget
-(`build/bench2/run180/corpus.json`).
+DRC clean): **21 boards**, 180 s each, 4 threads, 512 MB budget.
 
-| outcome | boards | examples |
+**11 / 21 = 52.4% COMPLETE + legal.**
+
+| outcome | boards |
+|---|---|
+| COMPLETE+legal | `flat_hierarchy` 476/476 @89 s, `pic_programmer` 470/470 @78 s, `pico-radio-9` 357/357 @33 s, `sonde xilinx` 182/182 @8.6 s, `working_with_schematics` 200/200, `laying_out_a_pcb` 200/200, `stamp_and_module` 164/164, `ecc83-pp` 66/66, `h_bridge` 32/32, `test_pads` 27/27, `custom_pads` 6/6 |
+| timeout | 5 — `interf_u`, `tinytapeout` (1611 pads), `RPI-PICO`, `Pico WH`, `OpenJBOD` (852 pads) |
+| incomplete (legal) | 4 — `pico-radio-9-kötoldalas` 324/340, `KiCAD_Board_3` 109/198, `rp2040_nema` 103/184, `rp2040_game_con` 79/152 |
+| illegal copper | 1 — `Pico 2 C` (4 violations) |
+
+Progress from two engine fixes on 2026-10-29:
+
+| | before | after |
 |---|---|---|
-| **COMPLETE + legal** | **10 / 21 (47.6%)** | `flat_hierarchy` 476/476 @85 s, `pic_programmer` 470/470 @78 s, `pico-radio-9` 357/357 @48 s, `working_with_schematics` 200/200, `laying_out_a_pcb` 200/200, `stamp_and_module` 164/164, `ecc83-pp` 66/66, `h_bridge` 32/32, `test_pads_inside_pads` 27/27, `custom_pads_test` 6/6 |
-| timeout (legal copper) | 8 | `interf_u` 440/684, `sonde` 177/182, `rp2040_nema` 91/184, `OpenJBOD-RP2040` 161/852, `RPI-PICO-R3a`, `Pico WH`, `KiCAD_Board_3`, `tinytapeout` |
-| incomplete (legal copper) | 2 | `pico-radio-9-kötoldalas` 320/340, `rp2040_game_con` 79/152 |
-| illegal copper committed | 1 | `Pico 2 C` (4 violations) |
+| COMPLETE+legal | 10/21 (47.6%) | **11/21 (52.4%)** |
+| `sonde xilinx` | 903 s timeout, 177/182 | **8.6 s, 182/182** |
+| `pico-radio-9` | 48 s | 33 s |
 
-Compare with the same corpus at a 20 s budget: 9/26 (34.6%). The gain is
-purely budget — `pic_programmer` and `flat_hierarchy` need 78-85 s.
+The spin fix matters more than the raw rate: a task whose candidate was
+accepted but whose terminals were still unconnected never incremented the
+failure counter, so it was retried forever and kept resetting the stall
+counter. Sonde burned 903 s that way.
 
-Remaining gap to 70% (15/21): the eight timeouts are mid-size boards that
-connect 50-90% before the budget expires, and one legality case remains.
+Profile of the remaining timeouts (sonde, before the fix): graph edge
+construction was 71 s of 120 s (11.3 M edges over 785 rebuilds) — the next
+performance lever is reducing per-epoch graph rebuilds, not more timeout.
+
+## Building a fair corpus
 
 ## Building a fair corpus
 
