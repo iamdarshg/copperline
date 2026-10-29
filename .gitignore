@@ -16,5 +16,3 @@ probe_report.json
 build-linux/
 ruvector.db
 ruvector.db-*
-*.rep.json
-*.stripped.json
