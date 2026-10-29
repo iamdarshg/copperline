@@ -468,6 +468,26 @@ class KicadImport {
                 v.hole_d_nm = v.outer_d_nm / 2;
             b.vias.push_back(v);
         }
+        // Adopt the smallest via the design actually uses as the board default.
+        // Dense packages (0.4-0.5mm pitch QFN/BGA) are designed with 0.2-0.3mm
+        // microvias; planning their escape with a 0.6mm default via leaves no
+        // legal site and reports the whole footprint infeasible.
+        if (!b.vias.empty()) {
+            Coord smallest = 0;
+            Coord smallest_hole = 0;
+            for (const auto& v : b.vias) {
+                if (v.outer_d_nm <= 0) continue;
+                if (smallest == 0 || v.outer_d_nm < smallest) {
+                    smallest = v.outer_d_nm;
+                    smallest_hole = v.hole_d_nm > 0 ? v.hole_d_nm
+                                                    : v.outer_d_nm / 2;
+                }
+            }
+            if (smallest > 0 && smallest < b.defaults.via_outer_nm) {
+                b.defaults.via_outer_nm = smallest;
+                b.defaults.via_hole_nm = smallest_hole;
+            }
+        }
     }
 
     // Copper fills become PlaneZone entries (issue #16 machinery): owning
