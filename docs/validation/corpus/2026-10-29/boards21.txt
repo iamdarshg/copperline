@@ -1,0 +1,21 @@
+C:\Program Files\KiCad\9.0\share\kicad\demos\custom_pads_test\custom_pads_test.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\ecc83\ecc83-pp.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\flat_hierarchy\flat_hierarchy.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\interf_u\interf_u.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\pic_programmer\pic_programmer.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\sonde xilinx\sonde xilinx.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\test_pads_inside_pads\test_pads_inside_pads.kicad_pcb
+C:\Program Files\KiCad\9.0\share\kicad\demos\tiny_tapeout\tinytapeout-demo.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\pico-radio-9\kicad\pico-radio-9-kétoldalas\pico-radio-9-kétoldalas.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\pico-radio-9\kicad\pico-radio-9\pico-radio-9.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\project-piCo\KiCad Projects\Pico 2 C\Pico 2 C.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\project-piCo\KiCad Projects\Pico C\RPI-PICO-R3a-PUBLIC.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\project-piCo\KiCad Projects\Pico WH - No License\Pico WH.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch01\working_with_schematics.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch02\laying_out_a_pcb.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch03\stamp_and_module.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch04\h_bridge.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch05\KiCAD_Board_3_Minimal_Full_RP2040.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch10\rp2040_nema.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\raspberry-pi-pico-with-kicad\eg\ch11\rp2040_game_con\rp2040_game_con.kicad_pcb
+C:\Users\Darsh Gupta\AppData\Local\Temp\opencode\repos\rp2040\OpenJBOD-RP2040.kicad_pcb

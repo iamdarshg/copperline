@@ -84,3 +84,33 @@ fixtures/greedy_outside_first  -> status INCOMPLETE, input_legal true
 Failures caused by an unescapable pad now report `reason:
 "escape_infeasible"` with `best_partial: "pad escape infeasible: <detail>"`
 instead of the vague `"unattempted"`.
+
+## Why quick INCOMPLETEs now keep trying (2026-10-29)
+
+Boards used to bail out with the budget barely touched: `rp2040_game_con`
+reported INCOMPLETE 79/152 after 42 s of a 150 s cap, and recovery recorded
+`generations: 2, ripups: 0` — i.e. it stopped **without ever moving a trace**,
+which is the "this trace is in the way, so it must be impossible" behaviour.
+
+Three causes, all fixed:
+
+1. **Deferral gave up.** After 3 failed attempts a task was deferred, and once
+   only deferred tasks remained the epoch loop `break`ed. Now a task gets 6
+   attempts and then up to 3 bounded "second wind" passes with a reset failure
+   count, and the re-arm count is reported as `stats.deferred_retries`.
+2. **All-pruned branches ended the search.** When the transposition table
+   pruned *every* first-ply branch, recovery `break`ed out immediately. That is
+   a repeated-state signal, not proof of infeasibility: the loop now escalates
+   to the next recovery mode (widening A*) and presses the failed corridors
+   harder, and only `EXHAUSTIVE_LOCAL` may stop it.
+3. **Rip-up counts were dishonest.** `recovery.generations` was incremented
+   only on commit, so a run that tried four generations and committed nothing
+   reported `generations: 1`. It now counts **attempts**, which is what
+   `failures[].ripup_attempts` reports.
+
+Effect on `rp2040_game_con` (150 s cap): 42 s -> 84+ s, 46 epochs instead of
+~10, ending INCOMPLETE at the honest point (every remaining task has exhausted
+6 attempts plus 3 second-wind passes) rather than quitting early. Connectivity
+on that board is unchanged (79/152): the remaining terminals are blocked by
+`+3.3V`/`GND` copper, and the escapes report a 0.2375 mm frontier gap, so the
+next lever is a targeted local rip of those blocker traces, not more retries.

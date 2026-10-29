@@ -91,14 +91,51 @@ Fair benchmark: 9/26 = **34.6%** COMPLETE+legal at 20 s per board. 15 of the
 26 are timeouts, not failures — `pic_programmer` (470/470) needed ~300 s in
 `real_boards.md`.
 
-## Remaining: illegal copper from the pair-materialization path
+## Root cause of the last two illegal boards (2026-10-29)
 
-After the gate fix, two curated boards still end illegal
-(`tinytapeout-demo`, `Pico 2 C`, 4 violations each). Both are boards where
-diff-pair corridors are materialized: `engine.cpp` writes
-`mat.traces_p/n` and `mat.vias_p/n` straight into the board **after** the
-routing loop, outside the per-candidate epoch gate. That path still needs the
-same transactional treatment.
+After the gate fix, two curated boards still ended illegal
+(`tinytapeout-demo`, `Pico 2 C`, 4 violations each). The earlier guess (pair
+materialization bypassing the gate) was **wrong** - provenance logging
+(`COPPERLINE_TRACE_PROVENANCE=1`) showed all four overlaps were **escape
+stubs**:
+
+```
+PROV escape net=7  L=0 (29.3100,1.6100)->(29.3100,6.6900)   # GPIO6
+PROV escape net=50 L=0 (30.4375,6.1000)->(29.4375,6.1000)   # QSPI_SD1
+clearance -0.0725mm below 0.000000mm between GPIO6 (trace, L0)
+                                         and QSPI_SD1 (trace, L0)
+```
+
+Both stubs went through the escape gate, and the gate **ran** and returned
+"clean". The bug was in the geometry handed to the predicate:
+
+* `has_local_violation(board, resolver, ctx, net, area)` filters the touched
+  net's elements with `area.expanded(max_need + 1)` and filters foreign
+  elements with the same `wide` rect;
+* the escape gate passed `area` as the **centreline** union of the stub;
+* these boards declare **0 mm** clearance, so the filter margin was **1 nm**
+  while the copper extends `width/2 = 100 um` past the centreline. The
+  overlapping foreign trace (copper edges overlapping by 72.5 um) was
+  filtered out before the exact predicate ever ran.
+
+That is why only the two zero-clearance boards were affected: every other
+board has a non-zero rule, so `max_need` widened the filter enough to mask the
+missing half-width.
+
+Fixes:
+
+1. All three gates (escape, epoch, pair materialization) pass **copper
+   extents** (`segment().bounds().expanded(width/2)`).
+2. `has_local_violation` itself expands by the widest half width on the board,
+   so a centreline caller cannot hide copper from the predicate.
+3. The escape stage tries **every planned candidate** for a pad (best first)
+   instead of dropping the pad after the first blocked candidate, and fails
+   closed when the terminal cannot be resolved.
+4. Clearance violations name the element kind and layer
+   (`GPIO6 (trace, L0)`).
+
+Result on `Pico 2 C` (same seed/threads): **4 violations -> 0**, with the gate
+rejecting 9 escape stubs instead of 6.
 
 Reproducer for the fixed path (kept as a regression scenario):
 
@@ -115,35 +152,72 @@ router route dev_board.kicad_pcb --threads 4 --timeout 60 \
 Corpus built with `tools/build_corpus.py` (signature dedupe, pads >= 4, input
 DRC clean): **21 boards**, 180 s each, 4 threads, 512 MB budget.
 
-**11 / 21 = 52.4% COMPLETE + legal.**
+**11 / 21 = 52.4% COMPLETE + legal, and 21/21 boards verify with 0
+violations.**
+
+The full run (harness rows, per-board reports, the 13 pads-only inputs whose
+source checkout was temporary, and the classification produced by
+`tools/classify_corpus.py`) is frozen in [`corpus/2026-10-29/`](corpus/2026-10-29/README.md).
+The pre-fix baseline is `corpus/bench180.json`.
 
 | outcome | boards |
 |---|---|
-| COMPLETE+legal | `flat_hierarchy` 476/476 @89 s, `pic_programmer` 470/470 @78 s, `pico-radio-9` 357/357 @33 s, `sonde xilinx` 182/182 @8.6 s, `working_with_schematics` 200/200, `laying_out_a_pcb` 200/200, `stamp_and_module` 164/164, `ecc83-pp` 66/66, `h_bridge` 32/32, `test_pads` 27/27, `custom_pads` 6/6 |
-| timeout | 5 — `interf_u`, `tinytapeout` (1611 pads), `RPI-PICO`, `Pico WH`, `OpenJBOD` (852 pads) |
-| incomplete (legal) | 4 — `pico-radio-9-kötoldalas` 324/340, `KiCAD_Board_3` 109/198, `rp2040_nema` 103/184, `rp2040_game_con` 79/152 |
-| illegal copper | 1 — `Pico 2 C` (4 violations) |
+| COMPLETE+legal (11) | `flat_hierarchy` 476/476 @87 s, `pic_programmer` 470/470 @85 s, `pico-radio-9` 357/357 @37 s, `sonde xilinx` 182/182 @7.3 s, `working_with_schematics` 200/200, `laying_out_a_pcb` 200/200, `stamp_and_module` 164/164, `ecc83-pp` 66/66, `h_bridge` 32/32, `test_pads` 27/27, `custom_pads` 6/6 |
+| timeout (5) | `interf_u` 451/684, `tinytapeout` 27/1611 (4 epochs in 180 s), `RPI-PICO` 127/282, `Pico WH` (no report at the cap), `OpenJBOD` 345/852 |
+| incomplete (legal) (4) | `pico-radio-9-kotoldalas` 324/340, `KiCAD_Board_3` 109/198, `rp2040_nema` 103/184, `rp2040_game_con` 79/152 |
+| illegal copper | **0** |
 
-Progress from two engine fixes on 2026-10-29:
+Progress from three engine fixes on 2026-10-29 (zero-clearance gate,
+escape-candidate retry, second wind + recovery escalation):
 
 | | before | after |
 |---|---|---|
-| COMPLETE+legal | 10/21 (47.6%) | **11/21 (52.4%)** |
-| `sonde xilinx` | 903 s timeout, 177/182 | **8.6 s, 182/182** |
-| `pico-radio-9` | 48 s | 33 s |
+| COMPLETE+legal | 11/21 (52.4%) | **11/21 (52.4%)** |
+| boards ending with illegal copper | **1** (`Pico 2 C`, 4 violations) | **0** |
+| `Pico 2 C` | VIOLATION 246/327, 4 violations | TIMEOUT 126/327, **0 violations** |
+| `interf_u`, `tinytapeout` | killed at the cap, no report | TIMEOUT with a full report |
 
-The spin fix matters more than the raw rate: a task whose candidate was
+Connectivity on `Pico 2 C` fell 246 -> 126 for an honest reason: the escape
+stubs the gate now rejects were connecting terminals *through* illegal copper.
+The board is legal at every budget now, which is the contract.
+
+### The incomplete boards, classified (180 s each)
+
+| board | result | budget used | cause |
+|---|---|---|---|
+| `pico-radio-9-kotoldalas` | 324/340 | 72 s of 180 | stopped early; blockers are ordinary traces |
+| `rp2040_game_con` | 79/152 | 107 s | reaches `EXHAUSTIVE_LOCAL` now; still no rip branch survives |
+| `KiCAD_Board_3` | 109/198 | 181 s | clock; 3 of 148 pads unescapable |
+| `rp2040_nema` | 103/184 | 183 s | clock; 1 of 86 pads unescapable |
+| `interf_u` | 451/684 | 181 s | clock (684 terminals) |
+| `tinytapeout` | 27/1611 | 185 s | clock; epoch 0 alone is 50 s (graph rebuild) |
+| `Pico WH` | - | cap | clock (517 terminals) |
+| `OpenJBOD` | 345/852 | 185 s | clock (852 terminals) |
+| `RPI-PICO` | 127/282 | 173 s | 17 of 181 pads unescapable |
+| `Pico 2 C` | 126/327 | 180 s | 26 of 211 pads unescapable |
+
+Only two boards (`Pico 2 C` 26/211, `RPI-PICO` 17/181) are dominated by
+genuine geometry. The rest are clock-limited or stop with budget left.
+`ripups` stays 0 on every one of them: recovery finds no branch where ripping
+a blocker *and* re-placing the victim both succeed. That is the next lever,
+not more retries.
+
+### History worth keeping
+
+The spin fix mattered more than the raw rate: a task whose candidate was
 accepted but whose terminals were still unconnected never incremented the
 failure counter, so it was retried forever and kept resetting the stall
-counter. Sonde burned 903 s that way.
+counter. Sonde burned 903 s that way (903 s timeout at 177/182 -> 8.6 s at
+182/182 after the fix).
 
-Profile of the remaining timeouts (sonde, before the fix): graph edge
-construction was 71 s of 120 s (11.3 M edges over 785 rebuilds) — the next
-performance lever is reducing per-epoch graph rebuilds, not more timeout.
+Profile of the remaining timeouts: graph edge construction is the dominant
+cost on dense boards (on `sonde` it was 71 s of 120 s: 11.3 M edges over 785
+rebuilds). That is why `tinytapeout` (1611 terminals) only completes 4 epochs
+in 180 s - epoch 0 alone takes ~50 s. The next performance lever is per-epoch
+graph rebuild reduction, not a larger timeout.
 
 ## Building a fair corpus
 
-## Building a fair corpus
 
 `tools/build_corpus.py` prepares the set before any routing happens:
 

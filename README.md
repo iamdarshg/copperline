@@ -349,10 +349,18 @@ pure function of scheduler order with a fixed width, so
   costs, never hard locks — the only legal route is never rejected for
   predicted use). Final DRC legality is always exact integer geometry.
 - Starvation-free scheduler: tasks that sat out the previous epoch go
-  first, so failing giants cannot block easy tasks forever.
+  first, so failing giants cannot block easy tasks forever. A task that keeps
+  failing is deferred after 6 attempts, then gets up to 3 bounded "second
+  wind" passes with a reset failure count before it is reported unroutable;
+  the re-arm count is reported as `stats.deferred_retries`.
 - Agent observables: `epoch_log`, `candidates_accepted/rejected`,
-  `congestion_hotspots`, `board_hash`, `--progress` NDJSON on stderr,
-  `router benchmark` (real wall-clock single-vs-parallel + speedup).
+  `deferred_retries`, `congestion_hotspots`, `board_hash`, `--progress`
+  NDJSON on stderr, `router benchmark` (real wall-clock single-vs-parallel +
+  speedup). `failures[]` entries carry the blocker nets, `ripup_attempts` and
+  `modes_attempted`, so "unroutable" always comes with what was tried.
+- Debug provenance: `COPPERLINE_TRACE_PROVENANCE=1` prints every committed
+  trace/via with its stage (`escape`, `epoch`, `pair`), which is how the
+  zero-clearance escape-gate hole was localised.
 
 Reference throughput (Release, 16 cores): 32-task maze board COMPLETE in
 ~270 ms single-thread (~260 tasks/s) vs ~60 ms parallel (~4.4x speedup,

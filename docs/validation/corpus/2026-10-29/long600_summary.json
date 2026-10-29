@@ -1,0 +1,122 @@
+[
+ {
+  "board": "KiCAD_Board_3_Minimal_Full_RP2040.kicad_pcb",
+  "status": "INCOMPLETE",
+  "connected": 109,
+  "total": 198,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 101.3,
+  "escape_escaped": 145,
+  "escape_total": 148,
+  "escape_infeasible": 3
+ },
+ {
+  "board": "OpenJBOD-RP2040.kicad_pcb",
+  "status": "TIMEOUT",
+  "connected": 458,
+  "total": 852,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 603.5,
+  "escape_escaped": 443,
+  "escape_total": 449,
+  "escape_infeasible": 6
+ },
+ {
+  "board": "Pico 2 C.kicad_pcb",
+  "status": "VIOLATION",
+  "connected": 238,
+  "total": 327,
+  "violations": 4,
+  "legal": false,
+  "wall_s": 200.9,
+  "escape_escaped": 185,
+  "escape_total": 211,
+  "escape_infeasible": 26
+ },
+ {
+  "board": "Pico WH.kicad_pcb",
+  "status": "TIMEOUT",
+  "connected": 269,
+  "total": 517,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 609.6,
+  "escape_escaped": 301,
+  "escape_total": 336,
+  "escape_infeasible": 35
+ },
+ {
+  "board": "RPI-PICO-R3a-PUBLIC.kicad_pcb",
+  "status": "BUDGET_EXHAUSTED",
+  "connected": 153,
+  "total": 282,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 172.0,
+  "escape_escaped": 164,
+  "escape_total": 181,
+  "escape_infeasible": 17
+ },
+ {
+  "board": "interf_u.kicad_pcb",
+  "status": "INCOMPLETE",
+  "connected": 509,
+  "total": 684,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 212.0,
+  "escape_escaped": 82,
+  "escape_total": 82,
+  "escape_infeasible": 0
+ },
+ {
+  "board": "pico-radio-9-k\u00e9toldalas.kicad_pcb",
+  "status": "INCOMPLETE",
+  "connected": 324,
+  "total": 340,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 53.0,
+  "escape_escaped": 62,
+  "escape_total": 62,
+  "escape_infeasible": 0
+ },
+ {
+  "board": "rp2040_game_con.kicad_pcb",
+  "status": "INCOMPLETE",
+  "connected": 79,
+  "total": 152,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 42.0,
+  "escape_escaped": 77,
+  "escape_total": 78,
+  "escape_infeasible": 1
+ },
+ {
+  "board": "rp2040_nema.kicad_pcb",
+  "status": "INCOMPLETE",
+  "connected": 103,
+  "total": 184,
+  "violations": 0,
+  "legal": true,
+  "wall_s": 81.2,
+  "escape_escaped": 85,
+  "escape_total": 86,
+  "escape_infeasible": 1
+ },
+ {
+  "board": "tinytapeout-demo.kicad_pcb",
+  "status": "VIOLATION",
+  "connected": 589,
+  "total": 1611,
+  "violations": 4,
+  "legal": false,
+  "wall_s": 612.7,
+  "escape_escaped": 464,
+  "escape_total": 471,
+  "escape_infeasible": 7
+ }
+]

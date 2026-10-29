@@ -1,0 +1,7 @@
+PROV escape net=7 L=0 (29.3100,1.6100)->(29.3100,6.6900) w=0.2000
+PROV gate_escape tid=63 net=7 term=1 first=0 area=(27.8400,1.5100)-(29.4100,6.7900) rejected=0
+PROV escape net=7 L=1 (29.3100,1.6100)->(30.4800,6.6900) w=0.2000
+PROV gate_escape tid=64 net=7 term=1 first=0 area=(29.2100,1.5100)-(30.5800,6.7900) rejected=0
+PROV gate_escape tid=208 net=50 term=1 first=0 area=(28.2375,7.9000)-(29.5875,8.4000) rejected=0
+PROV escape net=50 L=0 (30.4375,6.1000)->(29.4375,6.1000) w=0.2000
+PROV gate_escape tid=97 net=50 term=1 first=0 area=(29.3375,6.0000)-(30.5375,6.2000) rejected=1
