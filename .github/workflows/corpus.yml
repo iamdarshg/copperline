@@ -55,3 +55,30 @@ jobs:
         with:
           name: corpus-results
           path: build/corpus-out/corpus.json
+
+  # The boards that finish incomplete are held under test here. Budgets are
+  # work based, so legality, the escape-infeasible cap and the no-early-give-up
+  # check are machine independent. Connectivity floors were recorded on the
+  # reference machine; CI allows 25% drift for compiler/FP differences and
+  # prints the measured value either way.
+  campaign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq cmake ninja-build g++
+
+      - name: Build router
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 4 --target router
+
+      - name: Sanity (short tier, as ctest runs it)
+        run: python3 tests/test_corpus_boards.py --tier short --router build/router --threads 4
+
+      - name: Campaign (long tier: no early give-up)
+        run: |
+          python3 tests/test_corpus_boards.py --tier long --router build/router \
+            --threads 4 --slack 0.25

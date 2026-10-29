@@ -467,14 +467,28 @@ Optional GitHub workflow: `.github/workflows/corpus.yml` (manual
 corpus, runs the harness over `fixtures/` + generated boards, prints a status
 summary and uploads `corpus.json` as an artifact.
 
-Latest corpus results (185 board runs; details and the open bug in
-`docs/validation/corpus.md`):
+Latest corpus results (details in `docs/validation/corpus.md`, frozen evidence in
+`docs/validation/corpus/2026-10-29/`):
 
 | set | boards | COMPLETE+legal | notes |
 |---|---|---|---|
 | synthetic | 15 | **12** | 3 dense-BGA timeouts, no illegal copper |
-| curated real | 38 | **9** | fair denominator 26 boards with clean input DRC = 34.6%; 2 still commit illegal copper |
+| curated real (180 s) | 21 | **11** | 52.4%; **0 boards with illegal copper**, was 1 |
 | wide sweep | 118 | 1 | 97 inputs already DRC-illegal, 17 import failures |
+
+The ten curated boards that finish incomplete are held under test by
+`tests/test_corpus_boards.py` (ctest `test_corpus_boards`), so a green suite
+cannot hide them:
+
+```
+python tests/test_corpus_boards.py --tier short   # ctest, work-budgeted
+python tests/test_corpus_boards.py --tier long    # CI campaign
+```
+
+Each of them asserts legal copper, an escape-infeasible cap, a recorded
+connectivity floor and - for the long tier - that an INCOMPLETE run does not
+stop before its epoch budget is spent. See
+`docs/validation/corpus/2026-10-29/campaign.md`.
 
 Score any run with the fair denominator (boards whose pads-only input
 verifies legal):

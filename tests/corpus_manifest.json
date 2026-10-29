@@ -1,0 +1,230 @@
+{
+ "schema": "copperline/corpus-campaign/2",
+ "note": "Hard boards from the 2026-10-29 corpus run, held to recorded floors by tests/test_corpus_boards.py. Inputs are the frozen pads-only JSON under docs/validation/corpus/2026-10-29/boards/. Budgets are WORK based (--max-epochs, --max-search-nodes) so a board produces the same copper on any machine; --timeout is only a pathological-run guard. The short tier runs on every ctest and carries the four boards that are cheap enough (two that used to give up, two clock/geometry boards); the long tier is the CI campaign and runs all ten plus the no-early-give-up check. Regenerate with --record when a board legitimately improves.",
+ "boards": [
+  {
+   "name": "interf_u",
+   "input": "docs/validation/corpus/2026-10-29/boards/b003_stripped.json",
+   "class": "clock",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": null,
+    "infeasible": null
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 398,
+    "infeasible": 0
+   },
+   "tiers": [
+    "long"
+   ]
+  },
+  {
+   "name": "tinytapeout-demo",
+   "input": "docs/validation/corpus/2026-10-29/boards/b007_stripped.json",
+   "class": "clock",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": null,
+    "infeasible": null
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 171,
+    "infeasible": 7
+   },
+   "tiers": [
+    "long"
+   ]
+  },
+  {
+   "name": "pico-radio-9-kotoldalas",
+   "input": "docs/validation/corpus/2026-10-29/boards/b008_stripped.json",
+   "class": "gave-up",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": 89,
+    "infeasible": 0
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 217,
+    "infeasible": 0
+   },
+   "tiers": [
+    "short",
+    "long"
+   ]
+  },
+  {
+   "name": "Pico 2 C",
+   "input": "docs/validation/corpus/2026-10-29/boards/b010_stripped.json",
+   "class": "geometry",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": null,
+    "infeasible": null
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 111,
+    "infeasible": 26
+   },
+   "tiers": [
+    "long"
+   ]
+  },
+  {
+   "name": "RPI-PICO-R3a",
+   "input": "docs/validation/corpus/2026-10-29/boards/b011_stripped.json",
+   "class": "geometry",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": null,
+    "infeasible": null
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 89,
+    "infeasible": 17
+   },
+   "tiers": [
+    "long"
+   ]
+  },
+  {
+   "name": "Pico WH",
+   "input": "docs/validation/corpus/2026-10-29/boards/b012_stripped.json",
+   "class": "clock",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": null,
+    "infeasible": null
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 238,
+    "infeasible": 35
+   },
+   "tiers": [
+    "long"
+   ]
+  },
+  {
+   "name": "KiCAD_Board_3",
+   "input": "docs/validation/corpus/2026-10-29/boards/b017_stripped.json",
+   "class": "clock",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": 38,
+    "infeasible": 3
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 94,
+    "infeasible": 3
+   },
+   "tiers": [
+    "short",
+    "long"
+   ]
+  },
+  {
+   "name": "rp2040_nema",
+   "input": "docs/validation/corpus/2026-10-29/boards/b018_stripped.json",
+   "class": "clock",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": 49,
+    "infeasible": 1
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 94,
+    "infeasible": 1
+   },
+   "tiers": [
+    "short",
+    "long"
+   ]
+  },
+  {
+   "name": "rp2040_game_con",
+   "input": "docs/validation/corpus/2026-10-29/boards/b019_stripped.json",
+   "class": "gave-up",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": 61,
+    "infeasible": 1
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 79,
+    "infeasible": 1
+   },
+   "tiers": [
+    "short",
+    "long"
+   ]
+  },
+  {
+   "name": "OpenJBOD-RP2040",
+   "input": "docs/validation/corpus/2026-10-29/boards/b020_stripped.json",
+   "class": "clock",
+   "short": {
+    "max_epochs": 3,
+    "max_search_nodes": 50000,
+    "timeout": 900,
+    "connected": null,
+    "infeasible": null
+   },
+   "long": {
+    "max_epochs": 12,
+    "max_search_nodes": 200000,
+    "timeout": 1800,
+    "connected": 364,
+    "infeasible": 6
+   },
+   "tiers": [
+    "long"
+   ]
+  }
+ ]
+}

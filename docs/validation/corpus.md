@@ -202,6 +202,16 @@ genuine geometry. The rest are clock-limited or stop with budget left.
 a blocker *and* re-placing the victim both succeed. That is the next lever,
 not more retries.
 
+### These boards are under test now
+
+All ten are part of the campaign in `tests/test_corpus_boards.py`, run by
+ctest as `test_corpus_boards` and by the CI workflow. Budgets are work based
+(`--max-epochs`, `--max-search-nodes`), so each board produces the same copper
+on any machine, and every one asserts: legal copper (0 violations), an
+escape-infeasible cap, a recorded connectivity floor, and (long tier) that an
+INCOMPLETE run does not stop before its epoch budget is spent. Details:
+[`corpus/2026-10-29/campaign.md`](corpus/2026-10-29/campaign.md).
+
 ### History worth keeping
 
 The spin fix mattered more than the raw rate: a task whose candidate was

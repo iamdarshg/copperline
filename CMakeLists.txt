@@ -83,6 +83,18 @@ if(PYTHON3_EXECUTABLE)
                    "${CMAKE_SOURCE_DIR}/tests/test_relief_research.py")
   set_tests_properties(test_relief_research PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  # Corpus campaign: the boards that finish incomplete (clock-limited or
+  # early-stopping) are held to recorded floors here, so a green suite cannot
+  # hide them. Short tier only - the long tier needs ~20 min and runs in CI.
+  add_test(NAME test_corpus_boards
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_corpus_boards.py"
+                   --tier short
+                   --router "${CMAKE_BINARY_DIR}/router${CMAKE_EXECUTABLE_SUFFIX}")
+  set_tests_properties(test_corpus_boards PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                       TIMEOUT 1800
+                       RUN_SERIAL TRUE)
 endif()
 
 function(copperline_test name)
