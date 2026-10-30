@@ -56,14 +56,13 @@ jobs:
           name: corpus-results
           path: build/corpus-out/corpus.json
 
-  # The boards that finish incomplete are held under test here. Budgets are
-  # work based, so legality, the escape-infeasible cap and the no-early-give-up
-  # check are machine independent. Connectivity floors were recorded on the
-  # reference machine; CI allows 25% drift for compiler/FP differences and
-  # prints the measured value either way.
+  # COMPLETION GATE. This job is expected to FAIL until every board in
+  # tests/corpus_manifest.json routes completely; the failure output names the
+  # shortfall per board. See docs/validation/corpus/2026-10-29/HANDOFF.md.
+  # Budgets are work based, so results are machine independent.
   campaign:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -75,10 +74,21 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j 4 --target router
 
-      - name: Sanity (short tier, as ctest runs it)
+      # Short tier first so its fast diagnostics appear even though the long
+      # tier is the one that decides the job status.
+      - name: Campaign (short tier)
+        continue-on-error: true
         run: python3 tests/test_corpus_boards.py --tier short --router build/router --threads 4
 
-      - name: Campaign (long tier: no early give-up)
+      - name: Campaign (long tier, all ten boards)
         run: |
           python3 tests/test_corpus_boards.py --tier long --router build/router \
-            --threads 4 --slack 0.25
+            --threads 4 --keep-reports build/gate-reports
+
+      - name: Upload gate reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: campaign-reports
+          path: build/gate-reports
+          if-no-files-found: ignore

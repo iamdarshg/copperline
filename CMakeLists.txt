@@ -93,6 +93,7 @@ if(PYTHON3_EXECUTABLE)
                    --router "${CMAKE_BINARY_DIR}/router${CMAKE_EXECUTABLE_SUFFIX}")
   set_tests_properties(test_corpus_boards PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                       LABELS "campaign"
                        TIMEOUT 1800
                        RUN_SERIAL TRUE)
 endif()

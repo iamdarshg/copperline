@@ -1,0 +1,5662 @@
+{
+ "adjacent_memory": {
+  "mode": "memory",
+  "pairs_committed": 0,
+  "pairs_found": 0,
+  "pairs_skipped_illegal": 0,
+  "ran": false,
+  "skipped_nets": [],
+  "traces_added": 0,
+  "vias_added": 0
+ },
+ "board_hash": "d62672fc716a9d26",
+ "budget": {
+  "astar_max_expansions": 1600000,
+  "batch_width": 8,
+  "graph_k_nearest": 64,
+  "graph_max_bases": 2048,
+  "hier_enabled": true,
+  "hier_max_coarse_expansions": 1600000,
+  "hier_max_grid_cells": 8000000,
+  "hier_tube_half_mm": 20,
+  "hier_window_attempts": 4,
+  "history_growth": 2,
+  "recovery_beam": 2,
+  "recovery_branches": 8,
+  "recovery_depth": 10,
+  "reservation_strength": 2,
+  "ripup_breadth": 3,
+  "route_k": 4,
+  "threads_effective": 4,
+  "timeout_share_per_task_s": 49.6971379,
+  "weight_factor": 1.5
+ },
+ "congestion_hotspots": [
+  {
+   "history": 48.5,
+   "present": 9.34914121,
+   "x_mm": 41.146875,
+   "y_mm": 27.3
+  },
+  {
+   "history": 30,
+   "present": 5.5686972,
+   "x_mm": 41.146875,
+   "y_mm": 25.9
+  },
+  {
+   "history": 27,
+   "present": 6.8142669,
+   "x_mm": 33.665625,
+   "y_mm": 9.1
+  },
+  {
+   "history": 27,
+   "present": 6.2389853,
+   "x_mm": 43.640625,
+   "y_mm": 24.5
+  },
+  {
+   "history": 27,
+   "present": 6.08593586,
+   "x_mm": 38.653125,
+   "y_mm": 37.1
+  },
+  {
+   "history": 27,
+   "present": 5.44938695,
+   "x_mm": 43.640625,
+   "y_mm": 25.9
+  },
+  {
+   "history": 19,
+   "present": 4.05706764,
+   "x_mm": 38.653125,
+   "y_mm": 23.1
+  },
+  {
+   "history": 18.5,
+   "present": 4.11914066,
+   "x_mm": 38.653125,
+   "y_mm": 27.3
+  }
+ ],
+ "connected_terminals": 79,
+ "diffpairs": [],
+ "epoch_log": [
+  {
+   "accepted": 8,
+   "batch_size": 8,
+   "batch_task_ids": [
+    3,
+    85,
+    82,
+    78,
+    79,
+    90,
+    71,
+    87
+   ],
+   "budget": {
+    "astar_max_expansions": 200000,
+    "batch_width": 8,
+    "graph_k_nearest": 16,
+    "graph_max_bases": 384,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 200000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 1,
+    "recovery_branches": 2,
+    "recovery_depth": 4,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 1,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 18.9435751,
+    "weight_factor": 1
+   },
+   "candidates": 8,
+   "effective_batch_width": 8,
+   "epoch": 0,
+   "expansions": 3805,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 3,
+     "b": 85,
+     "weight": 0
+    },
+    {
+     "a": 3,
+     "b": 82,
+     "weight": 0
+    },
+    {
+     "a": 3,
+     "b": 78,
+     "weight": 0
+    },
+    {
+     "a": 3,
+     "b": 79,
+     "weight": 0
+    },
+    {
+     "a": 3,
+     "b": 90,
+     "weight": 0
+    },
+    {
+     "a": 3,
+     "b": 71,
+     "weight": 0
+    },
+    {
+     "a": 3,
+     "b": 87,
+     "weight": 0
+    },
+    {
+     "a": 85,
+     "b": 82,
+     "weight": 0
+    },
+    {
+     "a": 85,
+     "b": 78,
+     "weight": 0
+    },
+    {
+     "a": 85,
+     "b": 79,
+     "weight": 0
+    },
+    {
+     "a": 85,
+     "b": 90,
+     "weight": 0
+    },
+    {
+     "a": 85,
+     "b": 71,
+     "weight": 0
+    },
+    {
+     "a": 85,
+     "b": 87,
+     "weight": 0
+    },
+    {
+     "a": 82,
+     "b": 78,
+     "weight": 0
+    },
+    {
+     "a": 82,
+     "b": 79,
+     "weight": 0
+    },
+    {
+     "a": 82,
+     "b": 90,
+     "weight": 0
+    },
+    {
+     "a": 82,
+     "b": 71,
+     "weight": 0
+    },
+    {
+     "a": 82,
+     "b": 87,
+     "weight": 0
+    },
+    {
+     "a": 78,
+     "b": 79,
+     "weight": 0
+    },
+    {
+     "a": 78,
+     "b": 90,
+     "weight": 0
+    },
+    {
+     "a": 78,
+     "b": 71,
+     "weight": 0
+    },
+    {
+     "a": 78,
+     "b": 87,
+     "weight": 0
+    },
+    {
+     "a": 79,
+     "b": 90,
+     "weight": 0
+    },
+    {
+     "a": 79,
+     "b": 71,
+     "weight": 0
+    },
+    {
+     "a": 79,
+     "b": 87,
+     "weight": 0
+    },
+    {
+     "a": 90,
+     "b": 71,
+     "weight": 0
+    },
+    {
+     "a": 90,
+     "b": 87,
+     "weight": 0
+    },
+    {
+     "a": 71,
+     "b": 87,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 0,
+    "hotspot_pressure": 0,
+    "mean_remaining_difficulty": 39.1614923,
+    "occupancy_frac": 0.00607447937,
+    "phase": "OPEN_BOARD",
+    "phase_entry_remaining": 95,
+    "phase_level": 0,
+    "recovery_generations": 0,
+    "remaining_count": 95,
+    "remaining_frac": 1,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 95
+   },
+   "maturity_phase": "OPEN_BOARD",
+   "rejected": 0,
+   "time_ms": 106,
+   "workers": 4
+  },
+  {
+   "accepted": 8,
+   "batch_size": 8,
+   "batch_task_ids": [
+    118,
+    80,
+    83,
+    44,
+    91,
+    77,
+    139,
+    75
+   ],
+   "budget": {
+    "astar_max_expansions": 200000,
+    "batch_width": 8,
+    "graph_k_nearest": 16,
+    "graph_max_bases": 384,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 200000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 1,
+    "recovery_branches": 2,
+    "recovery_depth": 4,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 1,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 20.6842266,
+    "weight_factor": 1
+   },
+   "candidates": 8,
+   "effective_batch_width": 8,
+   "epoch": 1,
+   "expansions": 724,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 118,
+     "b": 80,
+     "weight": 0
+    },
+    {
+     "a": 118,
+     "b": 83,
+     "weight": 0
+    },
+    {
+     "a": 118,
+     "b": 44,
+     "weight": 0
+    },
+    {
+     "a": 118,
+     "b": 91,
+     "weight": 0
+    },
+    {
+     "a": 118,
+     "b": 77,
+     "weight": 0
+    },
+    {
+     "a": 118,
+     "b": 139,
+     "weight": 0
+    },
+    {
+     "a": 118,
+     "b": 75,
+     "weight": 0
+    },
+    {
+     "a": 80,
+     "b": 83,
+     "weight": 0
+    },
+    {
+     "a": 80,
+     "b": 44,
+     "weight": 0
+    },
+    {
+     "a": 80,
+     "b": 91,
+     "weight": 0
+    },
+    {
+     "a": 80,
+     "b": 77,
+     "weight": 0
+    },
+    {
+     "a": 80,
+     "b": 139,
+     "weight": 0
+    },
+    {
+     "a": 80,
+     "b": 75,
+     "weight": 0
+    },
+    {
+     "a": 83,
+     "b": 44,
+     "weight": 0
+    },
+    {
+     "a": 83,
+     "b": 91,
+     "weight": 0
+    },
+    {
+     "a": 83,
+     "b": 77,
+     "weight": 0
+    },
+    {
+     "a": 83,
+     "b": 139,
+     "weight": 0
+    },
+    {
+     "a": 83,
+     "b": 75,
+     "weight": 0
+    },
+    {
+     "a": 44,
+     "b": 91,
+     "weight": 0
+    },
+    {
+     "a": 44,
+     "b": 77,
+     "weight": 0
+    },
+    {
+     "a": 44,
+     "b": 139,
+     "weight": 0
+    },
+    {
+     "a": 44,
+     "b": 75,
+     "weight": 0
+    },
+    {
+     "a": 91,
+     "b": 77,
+     "weight": 0
+    },
+    {
+     "a": 91,
+     "b": 139,
+     "weight": 0
+    },
+    {
+     "a": 91,
+     "b": 75,
+     "weight": 0
+    },
+    {
+     "a": 77,
+     "b": 139,
+     "weight": 0
+    },
+    {
+     "a": 77,
+     "b": 75,
+     "weight": 0
+    },
+    {
+     "a": 139,
+     "b": 75,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 0,
+    "hotspot_pressure": 0,
+    "mean_remaining_difficulty": 33.5977584,
+    "occupancy_frac": 0.0162273759,
+    "phase": "OPEN_BOARD",
+    "phase_entry_remaining": 95,
+    "phase_level": 0,
+    "recovery_generations": 0,
+    "remaining_count": 87,
+    "remaining_frac": 0.915789474,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 95
+   },
+   "maturity_phase": "OPEN_BOARD",
+   "rejected": 0,
+   "time_ms": 162,
+   "workers": 4
+  },
+  {
+   "accepted": 7,
+   "batch_size": 8,
+   "batch_task_ids": [
+    146,
+    84,
+    67,
+    47,
+    184,
+    187,
+    89,
+    188
+   ],
+   "budget": {
+    "astar_max_expansions": 200000,
+    "batch_width": 8,
+    "graph_k_nearest": 16,
+    "graph_max_bases": 384,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 200000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 1,
+    "recovery_branches": 2,
+    "recovery_depth": 4,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 1,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 23.3683315,
+    "weight_factor": 1
+   },
+   "candidates": 8,
+   "effective_batch_width": 8,
+   "epoch": 2,
+   "expansions": 1102,
+   "interference_max": 0.112,
+   "interference_mean": 0.004,
+   "interference_pairs": [
+    {
+     "a": 146,
+     "b": 84,
+     "weight": 0
+    },
+    {
+     "a": 146,
+     "b": 67,
+     "weight": 0
+    },
+    {
+     "a": 146,
+     "b": 47,
+     "weight": 0
+    },
+    {
+     "a": 146,
+     "b": 184,
+     "weight": 0.112
+    },
+    {
+     "a": 146,
+     "b": 187,
+     "weight": 0
+    },
+    {
+     "a": 146,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 146,
+     "b": 188,
+     "weight": 0
+    },
+    {
+     "a": 84,
+     "b": 67,
+     "weight": 0
+    },
+    {
+     "a": 84,
+     "b": 47,
+     "weight": 0
+    },
+    {
+     "a": 84,
+     "b": 184,
+     "weight": 0
+    },
+    {
+     "a": 84,
+     "b": 187,
+     "weight": 0
+    },
+    {
+     "a": 84,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 84,
+     "b": 188,
+     "weight": 0
+    },
+    {
+     "a": 67,
+     "b": 47,
+     "weight": 0
+    },
+    {
+     "a": 67,
+     "b": 184,
+     "weight": 0
+    },
+    {
+     "a": 67,
+     "b": 187,
+     "weight": 0
+    },
+    {
+     "a": 67,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 67,
+     "b": 188,
+     "weight": 0
+    },
+    {
+     "a": 47,
+     "b": 184,
+     "weight": 0
+    },
+    {
+     "a": 47,
+     "b": 187,
+     "weight": 0
+    },
+    {
+     "a": 47,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 47,
+     "b": 188,
+     "weight": 0
+    },
+    {
+     "a": 184,
+     "b": 187,
+     "weight": 0
+    },
+    {
+     "a": 184,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 184,
+     "b": 188,
+     "weight": 0
+    },
+    {
+     "a": 187,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 187,
+     "b": 188,
+     "weight": 0
+    },
+    {
+     "a": 89,
+     "b": 188,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 0,
+    "hotspot_pressure": 0,
+    "mean_remaining_difficulty": 33.2845913,
+    "occupancy_frac": 0.0243703642,
+    "phase": "OPEN_BOARD",
+    "phase_entry_remaining": 95,
+    "phase_level": 0,
+    "recovery_generations": 0,
+    "remaining_count": 77,
+    "remaining_frac": 0.827956989,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 93
+   },
+   "maturity_phase": "OPEN_BOARD",
+   "rejected": 1,
+   "time_ms": 588,
+   "workers": 4
+  },
+  {
+   "accepted": 5,
+   "batch_size": 5,
+   "batch_task_ids": [
+    220,
+    233,
+    81,
+    186,
+    229
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 26.0691151,
+    "weight_factor": 1
+   },
+   "candidates": 5,
+   "effective_batch_width": 8,
+   "epoch": 3,
+   "expansions": 9177,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 220,
+     "b": 233,
+     "weight": 0
+    },
+    {
+     "a": 220,
+     "b": 81,
+     "weight": 0
+    },
+    {
+     "a": 220,
+     "b": 186,
+     "weight": 0
+    },
+    {
+     "a": 220,
+     "b": 229,
+     "weight": 0
+    },
+    {
+     "a": 233,
+     "b": 81,
+     "weight": 0
+    },
+    {
+     "a": 233,
+     "b": 186,
+     "weight": 0
+    },
+    {
+     "a": 233,
+     "b": 229,
+     "weight": 0
+    },
+    {
+     "a": 81,
+     "b": 186,
+     "weight": 0
+    },
+    {
+     "a": 81,
+     "b": 229,
+     "weight": 0
+    },
+    {
+     "a": 186,
+     "b": 229,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 0.958333333,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 31.6012573,
+    "occupancy_frac": 0.0301646369,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 69,
+    "remaining_frac": 0.75,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 92
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 439,
+   "workers": 4
+  },
+  {
+   "accepted": 5,
+   "batch_size": 5,
+   "batch_task_ids": [
+    271,
+    142,
+    301,
+    89,
+    88
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 29.0052404,
+    "weight_factor": 1
+   },
+   "candidates": 5,
+   "effective_batch_width": 8,
+   "epoch": 4,
+   "expansions": 6257,
+   "interference_max": 0.955605,
+   "interference_mean": 0.0955605,
+   "interference_pairs": [
+    {
+     "a": 271,
+     "b": 142,
+     "weight": 0
+    },
+    {
+     "a": 271,
+     "b": 301,
+     "weight": 0
+    },
+    {
+     "a": 271,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 271,
+     "b": 88,
+     "weight": 0
+    },
+    {
+     "a": 142,
+     "b": 301,
+     "weight": 0
+    },
+    {
+     "a": 142,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 142,
+     "b": 88,
+     "weight": 0
+    },
+    {
+     "a": 301,
+     "b": 89,
+     "weight": 0
+    },
+    {
+     "a": 301,
+     "b": 88,
+     "weight": 0
+    },
+    {
+     "a": 89,
+     "b": 88,
+     "weight": 0.955605
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 0.96875,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 24.9825759,
+    "occupancy_frac": 0.0354253489,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 62,
+    "remaining_frac": 0.688888889,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 90
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 251,
+   "workers": 4
+  },
+  {
+   "accepted": 3,
+   "batch_size": 3,
+   "batch_task_ids": [
+    338,
+    349,
+    93
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 32.1083999,
+    "weight_factor": 1
+   },
+   "candidates": 3,
+   "effective_batch_width": 8,
+   "epoch": 5,
+   "expansions": 1196,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 338,
+     "b": 349,
+     "weight": 0
+    },
+    {
+     "a": 338,
+     "b": 93,
+     "weight": 0
+    },
+    {
+     "a": 349,
+     "b": 93,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 0.96875,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 24.6104195,
+    "occupancy_frac": 0.0396069817,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 56,
+    "remaining_frac": 0.629213483,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 89
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 106,
+   "workers": 3
+  },
+  {
+   "accepted": 3,
+   "batch_size": 3,
+   "batch_task_ids": [
+    384,
+    94,
+    398
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 35.2541248,
+    "weight_factor": 1
+   },
+   "candidates": 3,
+   "effective_batch_width": 8,
+   "epoch": 6,
+   "expansions": 2429,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 384,
+     "b": 94,
+     "weight": 0
+    },
+    {
+     "a": 384,
+     "b": 398,
+     "weight": 0
+    },
+    {
+     "a": 94,
+     "b": 398,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 0.96875,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 23.6476998,
+    "occupancy_frac": 0.0427834506,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 51,
+    "remaining_frac": 0.586206897,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 87
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 121,
+   "workers": 3
+  },
+  {
+   "accepted": 2,
+   "batch_size": 2,
+   "batch_task_ids": [
+    412,
+    444
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 37.454908,
+    "weight_factor": 1
+   },
+   "candidates": 2,
+   "effective_batch_width": 8,
+   "epoch": 7,
+   "expansions": 940,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 412,
+     "b": 444,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.9911917,
+    "occupancy_frac": 0.045797264,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 48,
+    "remaining_frac": 0.551724138,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 87
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 164,
+   "workers": 2
+  },
+  {
+   "accepted": 3,
+   "batch_size": 3,
+   "batch_task_ids": [
+    450,
+    92,
+    489
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 39.9481886,
+    "weight_factor": 1
+   },
+   "candidates": 3,
+   "effective_batch_width": 8,
+   "epoch": 8,
+   "expansions": 3172,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 450,
+     "b": 92,
+     "weight": 0
+    },
+    {
+     "a": 450,
+     "b": 489,
+     "weight": 0
+    },
+    {
+     "a": 92,
+     "b": 489,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.5912525,
+    "occupancy_frac": 0.0469427061,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 45,
+    "remaining_frac": 0.523255814,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 86
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 161,
+   "workers": 3
+  },
+  {
+   "accepted": 2,
+   "batch_size": 3,
+   "batch_task_ids": [
+    457,
+    499,
+    185
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 43.8415447,
+    "weight_factor": 1
+   },
+   "candidates": 3,
+   "effective_batch_width": 8,
+   "epoch": 9,
+   "expansions": 2272,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 457,
+     "b": 499,
+     "weight": 0
+    },
+    {
+     "a": 457,
+     "b": 185,
+     "weight": 0
+    },
+    {
+     "a": 499,
+     "b": 185,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.6684607,
+    "occupancy_frac": 0.0501680556,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 41,
+    "remaining_frac": 0.482352941,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 1,
+   "time_ms": 859,
+   "workers": 3
+  },
+  {
+   "accepted": 2,
+   "batch_size": 2,
+   "batch_task_ids": [
+    503,
+    500
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 46.0677148,
+    "weight_factor": 1
+   },
+   "candidates": 2,
+   "effective_batch_width": 8,
+   "epoch": 10,
+   "expansions": 1177,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 503,
+     "b": 500,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 0.916666667,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.4190954,
+    "occupancy_frac": 0.0509169286,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 39,
+    "remaining_frac": 0.458823529,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 0,
+   "time_ms": 148,
+   "workers": 2
+  },
+  {
+   "accepted": 1,
+   "batch_size": 3,
+   "batch_task_ids": [
+    550,
+    185,
+    565
+   ],
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 48.5537688,
+    "weight_factor": 1
+   },
+   "candidates": 3,
+   "effective_batch_width": 8,
+   "epoch": 11,
+   "expansions": 2015,
+   "interference_max": 0,
+   "interference_mean": 0,
+   "interference_pairs": [
+    {
+     "a": 550,
+     "b": 185,
+     "weight": 0
+    },
+    {
+     "a": 550,
+     "b": 565,
+     "weight": 0
+    },
+    {
+     "a": 185,
+     "b": 565,
+     "weight": 0
+    }
+   ],
+   "interference_relax_steps": 0,
+   "interference_threshold_used": 1,
+   "maturity": {
+    "acceptance_rate": 0.916666667,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 21.9237445,
+    "occupancy_frac": 0.0518588764,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 37,
+    "remaining_frac": 0.435294118,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   },
+   "maturity_phase": "MID_ROUTE",
+   "rejected": 2,
+   "time_ms": 925,
+   "workers": 3
+  }
+ ],
+ "escape": {
+  "escaped_terminals": [
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30,
+   31,
+   32,
+   33,
+   34,
+   35,
+   36,
+   37,
+   38,
+   39,
+   40,
+   41,
+   42,
+   43,
+   44,
+   45,
+   46,
+   47,
+   49,
+   50,
+   51,
+   52,
+   53,
+   54,
+   55,
+   56,
+   57,
+   58,
+   59,
+   60,
+   61,
+   62,
+   63,
+   64,
+   65,
+   66,
+   97,
+   98,
+   99,
+   100,
+   101,
+   102,
+   103,
+   104,
+   123,
+   124,
+   125,
+   126,
+   127,
+   128,
+   129,
+   130,
+   131,
+   132,
+   133,
+   134,
+   135
+  ],
+  "fanout_dir": -1,
+  "fanout_filtered": 0,
+  "fanout_pattern": "auto",
+  "pads_escaped": 77,
+  "pads_infeasible": 1,
+  "pads_total": 78,
+  "unresolved_reasons": [
+   "blocked_channel"
+  ],
+  "unresolved_terminals": [
+   48
+  ]
+ },
+ "failures": [
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "frontier_gap_mm=0.2375 expansions=1847",
+   "blockers": [
+    "trace:net=+3.3V",
+    "trace:net=GND",
+    "pad:net=+3.3V:C10.1",
+    "trace:net=Net-(U3-USB_DP)",
+    "trace:net=/QSPI_SD0",
+    "trace:net=/QSPI_SS",
+    "trace:net=/USB_D+",
+    "trace:net=/QSPI_SD2",
+    "frontier_gap_mm=0.237500"
+   ],
+   "candidate_count": 28,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "U3",
+   "dst_pin": "23",
+   "expansions": 1847,
+   "frontier": {
+    "closest_goal_dist_mm": 0.2375,
+    "closest_node": 500,
+    "expansions": 1847,
+    "net": 4,
+    "reason": "unreachable",
+    "terminal_a": 81,
+    "terminal_b": 32,
+    "top_blockers": [
+     {
+      "blocker": "trace:net=+3.3V",
+      "blocker_net": 3,
+      "count": 11085,
+      "kind": "trace",
+      "layer": 1,
+      "x_mm": 34.385,
+      "y_mm": 23.789999
+     },
+     {
+      "blocker": "trace:net=GND",
+      "blocker_net": 0,
+      "count": 8319,
+      "kind": "trace",
+      "layer": 1,
+      "x_mm": 22.27375,
+      "y_mm": 22.949999
+     },
+     {
+      "blocker": "pad:net=+3.3V:C10.1",
+      "blocker_net": 3,
+      "count": 3960,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 32.825,
+      "y_mm": 28.762499
+     },
+     {
+      "blocker": "trace:net=Net-(U3-USB_DP)",
+      "blocker_net": 44,
+      "count": 3510,
+      "kind": "trace",
+      "layer": 1,
+      "x_mm": 38.00375,
+      "y_mm": 27.394999
+     },
+     {
+      "blocker": "trace:net=/QSPI_SD0",
+      "blocker_net": 48,
+      "count": 3494,
+      "kind": "trace",
+      "layer": 1,
+      "x_mm": 35.2725,
+      "y_mm": 16.839999
+     },
+     {
+      "blocker": "pad:net=GND:C10.2",
+      "blocker_net": 0,
+      "count": 3311,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 32.29,
+      "y_mm": 18.104999
+     },
+     {
+      "blocker": "trace:net=/QSPI_SD0",
+      "blocker_net": 48,
+      "count": 2147,
+      "kind": "trace",
+      "layer": 0,
+      "x_mm": 36.99,
+      "y_mm": 17.969999
+     },
+     {
+      "blocker": "trace:net=/QSPI_SCLK",
+      "blocker_net": 47,
+      "count": 1951,
+      "kind": "trace",
+      "layer": 0,
+      "x_mm": 34.395,
+      "y_mm": 20.681874
+     }
+    ]
+   },
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 1494,
+    "exact_expansions": 1847,
+    "fallback": true,
+    "fallback_reason": "last_resort_miss",
+    "levels_used_mm": [
+     0.8,
+     0.4,
+     0.2,
+     0.1
+    ],
+    "window_attempts": 2
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 4,
+   "net_name": "+1V1",
+   "pin_density_per_mm2": 0.496563422,
+   "reason": "unreachable",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 26,
+   "src_component": "C8",
+   "src_pin": "1",
+   "temp_rise_c": 20,
+   "terminal_a": 81,
+   "terminal_b": 32,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+3.3V",
+    "trace:net=Net-(U3-XIN)",
+    "trace:net=/GPIO_14",
+    "trace:net=/GPIO_15"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.254647909,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U3",
+   "src_pin": "19",
+   "temp_rise_c": 20,
+   "terminal_a": 28,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_0"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0254647909,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U4",
+   "src_pin": "4",
+   "temp_rise_c": 20,
+   "terminal_a": 70,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=Net-(J1-Pin_1)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0127323954,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "J1",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 73,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=Net-(J1-Pin_1)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0127323954,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "J1",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 74,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+3.3V",
+    "trace:net=/QSPI_SD0",
+    "trace:net=Net-(U3-USB_DM)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.369239468,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C7",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 76,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/QSPI_SS",
+    "trace:net=+3.3V",
+    "trace:net=Net-(J1-Pin_1)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.203718327,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C2",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 86,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/QSPI_SD0",
+    "trace:net=/QSPI_SD1",
+    "trace:net=/QSPI_SD3",
+    "trace:net=/QSPI_SCLK"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.356507073,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C11",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 88,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "pad:net=Net-(U3-XOUT):Y1.1",
+    "trace:net=Net-(U3-XIN)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0891267681,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "Y1",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 90,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "pad:net=Net-(U3-XOUT):Y1.1",
+    "trace:net=Net-(U3-XIN)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.101859164,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "Y1",
+   "src_pin": "4",
+   "temp_rise_c": 20,
+   "terminal_a": 92,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_19",
+    "pad:net=unconnected-(U8-Pad1):U8.1",
+    "via:net=/GPIO_18"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.203718327,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U8",
+   "src_pin": "3",
+   "temp_rise_c": 20,
+   "terminal_a": 95,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_19",
+    "trace:net=/GPIO_18",
+    "pad:net=unconnected-(U8-Pad1):U8.1"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0891267681,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U8",
+   "src_pin": "4",
+   "temp_rise_c": 20,
+   "terminal_a": 96,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_0",
+    "trace:net=/QSPI_SD1",
+    "pad:net=/QSPI_SD2:U1.3"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0381971863,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U1",
+   "src_pin": "4",
+   "temp_rise_c": 20,
+   "terminal_a": 100,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_2",
+    "trace:net=/GPIO_0"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0127323954,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U5",
+   "src_pin": "3",
+   "temp_rise_c": 20,
+   "terminal_a": 107,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_2",
+    "trace:net=/GPIO_0",
+    "trace:net=/GPIO_1"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0254647909,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U5",
+   "src_pin": "4",
+   "temp_rise_c": 20,
+   "terminal_a": 108,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_2",
+    "trace:net=/GPIO_0",
+    "trace:net=/QSPI_SS",
+    "trace:net=/GPIO_1",
+    "trace:net=/QSPI_SD2",
+    "trace:net=+3.3V",
+    "trace:net=/QSPI_SD1"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.178253536,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C10",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 110,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+3.3V",
+    "trace:net=/QSPI_SD0",
+    "trace:net=Net-(U3-USB_DM)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.483831027,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C12",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 112,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_19"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U9",
+   "src_pin": "3",
+   "temp_rise_c": 20,
+   "terminal_a": 115,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U7",
+   "src_pin": "3",
+   "temp_rise_c": 20,
+   "terminal_a": 119,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.165521141,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "J2",
+   "src_pin": "5",
+   "temp_rise_c": 20,
+   "terminal_a": 127,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "pad:net=VBUS:C1.1"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.229183118,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "J2",
+   "src_pin": "6",
+   "temp_rise_c": 20,
+   "terminal_a": 128,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.114591559,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "J2",
+   "src_pin": "6",
+   "temp_rise_c": 20,
+   "terminal_a": 129,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.114591559,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "J2",
+   "src_pin": "6",
+   "temp_rise_c": 20,
+   "terminal_a": 130,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.343774677,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C1",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 137,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_2"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.0254647909,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U6",
+   "src_pin": "4",
+   "temp_rise_c": 20,
+   "terminal_a": 141,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=Net-(U3-XIN)",
+    "trace:net=Net-(U3-XOUT)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.14005635,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C16",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 143,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+3.3V",
+    "trace:net=/QSPI_SD0",
+    "trace:net=Net-(U3-USB_DM)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.471098632,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C13",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 145,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=Net-(U3-XIN)",
+    "trace:net=Net-(U3-XOUT)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C4",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 0,
+   "net_name": "GND",
+   "pin_density_per_mm2": 0.152788745,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C6",
+   "src_pin": "2",
+   "temp_rise_c": 20,
+   "terminal_a": 151,
+   "terminal_b": 0,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+1V1",
+    "trace:net=GND",
+    "trace:net=/QSPI_SD0",
+    "trace:net=Net-(U3-USB_DM)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.114591559,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C9",
+   "src_pin": "1",
+   "temp_rise_c": 20,
+   "terminal_a": 6,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+1V1",
+    "trace:net=/QSPI_SD0",
+    "trace:net=Net-(U3-USB_DM)",
+    "trace:net=/GPIO_26_ADC0",
+    "trace:net=/GPIO_26_ADC2",
+    "trace:net=/GPIO_26_ADC3",
+    "pad:net=/GPIO_26_ADC1:U3.39"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.14005635,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U3",
+   "src_pin": "42",
+   "temp_rise_c": 20,
+   "terminal_a": 51,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+1V1",
+    "trace:net=/QSPI_SD0",
+    "trace:net=Net-(U3-USB_DM)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.127323954,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U3",
+   "src_pin": "43",
+   "temp_rise_c": 20,
+   "terminal_a": 52,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+1V1",
+    "trace:net=Net-(U3-USB_DM)",
+    "trace:net=Net-(U3-USB_DP)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.14005635,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U3",
+   "src_pin": "44",
+   "temp_rise_c": 20,
+   "terminal_a": 53,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=+1V1",
+    "trace:net=Net-(U3-USB_DP)",
+    "trace:net=Net-(U3-USB_DM)"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.190985932,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U3",
+   "src_pin": "48",
+   "temp_rise_c": 20,
+   "terminal_a": 57,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "frontier_gap_mm=1.0312 expansions=15",
+   "blockers": [
+    "pad:net=+1V1:U3.50",
+    "trace:net=+1V1",
+    "trace:net=Net-(U3-USB_DP)",
+    "pad:net=Net-(U3-USB_DP):U3.47",
+    "pad:net=GND:U3.57",
+    "trace:net=/QSPI_SCLK",
+    "trace:net=/QSPI_SD0",
+    "trace:net=/QSPI_SD3",
+    "frontier_gap_mm=1.031250"
+   ],
+   "candidate_count": 2,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": 0,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 15,
+   "frontier": {
+    "closest_goal_dist_mm": 1.03125,
+    "closest_node": 454,
+    "expansions": 15,
+    "net": 3,
+    "reason": "unreachable",
+    "terminal_a": 58,
+    "terminal_b": 2,
+    "top_blockers": [
+     {
+      "blocker": "pad:net=+1V1:U3.50",
+      "blocker_net": 4,
+      "count": 413,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 35.315,
+      "y_mm": 27.394999
+     },
+     {
+      "blocker": "trace:net=+1V1",
+      "blocker_net": 4,
+      "count": 191,
+      "kind": "trace",
+      "layer": 0,
+      "x_mm": 39.50375,
+      "y_mm": 25.707499
+     },
+     {
+      "blocker": "trace:net=Net-(U3-USB_DP)",
+      "blocker_net": 44,
+      "count": 174,
+      "kind": "trace",
+      "layer": 0,
+      "x_mm": 39.35375,
+      "y_mm": 28.163749
+     },
+     {
+      "blocker": "pad:net=Net-(U3-USB_DP):U3.47",
+      "blocker_net": 44,
+      "count": 136,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 39.885,
+      "y_mm": 25.797499
+     },
+     {
+      "blocker": "pad:net=GND:U3.57",
+      "blocker_net": 0,
+      "count": 5,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 39.885,
+      "y_mm": 30.463749
+     },
+     {
+      "blocker": "pad:net=Net-(U3-USB_DM):R3.1",
+      "blocker_net": 45,
+      "count": 5,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 40.485,
+      "y_mm": 25.287499
+     },
+     {
+      "blocker": "trace:net=/QSPI_SD3",
+      "blocker_net": 46,
+      "count": 4,
+      "kind": "trace",
+      "layer": 0,
+      "x_mm": 39.5575,
+      "y_mm": 25.807499
+     },
+     {
+      "blocker": "pad:net=/GPIO_26_ADC3:U3.41",
+      "blocker_net": 40,
+      "count": 3,
+      "kind": "pad",
+      "layer": 0,
+      "x_mm": 41.5225,
+      "y_mm": 28.013749
+     }
+    ]
+   },
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 418,
+    "exact_expansions": 15,
+    "fallback": true,
+    "fallback_reason": "last_resort_miss",
+    "levels_used_mm": [
+     0.8,
+     0.4,
+     0.2,
+     0.1
+    ],
+    "window_attempts": 2
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.190985932,
+   "reason": "unreachable",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "U3",
+   "src_pin": "49",
+   "temp_rise_c": 20,
+   "terminal_a": 58,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=GND",
+    "trace:net=Net-(U3-XIN)",
+    "trace:net=Net-(U3-XOUT)",
+    "pad:net=+1V1:C6.1"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.42016905,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C16",
+   "src_pin": "1",
+   "temp_rise_c": 20,
+   "terminal_a": 142,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  },
+  {
+   "attempted_layers": [
+    0,
+    1
+   ],
+   "attempted_via_classes": [
+    "STD"
+   ],
+   "best_partial": "unattempted: no worker candidate produced",
+   "blockers": [
+    "trace:net=/GPIO_18",
+    "trace:net=GND"
+   ],
+   "candidate_count": 1,
+   "category": "UNROUTABLE_UNDER_CONFIGURED_CONSTRAINTS_AND_BUDGET",
+   "centre_depth": -1,
+   "copper_weight_oz": 1,
+   "dst_component": "C3",
+   "dst_pin": "1",
+   "expansions": 0,
+   "has_impedance": false,
+   "has_plane_target": false,
+   "hierarchy": {
+    "coarse_expansions": 0,
+    "exact_expansions": 0,
+    "fallback": false,
+    "fallback_reason": "none",
+    "levels_used_mm": [],
+    "window_attempts": 0
+   },
+   "is_pair_corridor": false,
+   "modes_attempted": [
+    "FAST",
+    "RECOVERY",
+    "EXHAUSTIVE_LOCAL_RECOVERY"
+   ],
+   "net": 3,
+   "net_name": "+3.3V",
+   "pin_density_per_mm2": 0.101859164,
+   "reason": "unattempted",
+   "required_current_a": 0.5,
+   "required_width_mm": 0.2,
+   "ripup_attempts": 1,
+   "src_component": "C13",
+   "src_pin": "1",
+   "temp_rise_c": 20,
+   "terminal_a": 144,
+   "terminal_b": 2,
+   "via_reason": "ok",
+   "via_style": "STD",
+   "vias_required": 1,
+   "width_model": "board_default",
+   "width_source": "board_default"
+  }
+ ],
+ "impedance": [],
+ "input_legal": true,
+ "input_violation_count": 0,
+ "maturity": {
+  "acceptance_rate": 0.75,
+  "escalated_by_stall": true,
+  "fine_pitch_done_frac": 0.987179487,
+  "hotspot_count": 8,
+  "hotspot_pressure": 528,
+  "mean_remaining_difficulty": 21.9610789,
+  "occupancy_frac": 0.0522729977,
+  "phase": "CLOSURE",
+  "phase_entry_remaining": 36,
+  "phase_level": 3,
+  "recovery_generations": 4,
+  "remaining_count": 36,
+  "remaining_frac": 0.423529412,
+  "ripup_count": 0,
+  "stalled_epochs": 3,
+  "total_tasks": 85
+ },
+ "maturity_log": [
+  {
+   "budget": {
+    "astar_max_expansions": 200000,
+    "batch_width": 8,
+    "graph_k_nearest": 16,
+    "graph_max_bases": 384,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 200000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 1,
+    "recovery_branches": 2,
+    "recovery_depth": 4,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 1,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 18.9435751,
+    "weight_factor": 1
+   },
+   "epoch": 0,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 0,
+    "hotspot_pressure": 0,
+    "mean_remaining_difficulty": 39.1614923,
+    "occupancy_frac": 0.00607447937,
+    "phase": "OPEN_BOARD",
+    "phase_entry_remaining": 95,
+    "phase_level": 0,
+    "recovery_generations": 0,
+    "remaining_count": 95,
+    "remaining_frac": 1,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 95
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 200000,
+    "batch_width": 8,
+    "graph_k_nearest": 16,
+    "graph_max_bases": 384,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 200000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 1,
+    "recovery_branches": 2,
+    "recovery_depth": 4,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 1,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 20.6842266,
+    "weight_factor": 1
+   },
+   "epoch": 1,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 0,
+    "hotspot_pressure": 0,
+    "mean_remaining_difficulty": 33.5977584,
+    "occupancy_frac": 0.0162273759,
+    "phase": "OPEN_BOARD",
+    "phase_entry_remaining": 95,
+    "phase_level": 0,
+    "recovery_generations": 0,
+    "remaining_count": 87,
+    "remaining_frac": 0.915789474,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 95
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 200000,
+    "batch_width": 8,
+    "graph_k_nearest": 16,
+    "graph_max_bases": 384,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 200000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 1,
+    "recovery_branches": 2,
+    "recovery_depth": 4,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 1,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 23.3683315,
+    "weight_factor": 1
+   },
+   "epoch": 2,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 0,
+    "hotspot_pressure": 0,
+    "mean_remaining_difficulty": 33.2845913,
+    "occupancy_frac": 0.0243703642,
+    "phase": "OPEN_BOARD",
+    "phase_entry_remaining": 95,
+    "phase_level": 0,
+    "recovery_generations": 0,
+    "remaining_count": 77,
+    "remaining_frac": 0.827956989,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 93
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 26.0691151,
+    "weight_factor": 1
+   },
+   "epoch": 3,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 0.958333333,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 31.6012573,
+    "occupancy_frac": 0.0301646369,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 69,
+    "remaining_frac": 0.75,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 92
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 29.0052404,
+    "weight_factor": 1
+   },
+   "epoch": 4,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 0.96875,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 24.9825759,
+    "occupancy_frac": 0.0354253489,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 62,
+    "remaining_frac": 0.688888889,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 90
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 32.1083999,
+    "weight_factor": 1
+   },
+   "epoch": 5,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 0.96875,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 24.6104195,
+    "occupancy_frac": 0.0396069817,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 56,
+    "remaining_frac": 0.629213483,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 89
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 35.2541248,
+    "weight_factor": 1
+   },
+   "epoch": 6,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 0.96875,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 23.6476998,
+    "occupancy_frac": 0.0427834506,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 51,
+    "remaining_frac": 0.586206897,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 87
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 37.454908,
+    "weight_factor": 1
+   },
+   "epoch": 7,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.9911917,
+    "occupancy_frac": 0.045797264,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 48,
+    "remaining_frac": 0.551724138,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 87
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 39.9481886,
+    "weight_factor": 1
+   },
+   "epoch": 8,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.5912525,
+    "occupancy_frac": 0.0469427061,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 45,
+    "remaining_frac": 0.523255814,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 86
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 43.8415447,
+    "weight_factor": 1
+   },
+   "epoch": 9,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 1,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.6684607,
+    "occupancy_frac": 0.0501680556,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 41,
+    "remaining_frac": 0.482352941,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 46.0677148,
+    "weight_factor": 1
+   },
+   "epoch": 10,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 0.916666667,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 22.4190954,
+    "occupancy_frac": 0.0509169286,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 39,
+    "remaining_frac": 0.458823529,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 48.5537688,
+    "weight_factor": 1
+   },
+   "epoch": 11,
+   "generation": -1,
+   "is_recovery": false,
+   "maturity": {
+    "acceptance_rate": 0.916666667,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 3,
+    "hotspot_pressure": 24,
+    "mean_remaining_difficulty": 21.9237445,
+    "occupancy_frac": 0.0518588764,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 0,
+    "remaining_count": 37,
+    "remaining_frac": 0.435294118,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 400000,
+    "batch_width": 8,
+    "graph_k_nearest": 24,
+    "graph_max_bases": 512,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 400000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 5,
+    "hier_window_attempts": 2,
+    "history_growth": 1,
+    "recovery_beam": 2,
+    "recovery_branches": 2,
+    "recovery_depth": 6,
+    "reservation_strength": 1,
+    "ripup_breadth": 1,
+    "route_k": 3,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 49.8767791,
+    "weight_factor": 1
+   },
+   "epoch": 12,
+   "generation": 0,
+   "is_recovery": true,
+   "maturity": {
+    "acceptance_rate": 0.75,
+    "escalated_by_stall": false,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 4,
+    "hotspot_pressure": 28.5,
+    "mean_remaining_difficulty": 21.7944122,
+    "occupancy_frac": 0.0522729977,
+    "phase": "MID_ROUTE",
+    "phase_entry_remaining": 69,
+    "phase_level": 1,
+    "recovery_generations": 1,
+    "remaining_count": 36,
+    "remaining_frac": 0.423529412,
+    "ripup_count": 0,
+    "stalled_epochs": 0,
+    "total_tasks": 85
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 1600000,
+    "batch_width": 8,
+    "graph_k_nearest": 64,
+    "graph_max_bases": 2048,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 1600000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 20,
+    "hier_window_attempts": 4,
+    "history_growth": 2,
+    "recovery_beam": 2,
+    "recovery_branches": 8,
+    "recovery_depth": 10,
+    "reservation_strength": 2,
+    "ripup_breadth": 3,
+    "route_k": 4,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 49.8370204,
+    "weight_factor": 1.5
+   },
+   "epoch": 12,
+   "generation": 1,
+   "is_recovery": true,
+   "maturity": {
+    "acceptance_rate": 0.75,
+    "escalated_by_stall": true,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 8,
+    "hotspot_pressure": 96,
+    "mean_remaining_difficulty": 21.9610789,
+    "occupancy_frac": 0.0522729977,
+    "phase": "CLOSURE",
+    "phase_entry_remaining": 36,
+    "phase_level": 3,
+    "recovery_generations": 2,
+    "remaining_count": 36,
+    "remaining_frac": 0.423529412,
+    "ripup_count": 0,
+    "stalled_epochs": 1,
+    "total_tasks": 85
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 1600000,
+    "batch_width": 8,
+    "graph_k_nearest": 64,
+    "graph_max_bases": 2048,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 1600000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 20,
+    "hier_window_attempts": 4,
+    "history_growth": 2,
+    "recovery_beam": 2,
+    "recovery_branches": 8,
+    "recovery_depth": 10,
+    "reservation_strength": 2,
+    "ripup_breadth": 3,
+    "route_k": 4,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 49.7336405,
+    "weight_factor": 1.5
+   },
+   "epoch": 12,
+   "generation": 2,
+   "is_recovery": true,
+   "maturity": {
+    "acceptance_rate": 0.75,
+    "escalated_by_stall": true,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 8,
+    "hotspot_pressure": 240,
+    "mean_remaining_difficulty": 21.9610789,
+    "occupancy_frac": 0.0522729977,
+    "phase": "CLOSURE",
+    "phase_entry_remaining": 36,
+    "phase_level": 3,
+    "recovery_generations": 3,
+    "remaining_count": 36,
+    "remaining_frac": 0.423529412,
+    "ripup_count": 0,
+    "stalled_epochs": 2,
+    "total_tasks": 85
+   }
+  },
+  {
+   "budget": {
+    "astar_max_expansions": 1600000,
+    "batch_width": 8,
+    "graph_k_nearest": 64,
+    "graph_max_bases": 2048,
+    "hier_enabled": true,
+    "hier_max_coarse_expansions": 1600000,
+    "hier_max_grid_cells": 8000000,
+    "hier_tube_half_mm": 20,
+    "hier_window_attempts": 4,
+    "history_growth": 2,
+    "recovery_beam": 2,
+    "recovery_branches": 8,
+    "recovery_depth": 10,
+    "reservation_strength": 2,
+    "ripup_breadth": 3,
+    "route_k": 4,
+    "threads_effective": 4,
+    "timeout_share_per_task_s": 49.6971379,
+    "weight_factor": 1.5
+   },
+   "epoch": 12,
+   "generation": 3,
+   "is_recovery": true,
+   "maturity": {
+    "acceptance_rate": 0.75,
+    "escalated_by_stall": true,
+    "fine_pitch_done_frac": 0.987179487,
+    "hotspot_count": 8,
+    "hotspot_pressure": 528,
+    "mean_remaining_difficulty": 21.9610789,
+    "occupancy_frac": 0.0522729977,
+    "phase": "CLOSURE",
+    "phase_entry_remaining": 36,
+    "phase_level": 3,
+    "recovery_generations": 4,
+    "remaining_count": 36,
+    "remaining_frac": 0.423529412,
+    "ripup_count": 0,
+    "stalled_epochs": 3,
+    "total_tasks": 85
+   }
+  }
+ ],
+ "memory": {
+  "mode": "memory",
+  "pairs_committed": 0,
+  "pairs_found": 0,
+  "pairs_skipped_illegal": 0,
+  "ran": false,
+  "skipped_nets": [],
+  "traces_added": 0,
+  "vias_added": 0
+ },
+ "optimizer": {
+  "applied": 0,
+  "bends_after": 0,
+  "bends_before": 0,
+  "candidates": 0,
+  "clean_pad_entries_ran": false,
+  "enabled": true,
+  "gate_reason": "gated: status=BUDGET_EXHAUSTED (verifier not ok)",
+  "hug_ran": false,
+  "length_after_mm": 0,
+  "length_before_mm": 0,
+  "orthogonal_ran": false,
+  "passes": 0,
+  "peak_bytes": 0,
+  "ran": false,
+  "reverted": 0,
+  "schema": "copperline/optimizer-report/1",
+  "spread_ran": false,
+  "straighten_ran": false,
+  "via_miser_ran": false,
+  "vias_after": 0,
+  "vias_before": 0
+ },
+ "params": {
+  "hierarchy_enabled": true,
+  "impact_enabled": true,
+  "impact_scorer": "weighted",
+  "maturity_enabled": true,
+  "max_multiply_nodes": 64,
+  "max_search_nodes": 200000,
+  "memory_budget_mb": 512,
+  "optimizer_enabled": true,
+  "optimizer_max_candidates": 256,
+  "recovery_beam": 4,
+  "recovery_depth": 2,
+  "route_k_cap": 15,
+  "route_k_requested": 0,
+  "seed": 42,
+  "threads_effective": 4,
+  "threads_flag": 4,
+  "threads_requested": 4,
+  "timeout_s": 1800,
+  "tuning_amplitude_mm": 1,
+  "tuning_enabled": true,
+  "tuning_max_added_mm": 50,
+  "tuning_pitch_mm": 0.6
+ },
+ "plane_access": [],
+ "recovery": {
+  "branches_evaluated": 62,
+  "branches_pruned": 23,
+  "dependency_graph": {
+   "blocked": [
+    {
+     "net": 4,
+     "terminal_a": 81,
+     "terminal_b": 32
+    },
+    {
+     "net": 0,
+     "terminal_a": 28,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 70,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 73,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 74,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 76,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 86,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 88,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 90,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 92,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 95,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 96,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 100,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 107,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 108,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 110,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 112,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 115,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 119,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 127,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 128,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 129,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 130,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 137,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 141,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 143,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 145,
+     "terminal_b": 0
+    },
+    {
+     "net": 0,
+     "terminal_a": 151,
+     "terminal_b": 0
+    },
+    {
+     "net": 3,
+     "terminal_a": 6,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 51,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 52,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 53,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 57,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 58,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 142,
+     "terminal_b": 2
+    },
+    {
+     "net": 3,
+     "terminal_a": 144,
+     "terminal_b": 2
+    }
+   ],
+   "edges": [
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 1.15292152e+18
+    },
+    {
+     "blocker": "trace:net=GND",
+     "blocker_net": 0,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 1.15292151e+18
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DP)",
+     "blocker_net": 44,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 1.15292151e+18
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 1.15292151e+18
+    },
+    {
+     "blocker": "pad:net=+1V1:U3.50",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 1.15292151e+18
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DP)",
+     "blocker_net": 44,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 1.1529215e+18
+    },
+    {
+     "blocker": "pad:net=GND:U3.57",
+     "blocker_net": 0,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 1.1529215e+18
+    },
+    {
+     "blocker": "trace:net=/GPIO_19",
+     "blocker_net": 30,
+     "failed_net": 0,
+     "failed_pos": 10,
+     "weight": 8266000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_19",
+     "blocker_net": 30,
+     "failed_net": 0,
+     "failed_pos": 11,
+     "weight": 8266000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_19",
+     "blocker_net": 30,
+     "failed_net": 0,
+     "failed_pos": 17,
+     "weight": 8266000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_2",
+     "blocker_net": 12,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 6453500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_2",
+     "blocker_net": 12,
+     "failed_net": 0,
+     "failed_pos": 14,
+     "weight": 6453500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_2",
+     "blocker_net": 12,
+     "failed_net": 0,
+     "failed_pos": 13,
+     "weight": 6453500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_2",
+     "blocker_net": 12,
+     "failed_net": 0,
+     "failed_pos": 24,
+     "weight": 6453500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_0",
+     "blocker_net": 10,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 5783000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_0",
+     "blocker_net": 10,
+     "failed_net": 0,
+     "failed_pos": 2,
+     "weight": 5783000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_0",
+     "blocker_net": 10,
+     "failed_net": 0,
+     "failed_pos": 14,
+     "weight": 5783000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_0",
+     "blocker_net": 10,
+     "failed_net": 0,
+     "failed_pos": 13,
+     "weight": 5783000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_0",
+     "blocker_net": 10,
+     "failed_net": 0,
+     "failed_pos": 12,
+     "weight": 5783000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_18",
+     "blocker_net": 29,
+     "failed_net": 3,
+     "failed_pos": 35,
+     "weight": 4912500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SS",
+     "blocker_net": 43,
+     "failed_net": 0,
+     "failed_pos": 6,
+     "weight": 4337500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SS",
+     "blocker_net": 43,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 4337500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SS",
+     "blocker_net": 43,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 4337500000000
+    },
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 0,
+     "failed_pos": 5,
+     "weight": 4292000000000
+    },
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 0,
+     "failed_pos": 16,
+     "weight": 4292000000000
+    },
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 0,
+     "failed_pos": 26,
+     "weight": 4292000000000
+    },
+    {
+     "blocker": "trace:net=GND",
+     "blocker_net": 0,
+     "failed_net": 3,
+     "failed_pos": 34,
+     "weight": 3504500000000
+    },
+    {
+     "blocker": "trace:net=/USB_D+",
+     "blocker_net": 8,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 3397000000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_1",
+     "blocker_net": 11,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 3173500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_1",
+     "blocker_net": 11,
+     "failed_net": 0,
+     "failed_pos": 14,
+     "weight": 3173500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD2",
+     "blocker_net": 49,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 3016500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD2",
+     "blocker_net": 49,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 3016500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 0,
+     "failed_pos": 5,
+     "weight": 2753000000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 0,
+     "failed_pos": 7,
+     "weight": 2753000000000
+    },
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 0,
+     "failed_pos": 6,
+     "weight": 2656000000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD1",
+     "blocker_net": 50,
+     "failed_net": 0,
+     "failed_pos": 12,
+     "weight": 2515000000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD1",
+     "blocker_net": 50,
+     "failed_net": 0,
+     "failed_pos": 7,
+     "weight": 2515000000000
+    },
+    {
+     "blocker": "pad:net=VBUS:C1.1",
+     "blocker_net": 5,
+     "failed_net": 0,
+     "failed_pos": 20,
+     "weight": 2070000000000
+    },
+    {
+     "blocker": "trace:net=+1V1",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 30,
+     "weight": 1993500000000
+    },
+    {
+     "blocker": "trace:net=+1V1",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 1993500000000
+    },
+    {
+     "blocker": "trace:net=+1V1",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 28,
+     "weight": 1993500000000
+    },
+    {
+     "blocker": "trace:net=+1V1",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 31,
+     "weight": 1993500000000
+    },
+    {
+     "blocker": "trace:net=+1V1",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 32,
+     "weight": 1993500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD3",
+     "blocker_net": 46,
+     "failed_net": 0,
+     "failed_pos": 7,
+     "weight": 1637000000000
+    },
+    {
+     "blocker": "trace:net=GND",
+     "blocker_net": 0,
+     "failed_net": 3,
+     "failed_pos": 35,
+     "weight": 1413500000000
+    },
+    {
+     "blocker": "trace:net=GND",
+     "blocker_net": 0,
+     "failed_net": 3,
+     "failed_pos": 28,
+     "weight": 1413500000000
+    },
+    {
+     "blocker": "trace:net=Net-(J1-Pin_1)",
+     "blocker_net": 6,
+     "failed_net": 0,
+     "failed_pos": 3,
+     "weight": 1360000000000
+    },
+    {
+     "blocker": "trace:net=Net-(J1-Pin_1)",
+     "blocker_net": 6,
+     "failed_net": 0,
+     "failed_pos": 4,
+     "weight": 1360000000000
+    },
+    {
+     "blocker": "trace:net=Net-(J1-Pin_1)",
+     "blocker_net": 6,
+     "failed_net": 0,
+     "failed_pos": 6,
+     "weight": 1360000000000
+    },
+    {
+     "blocker": "pad:net=Net-(U3-XOUT):Y1.1",
+     "blocker_net": 2,
+     "failed_net": 0,
+     "failed_pos": 8,
+     "weight": 1320000000000
+    },
+    {
+     "blocker": "pad:net=Net-(U3-XOUT):Y1.1",
+     "blocker_net": 2,
+     "failed_net": 0,
+     "failed_pos": 9,
+     "weight": 1320000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XIN)",
+     "blocker_net": 1,
+     "failed_net": 0,
+     "failed_pos": 25,
+     "weight": 1279500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XIN)",
+     "blocker_net": 1,
+     "failed_net": 0,
+     "failed_pos": 27,
+     "weight": 1279500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XIN)",
+     "blocker_net": 1,
+     "failed_net": 3,
+     "failed_pos": 34,
+     "weight": 1279500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 0,
+     "failed_pos": 16,
+     "weight": 1251500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 0,
+     "failed_pos": 26,
+     "weight": 1251500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 3,
+     "failed_pos": 28,
+     "weight": 1251500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 1251500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 3,
+     "failed_pos": 30,
+     "weight": 1251500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SCLK",
+     "blocker_net": 47,
+     "failed_net": 0,
+     "failed_pos": 7,
+     "weight": 1125500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DP)",
+     "blocker_net": 44,
+     "failed_net": 3,
+     "failed_pos": 32,
+     "weight": 1083500000000
+    },
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 0,
+     "failed_pos": 1,
+     "weight": 1013750000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_18",
+     "blocker_net": 29,
+     "failed_net": 0,
+     "failed_pos": 11,
+     "weight": 975000000000
+    },
+    {
+     "blocker": "pad:net=/QSPI_SD2:U1.3",
+     "blocker_net": 49,
+     "failed_net": 0,
+     "failed_pos": 12,
+     "weight": 960000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XOUT)",
+     "blocker_net": 2,
+     "failed_net": 0,
+     "failed_pos": 27,
+     "weight": 848000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XOUT)",
+     "blocker_net": 2,
+     "failed_net": 0,
+     "failed_pos": 25,
+     "weight": 848000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 3,
+     "failed_pos": 30,
+     "weight": 695500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 695500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 3,
+     "failed_pos": 28,
+     "weight": 695500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XIN)",
+     "blocker_net": 1,
+     "failed_net": 0,
+     "failed_pos": 9,
+     "weight": 658000000000
+    },
+    {
+     "blocker": "trace:net=+3.3V",
+     "blocker_net": 3,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 619500000000
+    },
+    {
+     "blocker": "pad:net=unconnected-(U8-Pad1):U8.1",
+     "blocker_net": 55,
+     "failed_net": 0,
+     "failed_pos": 10,
+     "weight": 525000000000
+    },
+    {
+     "blocker": "pad:net=unconnected-(U8-Pad1):U8.1",
+     "blocker_net": 55,
+     "failed_net": 0,
+     "failed_pos": 11,
+     "weight": 525000000000
+    },
+    {
+     "blocker": "via:net=/GPIO_18",
+     "blocker_net": 29,
+     "failed_net": 0,
+     "failed_pos": 10,
+     "weight": 360000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XOUT)",
+     "blocker_net": 2,
+     "failed_net": 3,
+     "failed_pos": 34,
+     "weight": 356000000000
+    },
+    {
+     "blocker": "pad:net=+1V1:C6.1",
+     "blocker_net": 4,
+     "failed_net": 3,
+     "failed_pos": 34,
+     "weight": 347200000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XIN)",
+     "blocker_net": 1,
+     "failed_net": 0,
+     "failed_pos": 8,
+     "weight": 320000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 0,
+     "failed_pos": 26,
+     "weight": 276000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 0,
+     "failed_pos": 16,
+     "weight": 276000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 0,
+     "failed_pos": 5,
+     "weight": 276000000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-XIN)",
+     "blocker_net": 1,
+     "failed_net": 0,
+     "failed_pos": 1,
+     "weight": 247500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_26_ADC0",
+     "blocker_net": 37,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 247500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_14",
+     "blocker_net": 24,
+     "failed_net": 0,
+     "failed_pos": 1,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_15",
+     "blocker_net": 25,
+     "failed_net": 0,
+     "failed_pos": 1,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD1",
+     "blocker_net": 50,
+     "failed_net": 0,
+     "failed_pos": 15,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_26_ADC2",
+     "blocker_net": 39,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/GPIO_26_ADC3",
+     "blocker_net": 40,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DP)",
+     "blocker_net": 44,
+     "failed_net": 3,
+     "failed_pos": 31,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 3,
+     "failed_pos": 32,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=Net-(U3-USB_DM)",
+     "blocker_net": 45,
+     "failed_net": 3,
+     "failed_pos": 31,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD3",
+     "blocker_net": 46,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SCLK",
+     "blocker_net": 47,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "trace:net=/QSPI_SD0",
+     "blocker_net": 48,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 232500000000
+    },
+    {
+     "blocker": "pad:net=/GPIO_26_ADC1:U3.39",
+     "blocker_net": 38,
+     "failed_net": 3,
+     "failed_pos": 29,
+     "weight": 175000000000
+    },
+    {
+     "blocker": "frontier_gap_mm=1.031250",
+     "blocker_net": -1,
+     "failed_net": 3,
+     "failed_pos": 33,
+     "weight": 0
+    },
+    {
+     "blocker": "frontier_gap_mm=0.237500",
+     "blocker_net": -1,
+     "failed_net": 4,
+     "failed_pos": 0,
+     "weight": 0
+    }
+   ]
+  },
+  "generations": 4,
+  "modes_attempted": [
+   "FAST",
+   "RECOVERY",
+   "EXHAUSTIVE_LOCAL_RECOVERY"
+  ],
+  "multiply_beam_effective": 2,
+  "multiply_beam_requested": 4,
+  "multiply_best_hash": "125324e73da566f4c9f401a3b8a3b0d4",
+  "multiply_depth_effective": 2,
+  "multiply_depth_requested": 2,
+  "multiply_fallback_to_one_ply": false,
+  "multiply_nodes_evaluated": 36,
+  "multiply_nodes_pruned": 10,
+  "multiply_pv": [
+   "blocked_by_nets_3+0"
+  ],
+  "multiply_threads_effective": 4,
+  "ripups": 0,
+  "transposition_hits": 23
+ },
+ "remaining_terminals": 73,
+ "result_category": "SEARCH_BUDGET_EXHAUSTED_WITH_UNROUTED_CONNECTIONS",
+ "schema": "copperline/route-report/1",
+ "state_hash": "f50f8ff8525245687c141517810fedb0",
+ "stats": {
+  "candidates_accepted": 49,
+  "candidates_rejected": 4,
+  "candidates_total": 53,
+  "deferred_retries": 0,
+  "epochs": 12,
+  "expansions": 138280,
+  "hierarchy_coarse_expansions": 89660,
+  "hierarchy_fallback_tasks": 4,
+  "hierarchy_guided_tasks": 23,
+  "length_mm": 705.755847,
+  "nets_routed": 54,
+  "nets_total": 57,
+  "tasks_routed": 49,
+  "tasks_total": 85,
+  "threads_requested": 4,
+  "threads_used": 4,
+  "time_ms": 14761,
+  "via_count": 35
+ },
+ "status": "BUDGET_EXHAUSTED",
+ "strategy": "",
+ "total_terminals": 152,
+ "tuning": {
+  "added_total_mm": 0,
+  "candidates_evaluated": 0,
+  "effective_threads": 4,
+  "peak_scratch_bytes": 0,
+  "records": [],
+  "regions_considered": 0,
+  "stage": "SKIPPED_NOT_CLOSED",
+  "threads_used": 1,
+  "tuned_nets": []
+ },
+ "verification": {
+  "connected": false,
+  "diffpairs": [],
+  "legal": true,
+  "ok": false,
+  "pairs": [],
+  "schema": "copperline/verify-report/1",
+  "unconnected": [
+   {
+    "component": "U3",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "19",
+    "terminal": 28
+   },
+   {
+    "component": "U4",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "4",
+    "terminal": 70
+   },
+   {
+    "component": "J1",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 73
+   },
+   {
+    "component": "J1",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 74
+   },
+   {
+    "component": "C7",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 76
+   },
+   {
+    "component": "C2",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 86
+   },
+   {
+    "component": "C11",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 88
+   },
+   {
+    "component": "Y1",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 90
+   },
+   {
+    "component": "Y1",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "4",
+    "terminal": 92
+   },
+   {
+    "component": "U8",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "3",
+    "terminal": 95
+   },
+   {
+    "component": "U8",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "4",
+    "terminal": 96
+   },
+   {
+    "component": "U1",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "4",
+    "terminal": 100
+   },
+   {
+    "component": "U5",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "3",
+    "terminal": 107
+   },
+   {
+    "component": "U5",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "4",
+    "terminal": 108
+   },
+   {
+    "component": "C10",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 110
+   },
+   {
+    "component": "C12",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 112
+   },
+   {
+    "component": "U9",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "3",
+    "terminal": 115
+   },
+   {
+    "component": "U7",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "3",
+    "terminal": 119
+   },
+   {
+    "component": "J2",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "5",
+    "terminal": 127
+   },
+   {
+    "component": "J2",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "6",
+    "terminal": 128
+   },
+   {
+    "component": "J2",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "6",
+    "terminal": 129
+   },
+   {
+    "component": "J2",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "6",
+    "terminal": 130
+   },
+   {
+    "component": "C1",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 137
+   },
+   {
+    "component": "U6",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "4",
+    "terminal": 141
+   },
+   {
+    "component": "C16",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 143
+   },
+   {
+    "component": "C13",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 145
+   },
+   {
+    "component": "C6",
+    "net": 0,
+    "net_name": "GND",
+    "pin": "2",
+    "terminal": 151
+   },
+   {
+    "component": "C9",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "1",
+    "terminal": 6
+   },
+   {
+    "component": "U3",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "42",
+    "terminal": 51
+   },
+   {
+    "component": "U3",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "43",
+    "terminal": 52
+   },
+   {
+    "component": "U3",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "44",
+    "terminal": 53
+   },
+   {
+    "component": "U3",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "48",
+    "terminal": 57
+   },
+   {
+    "component": "U3",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "49",
+    "terminal": 58
+   },
+   {
+    "component": "C16",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "1",
+    "terminal": 142
+   },
+   {
+    "component": "C13",
+    "net": 3,
+    "net_name": "+3.3V",
+    "pin": "1",
+    "terminal": 144
+   },
+   {
+    "component": "C8",
+    "net": 4,
+    "net_name": "+1V1",
+    "pin": "1",
+    "terminal": 81
+   }
+  ],
+  "violations": []
+ },
+ "verifier_connected": false,
+ "verifier_legal": true,
+ "verifier_ok": false
+}

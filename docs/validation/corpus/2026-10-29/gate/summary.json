@@ -1,0 +1,139 @@
+[
+ {
+  "board": "KiCAD_Board_3",
+  "status": "BUDGET_EXHAUSTED",
+  "connected": 94,
+  "total": 198,
+  "tasks_routed": 85,
+  "tasks_total": 138,
+  "epochs": 13,
+  "failures": 53,
+  "failure_buckets": {
+   "no-candidate": 44,
+   "far>2": 3,
+   "gap0": 3,
+   "mid0.5-2": 3
+  },
+  "blocker_kinds": {
+   "trace": 44,
+   "unattributed": 8,
+   "pad": 1
+  },
+  "escape_pads": 148,
+  "escape_infeasible": 3,
+  "escape_reasons": [
+   "no_exit_sectors",
+   "no_exit_sectors",
+   "blocked_channel"
+  ],
+  "ripups": 1,
+  "gens": 4,
+  "modes": [
+   "FAST",
+   "RECOVERY",
+   "EXHAUSTIVE_LOCAL_RECOVERY"
+  ],
+  "violations": 0,
+  "legal": true
+ },
+ {
+  "board": "pico-radio-9-kotoldalas",
+  "status": "BUDGET_EXHAUSTED",
+  "connected": 217,
+  "total": 340,
+  "tasks_routed": 177,
+  "tasks_total": 238,
+  "epochs": 13,
+  "failures": 61,
+  "failure_buckets": {
+   "no-candidate": 56,
+   "far>2": 2,
+   "gap0": 3
+  },
+  "blocker_kinds": {
+   "trace": 35,
+   "unattributed": 24,
+   "pad": 2
+  },
+  "escape_pads": 62,
+  "escape_infeasible": 0,
+  "escape_reasons": [],
+  "ripups": 1,
+  "gens": 4,
+  "modes": [
+   "FAST",
+   "RECOVERY",
+   "EXHAUSTIVE_LOCAL_RECOVERY"
+  ],
+  "violations": 0,
+  "legal": true
+ },
+ {
+  "board": "rp2040_game_con",
+  "status": "BUDGET_EXHAUSTED",
+  "connected": 79,
+  "total": 152,
+  "tasks_routed": 49,
+  "tasks_total": 85,
+  "epochs": 12,
+  "failures": 36,
+  "failure_buckets": {
+   "near<=0.5": 1,
+   "no-candidate": 34,
+   "mid0.5-2": 1
+  },
+  "blocker_kinds": {
+   "trace": 30,
+   "unattributed": 5,
+   "pad": 1
+  },
+  "escape_pads": 78,
+  "escape_infeasible": 1,
+  "escape_reasons": [
+   "blocked_channel"
+  ],
+  "ripups": 0,
+  "gens": 4,
+  "modes": [
+   "FAST",
+   "RECOVERY",
+   "EXHAUSTIVE_LOCAL_RECOVERY"
+  ],
+  "violations": 0,
+  "legal": true
+ },
+ {
+  "board": "rp2040_nema",
+  "status": "BUDGET_EXHAUSTED",
+  "connected": 94,
+  "total": 184,
+  "tasks_routed": 58,
+  "tasks_total": 110,
+  "epochs": 13,
+  "failures": 52,
+  "failure_buckets": {
+   "no-candidate": 47,
+   "gap0": 2,
+   "mid0.5-2": 3
+  },
+  "blocker_kinds": {
+   "trace": 38,
+   "pad": 9,
+   "unattributed": 5
+  },
+  "escape_pads": 86,
+  "escape_infeasible": 1,
+  "escape_reasons": [
+   "blocked_channel"
+  ],
+  "ripups": 1,
+  "gens": 4,
+  "modes": [
+   "FAST",
+   "RECOVERY",
+   "EXHAUSTIVE_LOCAL_RECOVERY"
+  ],
+  "violations": 0,
+  "legal": true
+ }
+]

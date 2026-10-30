@@ -25,6 +25,10 @@ cmake --build build
 # Run the full test suite (303 cases, 27 binaries)
 ctest --test-dir build --parallel 4 --output-on-failure
 
+# The corpus completion gate is red on purpose until the hard boards route;
+# run everything else with:
+ctest --test-dir build --parallel 4 -LE campaign
+
 # Route a board, machine-readable
 ./build/router route fixtures/open_2layer.json --json --seed 42 \
   --output routed.json --report report.json
@@ -476,19 +480,21 @@ Latest corpus results (details in `docs/validation/corpus.md`, frozen evidence i
 | curated real (180 s) | 21 | **11** | 52.4%; **0 boards with illegal copper**, was 1 |
 | wide sweep | 118 | 1 | 97 inputs already DRC-illegal, 17 import failures |
 
-The ten curated boards that finish incomplete are held under test by
-`tests/test_corpus_boards.py` (ctest `test_corpus_boards`), so a green suite
-cannot hide them:
+The ten curated boards that finish incomplete are now a **completion gate**
+(`tests/test_corpus_boards.py`, ctest label `campaign`). It requires every one
+of them to reach COMPLETE, so the suite is **red until they do** - that red is
+the intended signal, not a broken test:
 
 ```
-python tests/test_corpus_boards.py --tier short   # ctest, work-budgeted
-python tests/test_corpus_boards.py --tier long    # CI campaign
+ctest -R test_corpus_boards --output-on-failure   # the gate (currently fails)
+ctest -LE campaign                                # everything else (green)
+python tests/test_corpus_boards.py --tier long    # CI campaign, all ten
 ```
 
-Each of them asserts legal copper, an escape-infeasible cap, a recorded
-connectivity floor and - for the long tier - that an INCOMPLETE run does not
-stop before its epoch budget is spent. See
-`docs/validation/corpus/2026-10-29/campaign.md`.
+Each board asserts COMPLETE, legal copper, an escape-infeasible cap and a
+recorded connectivity ratchet, at a work-based budget (12 epochs / 200k nodes)
+so results reproduce across machines. The plan to close the gate is in
+`docs/validation/corpus/2026-10-29/HANDOFF.md`.
 
 Score any run with the fair denominator (boards whose pads-only input
 verifies legal):
