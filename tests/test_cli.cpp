@@ -74,7 +74,11 @@ std::string run_cli(const std::string& args, int& rc) {
 }
 
 std::string fixture(const std::string& name) {
-    return win_path(std::string(FIXTURE_DIR) + "/" + name);
+    // Quoted: fixture paths are spliced into system() command strings, and a
+    // workspace path containing a space (C:\Users\First Last\..., or any
+    // clone under a directory with spaces) would otherwise split into two
+    // arguments and fail every CLI test.
+    return "\"" + win_path(std::string(FIXTURE_DIR) + "/" + name) + "\"";
 }
 
 JsonValue must_parse(const std::string& text) {
