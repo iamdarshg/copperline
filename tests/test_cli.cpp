@@ -30,6 +30,11 @@ std::string win_path(std::string p) {
     return p;
 }
 
+// Quote a path for a system() command line: workspace paths may contain spaces
+// (C:\Users\First Last\..., CI worktrees), and an unquoted path there splits
+// into two arguments. File I/O keeps using the raw path.
+std::string q(const std::string& path) { return "\"" + win_path(path) + "\""; }
+
 struct CliResult {
     int rc = 0;
     std::string out;  // stdout (pure JSON under --json)
@@ -666,7 +671,7 @@ CT_TEST(cli_strategy_engine) {
     // Malformed strategy JSON -> malformed_rules exit.
     std::string bad = win_path(std::string(FIXTURE_DIR) + "/strategies/no_such_file.json");
     CliResult miss = run_cli_full("route " + fixture("open_2layer.json") +
-                                  " --strategy " + bad + " --json");
+                                  " --strategy " + q(bad) + " --json");
     CT_CHECK(miss.rc == 2);  // invalid input: cannot open file
     std::string badjson = win_path(std::string(FIXTURE_DIR) + "/strategies/_broken.json");
     {  // write a broken strategy file into the fixture dir
@@ -674,7 +679,7 @@ CT_TEST(cli_strategy_engine) {
         f << "{ not json";
     }
     CliResult badr = run_cli_full("route " + fixture("open_2layer.json") +
-                                  " --strategy " + badjson + " --json");
+                                  " --strategy " + q(badjson) + " --json");
     CT_CHECK(badr.rc == 3);  // malformed rules: bad strategy JSON
     CT_CHECK(badr.out.find("malformed_rules") != std::string::npos);
     std::remove(badjson.c_str());
@@ -847,9 +852,9 @@ CT_TEST(cli_gloss_runs_requested_passes) {
     const std::string routed = win_path(std::string(FIXTURE_DIR) + "/_gloss_routed.json");
     const std::string report = win_path(std::string(FIXTURE_DIR) + "/_gloss_report.json");
     CliResult route = run_cli_full("route " + fixture("multi_terminal_tree.json") +
-                                   " --json --no-board-echo --seed 42 --output " + routed);
+                                   " --json --no-board-echo --seed 42 --output " + q(routed));
     CT_CHECK(route.rc == 0);
-    CliResult g = run_cli_full("gloss " + routed + " --straighten --json --report " + report);
+    CliResult g = run_cli_full("gloss " + q(routed) + " --straighten --json --report " + q(report));
     CT_CHECK(g.rc == 0);
     JsonValue v = must_parse(g.out);
     CT_CHECK(v.get_string("schema") == "copperline/gloss-report/1");
@@ -924,7 +929,7 @@ CT_TEST(cli_setup_report) {
 CT_TEST(cli_setup_report_writes_report_file) {
     const std::string path = win_path(std::string(FIXTURE_DIR) + "/_setup_report.json");
     CliResult r = run_cli_full("setup-report " + fixture("golden_demo.dsn") +
-                               " --json --report " + path);
+                               " --json --report " + q(path));
     CT_CHECK(r.rc == 0);
     JsonValue v = must_parse(r.out);
     CT_CHECK(v.get_string("schema") == "copperline/setup-report/1");
@@ -1018,7 +1023,7 @@ CT_TEST(cli_route_reports_input_drc) {
 CT_TEST(cli_import_converts_without_routing) {
     const std::string out = win_path(std::string(FIXTURE_DIR) + "/_import_test.json");
     CliResult r = run_cli_full("import " + fixture("minimal.kicad_pcb") +
-                               " --output " + out + " --json");
+                               " --output " + q(out) + " --json");
     CT_CHECK(r.rc == 0);
     JsonValue v = must_parse(r.out);
     CT_CHECK(v.find("nets") != nullptr);
