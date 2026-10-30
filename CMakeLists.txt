@@ -83,15 +83,28 @@ if(PYTHON3_EXECUTABLE)
                    "${CMAKE_SOURCE_DIR}/tests/test_relief_research.py")
   set_tests_properties(test_relief_research PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-  # Corpus campaign: the boards that finish incomplete (clock-limited or
-  # early-stopping) are held to recorded floors here, so a green suite cannot
-  # hide them. Short tier only - the long tier needs ~20 min and runs in CI.
-  add_test(NAME test_corpus_boards
+  # Two gates over one routing pass (the second reuses the first's reports via
+  # --cache): legality is the hard safety gate and is green; completion is the
+  # open work and is red until every board in the manifest routes fully.
+  # See docs/validation/corpus/2026-10-29/HANDOFF.md.
+  add_test(NAME test_corpus_legal
            COMMAND "${PYTHON3_EXECUTABLE}"
                    "${CMAKE_SOURCE_DIR}/tests/test_corpus_boards.py"
-                   --tier short
+                   --tier short --gate legal
+                   --cache "${CMAKE_BINARY_DIR}/corpus-gate-cache"
                    --router "${CMAKE_BINARY_DIR}/router${CMAKE_EXECUTABLE_SUFFIX}")
-  set_tests_properties(test_corpus_boards PROPERTIES
+  set_tests_properties(test_corpus_legal PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+                       LABELS "campaign"
+                       TIMEOUT 1800
+                       RUN_SERIAL TRUE)
+  add_test(NAME test_corpus_complete
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_corpus_boards.py"
+                   --tier short --gate complete
+                   --cache "${CMAKE_BINARY_DIR}/corpus-gate-cache"
+                   --router "${CMAKE_BINARY_DIR}/router${CMAKE_EXECUTABLE_SUFFIX}")
+  set_tests_properties(test_corpus_complete PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
                        LABELS "campaign"
                        TIMEOUT 1800

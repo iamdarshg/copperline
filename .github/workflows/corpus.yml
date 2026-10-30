@@ -56,10 +56,10 @@ jobs:
           name: corpus-results
           path: build/corpus-out/corpus.json
 
-  # COMPLETION GATE. This job is expected to FAIL until every board in
-  # tests/corpus_manifest.json routes completely; the failure output names the
-  # shortfall per board. See docs/validation/corpus/2026-10-29/HANDOFF.md.
-  # Budgets are work based, so results are machine independent.
+  # TWO GATES. Legality must pass; completion is the open work and is expected
+  # to fail until the boards route (see the handoff). All four gate steps run
+  # regardless, then a final step fails the job if any gate failed - so the log
+  # always shows the full picture instead of stopping at the first red.
   campaign:
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -74,16 +74,35 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j 4 --target router
 
-      # Short tier first so its fast diagnostics appear even though the long
-      # tier is the one that decides the job status.
-      - name: Campaign (short tier)
+      - name: Legality gate (short tier)
+        id: legal_short
         continue-on-error: true
-        run: python3 tests/test_corpus_boards.py --tier short --router build/router --threads 4
-
-      - name: Campaign (long tier, all ten boards)
         run: |
-          python3 tests/test_corpus_boards.py --tier long --router build/router \
-            --threads 4 --keep-reports build/gate-reports
+          python3 tests/test_corpus_boards.py --tier short --gate legal \
+            --cache build/gate-cache --router build/router --threads 4
+
+      - name: Completion gate (short tier)
+        id: complete_short
+        continue-on-error: true
+        run: |
+          python3 tests/test_corpus_boards.py --tier short --gate complete \
+            --cache build/gate-cache --router build/router --threads 4 \
+            --keep-reports build/gate-reports
+
+      - name: Legality gate (long tier, all ten boards)
+        id: legal_long
+        continue-on-error: true
+        run: |
+          python3 tests/test_corpus_boards.py --tier long --gate legal \
+            --cache build/gate-cache --router build/router --threads 4
+
+      - name: Completion gate (long tier, all ten boards)
+        id: complete_long
+        continue-on-error: true
+        run: |
+          python3 tests/test_corpus_boards.py --tier long --gate complete \
+            --cache build/gate-cache --router build/router --threads 4 \
+            --keep-reports build/gate-reports
 
       - name: Upload gate reports
         if: always()
@@ -92,3 +111,18 @@ jobs:
           name: campaign-reports
           path: build/gate-reports
           if-no-files-found: ignore
+
+      - name: Gate summary
+        if: always()
+        run: |
+          echo "legality (short):   ${{ steps.legal_short.outcome }}"
+          echo "completion (short): ${{ steps.complete_short.outcome }}"
+          echo "legality (long):    ${{ steps.legal_long.outcome }}"
+          echo "completion (long):  ${{ steps.complete_long.outcome }}"
+          if [ "${{ steps.legal_short.outcome }}"  != "success" ] || \
+             [ "${{ steps.legal_long.outcome }}"   != "success" ] || \
+             [ "${{ steps.complete_short.outcome }}" != "success" ] || \
+             [ "${{ steps.complete_long.outcome }}"  != "success" ]; then
+            echo "::error::a corpus gate failed - legality is a hard gate, completion is the open work (docs/validation/corpus/2026-10-29/HANDOFF.md)"
+            exit 1
+          fi

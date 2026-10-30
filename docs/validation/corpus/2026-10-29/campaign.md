@@ -1,26 +1,41 @@
-# Corpus campaign
+# Corpus campaign — two gates
 
 Ten boards from the 2026-10-29 corpus run finish incomplete: five run out of
 clock, three are partly blocked by geometry, two used to stop early. They were
 outside every test, so the suite was green while a third of the corpus quietly
-failed. They are now a campaign whose bar is **COMPLETE**:
+failed. They are now covered by **two independent gates** over one routing pass,
+so the suite says which property is broken instead of one big red:
+
+| gate | ctest test | question | status |
+|---|---|---|---|
+| **legality** | `test_corpus_legal` | did any board commit illegal copper? | **green** |
+| **completion** | `test_corpus_complete` | is every board fully routed? | **red** (by design) |
 
 ```
-python tests/test_corpus_boards.py --tier short   # ctest, ~2 min, currently RED
-python tests/test_corpus_boards.py --tier long    # CI, ~25 min, currently RED
-ctest -LE campaign                                # the other 33 tests, green
+ctest -R test_corpus_legal       # passes: 4/4 boards legal, 0 violations
+ctest -R test_corpus_complete    # fails: 0/4 COMPLETE, names the shortfall
+ctest -LE campaign               # everything else (green)
+
+python tests/test_corpus_boards.py --gate legal|complete|all [--tier short|long]
 ```
 
-**The red is intentional.** Until every board in the manifest is fully routed,
-this test fails and says which boards are short and why. See
-[`HANDOFF.md`](HANDOFF.md) for the work that closes it.
+The two tests route the same boards, so `--cache` makes the second one reuse the
+first one's reports (0.7 s instead of ~2 min). The key is the board bytes + work
+budget + seed + the router binary identity, so a rebuilt router or a changed
+board reroutes automatically.
 
-## What each board is held to
+## What each gate asserts
+
+**Legality** (hard safety, no tolerance): zero violations on every board. This is
+the property that must never regress — illegal copper is worse than an
+unrouted board.
+
+**Completion** (the open work):
 
 | assertion | tolerance |
 |---|---|
-| **COMPLETE** - fully routed | none; the failure message carries the counts |
-| verification legal, 0 violations | none |
+| **COMPLETE** — fully routed | none; the message carries the counts |
+| legal (re-checked) | none |
 | connected terminals >= recorded floor | 5% (progress ratchet) |
 | unescapable pads <= recorded count | none |
 
@@ -33,7 +48,7 @@ run. The gate budget is 12 epochs / 200k nodes for every board.
 
 | tier | boards | where |
 |---|---|---|
-| short | `pico-radio-9-kotoldalas`, `rp2040_game_con`, `rp2040_nema`, `KiCAD_Board_3` | every ctest (~2 min) |
+| short | `pico-radio-9-kotoldalas`, `rp2040_game_con`, `rp2040_nema`, `KiCAD_Board_3` | every ctest (~2 min per gate) |
 | long | all ten | CI campaign / nightly |
 
 The six long-only boards include the two giants (`tinytapeout-demo` 1611
@@ -56,7 +71,8 @@ the graph, plus `interf_u`, `Pico 2 C`, `RPI-PICO`, `Pico WH`.
 | `rp2040_game_con` | gave-up | used to stop at 79/152 with 81 s unused |
 
 Inputs are the frozen pads-only JSON in `boards/`, so the campaign needs no KiCad
-install and no network.
+install and no network. The work that turns the completion gate green is in
+[`HANDOFF.md`](HANDOFF.md).
 
 ## Recording
 
@@ -64,9 +80,8 @@ install and no network.
 relaxes the COMPLETE gate.
 
 ```
-python tests/test_corpus_boards.py --tier short --record --only rp2040_game_con
-python tests/test_corpus_boards.py --tier long  --record
+python tests/test_corpus_boards.py --gate complete --record --only rp2040_game_con
+python tests/test_corpus_boards.py --tier long --gate complete --record
 ```
 
-Use `--keep-reports DIR` to keep each board's report JSON for debugging, and
-`--only <board>` to run one.
+Use `--keep-reports DIR` to keep each board's report JSON for debugging.

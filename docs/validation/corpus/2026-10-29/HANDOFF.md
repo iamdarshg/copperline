@@ -1,24 +1,28 @@
 # Handoff - make the corpus campaign pass (COMPLETE, not just legal)
 
-Status: **the gate is flipped and the suite is red on purpose.** `test_corpus_boards`
-(ctest label `campaign`) requires every board in `tests/corpus_manifest.json` to
-reach **COMPLETE**: fully routed, zero violations. Ten boards from the
-2026-10-29 corpus do not, so the campaign fails 4/4 (short tier) and would fail
-10/10 (long tier). Everything else is green.
+Status: **two gates, one of them red on purpose.** The boards in
+`tests/corpus_manifest.json` are covered by two ctest tests (label `campaign`):
 
 ```
-ctest -R test_corpus_boards --output-on-failure   # the red gate
-ctest -LE campaign                                # the other 33 tests, all pass
+ctest -R test_corpus_legal       # PASS: 4/4 boards legal, 0 violations
+ctest -R test_corpus_complete    # FAIL: 0/4 COMPLETE - this is the work list
+ctest -LE campaign               # everything else, 33/33 green
 ```
+
+The legality gate is the hard safety property (no board may ever commit illegal
+copper) and is green today. The completion gate requires every board to be fully
+routed and is red; it is the thing this document is about. Both run the same
+boards, and `--cache` lets the second reuse the first's reports.
 
 ## Definition of done
 
-1. `python tests/test_corpus_boards.py --tier short` -> **4/4 COMPLETE**.
-2. `python tests/test_corpus_boards.py --tier long` -> **10/10 COMPLETE**.
-3. Every board stays **legal** (0 violations). Non-negotiable: no loosening of
-   the verifier, the clearance rules, or the gates to buy connectivity.
+1. `python tests/test_corpus_boards.py --gate complete --tier short` -> **4/4 COMPLETE**.
+2. `python tests/test_corpus_boards.py --gate complete --tier long` -> **10/10 COMPLETE**.
+3. The legality gate stays green throughout (`--gate legal`): every board legal,
+   no tolerance. Non-negotiable: no loosening of the verifier, the clearance
+   rules, or the gates to buy connectivity.
 4. The recorded floors and escape-infeasible caps still hold or improve.
-5. `ctest` is green with the campaign included (34/34).
+5. `ctest` is green with the campaign included (35/35).
 
 Do **not** reach green by: deleting boards from the manifest, raising the budget
 until it hides the problem, `WILL_FAIL`, lowering the `infeasible` caps, or
