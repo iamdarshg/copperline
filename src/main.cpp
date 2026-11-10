@@ -19,6 +19,9 @@
 #include <string>
 #include <thread>
 #include <vector>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 
 #include "router/analyze.h"
 #include "router/board.h"
@@ -45,6 +48,17 @@ constexpr int kIncomplete = 4;
 constexpr int kViolation = 5;
 constexpr int kInternal = 6;
 constexpr int kBudget = 7;
+
+int process_exit_code(int status) {
+#ifdef _WIN32
+    return status;
+#else
+    if (status < 0) return status;
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return status;
+#endif
+}
 
 struct Flags {
     bool json = false;
@@ -1186,7 +1200,7 @@ int cmd_route_external(const Flags& f) {
     }
 
     const std::string cmd = f.route_router + " \"" + dofile + "\"";
-    const int rc = std::system(cmd.c_str());
+    const int rc = process_exit_code(std::system(cmd.c_str()));
     JsonValue rj = JsonValue::object();
     rj["schema"] = "copperline/external-route-report/1";
     rj["router"] = f.route_router;

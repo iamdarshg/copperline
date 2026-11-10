@@ -5,6 +5,9 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
 
 #include "helpers.h"
 #include "router/dsn.h"
@@ -25,8 +28,10 @@ namespace {
 // cmd.exe cannot execute a quoted program path with forward slashes, so every
 // path baked into a system() command is normalized to backslashes.
 std::string win_path(std::string p) {
+#ifdef _WIN32
     for (char& c : p)
         if (c == '/') c = '\\';
+#endif
     return p;
 }
 
@@ -56,7 +61,15 @@ CliResult run_cli_full(const std::string& args) {
         cmd = "cmd /c \"\"" + prog + "\" " + args + redir + "\"";
     }
     CliResult r;
-    r.rc = std::system(cmd.c_str());
+    int status = std::system(cmd.c_str());
+#ifdef _WIN32
+    r.rc = status;
+#else
+    r.rc = status >= 0 && WIFEXITED(status) ? WEXITSTATUS(status)
+                                           : (status >= 0 && WIFSIGNALED(status)
+                                                  ? 128 + WTERMSIG(status)
+                                                  : status);
+#endif
     {
         std::ifstream f(tmp, std::ios::binary);
         std::ostringstream ss;
@@ -982,8 +995,15 @@ CT_TEST(cli_fanout_pattern_selection) {
 // router; the guards and the failure path are covered here. (No DSN exporter
 // exists, so only .dsn inputs are accepted.)
 CT_TEST(cli_route_external_guards) {
+#ifdef _WIN32
+    const std::string external_ok = "cmd /c exit 0";
+    const std::string external_fail = "cmd /c exit 7";
+#else
+    const std::string external_ok = "sh -c 'exit 0'";
+    const std::string external_fail = "sh -c 'exit 7'";
+#endif
     CliResult json_board = run_cli_full("route-external " + fixture("open_2layer.json") +
-                                        " --router \"cmd /c exit 0\" --json");
+                                        " --router \"" + external_ok + "\" --json");
     CT_CHECK(json_board.rc == 2);
     CT_CHECK(json_board.out.find("needs a .dsn input") != std::string::npos);
 
@@ -993,7 +1013,7 @@ CT_TEST(cli_route_external_guards) {
     CT_CHECK(no_router.out.find("requires --router") != std::string::npos);
 
     CliResult failed = run_cli_full("route-external " + fixture("golden_demo.dsn") +
-                                    " --router \"cmd /c exit 7\" --json");
+                                    " --router \"" + external_fail + "\" --json");
     CT_CHECK(failed.rc == 6);  // internal failure: external router failed
     JsonValue v = must_parse(failed.out);
     CT_CHECK(v.get_string("schema") == "copperline/external-route-report/1");
