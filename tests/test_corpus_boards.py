@@ -62,8 +62,16 @@ def safe_name(name):
 def cache_key(board_path, budget, router):
     h = hashlib.sha256(open(board_path, "rb").read()).hexdigest()
     st = os.stat(router)
+    # Issue #48: a size+mtime pair can collide across different router
+    # binaries (rebuilt at the same second, identical size). Hash the binary
+    # itself so a stale report can never be reused by a different router.
+    try:
+        with open(router, "rb") as fh:
+            rh = hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        rh = "?"
     return (f"{h}:{budget['max_epochs']}:{budget['max_search_nodes']}:"
-            f"{SEED}:{st.st_size}:{int(st.st_mtime)}")
+            f"{SEED}:{st.st_size}:{int(st.st_mtime)}:{rh}")
 
 
 def cache_load(cache_dir, name, key):
@@ -228,7 +236,13 @@ def main():
             continue
         board = os.path.join(ROOT, entry["input"])
         if not os.path.exists(board):
-            print(f"SKIP {name}: missing input {entry['input']}")
+            # Issue #47: a missing required board must fail the campaign, not
+            # silently shrink the denominator into a pass.
+            msg = f"{name}: missing required input {entry['input']}"
+            print(f"FAIL {msg}")
+            legal_failures.append(msg)
+            complete_failures.append(msg)
+            rows.append((name, "MISSING-INPUT", "-", "-", "-", msg))
             continue
 
         key = cache_key(board, budget, router)

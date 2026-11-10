@@ -222,7 +222,8 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
                 err = "bad --memory-budget-mb value";
                 return false;
             }
-            if (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536) {
+            if (f.memory_budget_mb != 0 &&
+                (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536)) {
                 err = "--memory-budget-mb must be 64..65536";
                 return false;
             }
