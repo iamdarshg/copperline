@@ -85,6 +85,14 @@ def main():
     rows = []
     for idx, path in enumerate(boards):
         name = os.path.basename(path)
+        for suffix in ("_raw.json", "_stripped.json", "_report.json", "_routed.json"):
+            stale = os.path.join(args.out, f"b{idx:03d}{suffix}")
+            try:
+                os.remove(stale)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
         raw = os.path.join(args.out, f"b{idx:03d}_raw.json")
         p, imp_s, imp_to = run([ROUTER, "import", path, "--output", raw, "--json"],
                                600)
@@ -124,7 +132,11 @@ def main():
                "--memory-budget-mb", str(args.budget_mb),
                "--timeout", str(args.timeout), "--report", rep,
                "--output", routed]
-        rt, route_s, route_to = run(cmd, args.timeout + 5)
+        # The router's --timeout bounds routing work. Large-board final verifier
+        # and report serialization can legitimately need several seconds after
+        # that deadline; leave enough grace to capture the report rather than
+        # misclassifying an honest TIMEOUT as a missing report.
+        rt, route_s, route_to = run(cmd, args.timeout + 30)
         status = "TIMEOUT" if route_to else "NO_REPORT"
         conn = total = None
         legal = None

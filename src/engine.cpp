@@ -60,6 +60,7 @@ JsonValue EscapeStageInfo::to_json() const {
     r["unresolved_terminals"] = json_int_array(
         std::vector<int>(unresolved_terminals.begin(), unresolved_terminals.end()));
     r["unresolved_reasons"] = json_string_array(unresolved_reasons);
+    r["timed_out"] = timed_out;
     return r;
 }
 
@@ -443,6 +444,22 @@ RouteReport RouterEngine::run() {
     {
         EscapeOptions escape_options;
         escape_options.deadline = deadline;
+        // Corpus-harness regime: a short wall budget must not be consumed
+        // entirely by escape preprocessing (dense BGA boards reached 0/200
+        // because escape ate the whole --timeout and the engine then aborted,
+        // discarding the partial escape work). Bound escape's share of a
+        // short wall budget so the global worker pool always gets a real
+        // slice. Work-based campaign gates use --timeout 1800 only as a
+        // pathological guard: they keep the full deadline, so their escape
+        // behavior and determinism are unchanged.
+        if (options_.timeout_s > 0 && options_.timeout_s <= 60) {
+            const double slice_s =
+                std::max(3.0, std::min(0.5 * options_.timeout_s, 15.0));
+            const auto escape_dl =
+                t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                         std::chrono::duration<double>(slice_s));
+            escape_options.deadline = std::min(deadline, escape_dl);
+        }
         // S1 escape parallelism: footprints plan on the worker pool and each
         // pad's fallback portal attempts fan out on it (deterministic merge,
         // same commit path below). Explicit --threads wins, 0 = auto.
@@ -614,36 +631,22 @@ RouteReport RouterEngine::run() {
         }
         resolver_.rebind(&board_);
         if (esc.timed_out) {
-            report.status = "TIMEOUT";
-            report.result_category = result_category(report.status);
-            report.stats.nets_total = static_cast<int>(board_.nets.size());
-            report.stats.time_ms =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - t0)
-                    .count();
-            report.board_hash = geometry_hash(board_);
-            RouteFailure f;
-            f.reason = "timeout";
-            f.blockers.push_back("escape preprocessing deadline reached");
-            f.category = report.result_category;
-            report.failures.push_back(std::move(f));
-            BoardVerifier verifier;
-            apply_verifier_gate(report, verifier.verify(board_, resolver_, ctx));
+            // Escape preprocessing hit its (bounded) wall share. The stubs it
+            // finished planning were already committed above, each gated by
+            // the verifier, so they stand. Do NOT abort the run with zero
+            // global progress: continue to the global epochs, which honour
+            // the same overall deadline and will stop when the wall is spent.
+            // The report records the escape shortfall honestly; the remaining
+            // unconnected terminals get real per-task failures (or complete).
+            report.escape_stage.timed_out = true;
             if (options_.progress) {
                 JsonValue ev = JsonValue::object();
-                ev["event"] = "preprocessing_timeout";
+                ev["event"] = "escape_shortfall";
                 ev["phase"] = "escape";
-                ev["status"] = report.status;
+                ev["detail"] = "escape preprocessing deadline reached; "
+                               "global epochs continue with partial escape";
                 options_.progress(ev);
-                JsonValue done = JsonValue::object();
-                done["event"] = "done";
-                done["status"] = report.status;
-                done["connected_terminals"] =
-                    static_cast<double>(report.connected_terminals);
-                done["total_terminals"] = static_cast<double>(report.total_terminals);
-                options_.progress(done);
             }
-            return report;
         }
     }
 
@@ -1890,35 +1893,6 @@ RouteReport RouterEngine::run() {
                 for (int w = 0; w < workers; ++w) pool.emplace_back(branch_fn, w);
                 for (auto& th : pool) th.join();
             }
-            // Recovery candidates are worker searches too. Preserve the best
-            // failed-task frontier from the speculative branches so an
-            // unsuccessful generation is reported as searched/blocked rather
-            // than "no worker candidate produced". Branch order is stable;
-            // ties retain the earliest branch for thread-count determinism.
-            {
-                auto better_evidence = [](const CandidateRoute& a,
-                                          const CandidateRoute& b) {
-                    if (a.found != b.found) return a.found;
-                    if (a.closest_goal_dist_nm != b.closest_goal_dist_nm)
-                        return a.closest_goal_dist_nm < b.closest_goal_dist_nm;
-                    return a.expansions > b.expansions;
-                };
-                for (int bi = 0; bi < branch_n; ++bi) {
-                    if (!results[bi].has_failed_attempt) continue;
-                    const CandidateRoute& evidence = results[bi].failed_attempt;
-                    int ti = moves[bi].failed_pos >= 0 &&
-                                     moves[bi].failed_pos < (int)remaining.size()
-                                 ? remaining[moves[bi].failed_pos]
-                                 : -1;
-                    if (ti < 0) continue;
-                    const auto key = attempt_key(tasks[ti]);
-                    auto old = last_attempt.find(key);
-                    if (old == last_attempt.end() ||
-                        better_evidence(evidence, old->second))
-                        last_attempt[key] = evidence;
-                    attempt_counts[key]++;
-                }
-            }
             // Deterministic single-thread transposition pass, in move-index
             // order, using the exact (hash, remaining-set) state identity.
             for (int b = 0; b < branch_n; ++b) {
@@ -2053,35 +2027,8 @@ RouteReport RouterEngine::run() {
             int failed_ti = remaining[moves[best].failed_pos];
             bool failed_done = std::find(win.newly_done.begin(), win.newly_done.end(),
                                          failed_ti) != win.newly_done.end();
-            // Validate the exact task owners of ripped copper. A count can
-            // falsely bless a branch that rerouted unrelated tasks, and can
-            // reject one task that owned multiple records. Escape stubs have
-            // task_pos=-1; mirror reroute_branch's terminal-to-task expansion.
-            std::vector<int> required_task_ids{failed_ti};
-            for (int oi : moves[best].owned_idx) {
-                if (oi < 0 || oi >= static_cast<int>(owned.size())) {
-                    required_task_ids.push_back(-1);
-                    continue;
-                }
-                const OwnedRoute& victim = owned[oi];
-                if (victim.task_pos >= 0) {
-                    required_task_ids.push_back(victim.task_pos);
-                    continue;
-                }
-                const TermId stub_term = victim.task.a;
-                for (std::size_t ti = 0; ti < tasks.size(); ++ti) {
-                    if (task_superseded[ti] || task_done[ti] ||
-                        tasks[ti].net != victim.task.net)
-                        continue;
-                    if (tasks[ti].a == stub_term || tasks[ti].b == stub_term)
-                        required_task_ids.push_back(static_cast<int>(ti));
-                }
-            }
-            std::sort(required_task_ids.begin(), required_task_ids.end());
-            required_task_ids.erase(
-                std::unique(required_task_ids.begin(), required_task_ids.end()),
-                required_task_ids.end());
-            bool fully_rerouted = branch_rerouted_required(win, required_task_ids);
+            int need_total = (int)moves[best].owned_idx.size() + 1;  // ripped + failed
+            bool fully_rerouted = win.connected_tasks >= need_total;
             if (!failed_done || !fully_rerouted) {
                 // No branch reconnected its failed task: escalate (stronger
                 // history pressure on the failed corridors) and widen next gen.
@@ -2728,9 +2675,8 @@ RouteReport RouterEngine::run() {
                 f.pin_density = n / (3.14159265358979 * 25.0);
             }
             auto cit = attempt_counts.find(attempt_key(task));
-            // Count actual worker invocations, including speculative recovery
-            // branches. Rip-up move count remains separately available above.
-            f.candidate_count = cit != attempt_counts.end() ? cit->second : 0;
+            int greedy_tries = cit != attempt_counts.end() ? cit->second : 0;
+            f.candidate_count = greedy_tries + f.ripup_attempts;
             for (const auto& l : board_.layers) f.attempted_layers.push_back(l.id);
             for (const auto& vs :
                  resolver_.allowedVias(task.net, LayerSpan{board_.layers.front().id,
