@@ -177,10 +177,11 @@ Rect cell_rect(const LevelGrid& g, int ix, int iy) {
 
 }  // namespace
 
-const HierarchyCache::Snapshot& HierarchyCache::snapshot_for(const Board& board) const {
+std::shared_ptr<const HierarchyCache::Snapshot> HierarchyCache::snapshot_for(
+    const Board& board) const {
     std::string key = snapshot_key(board);
     std::lock_guard<std::mutex> lock(mutex_);
-    if (key == cached_key_) return cached_;
+    if (cached_ && cached_->key == key) return cached_;
     Snapshot s;
     s.key = key;
     s.bounds = board.bounds();
@@ -205,8 +206,7 @@ const HierarchyCache::Snapshot& HierarchyCache::snapshot_for(const Board& board)
     }
     for (const auto& z : board.planes)
         s.obstacles.push_back({z.bounds(), z.layer, z.net});
-    cached_ = std::move(s);
-    cached_key_ = key;
+    cached_ = std::make_shared<const Snapshot>(std::move(s));
     return cached_;
 }
 
@@ -217,7 +217,8 @@ GuidanceResult HierarchyCache::build_guidance(const Board& board,
                                               const HierarchyConfig& cfg) const {
     GuidanceResult out;
     if (cfg.level_pitch_nm.empty() || req.dsts.empty()) return out;
-    const Snapshot& snap = snapshot_for(board);
+    const std::shared_ptr<const Snapshot> snap_owner = snapshot_for(board);
+    const Snapshot& snap = *snap_owner;
     const Coord half_w = req.width_nm / 2;
 
     // Per-task keep distances. Clearance is layer-independent, so one lookup
