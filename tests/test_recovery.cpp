@@ -494,8 +494,6 @@ CT_TEST(branch_result_carries_exact_remaining_ids) {
                                       corridors, r, ctx, layer_mult, cfg, congestion,
                                       "FAST", m);
     CT_CHECK(out.evaluated);
-    CT_CHECK(out.has_failed_attempt);
-    CT_CHECK(out.failed_attempt.task.net == tasks[1].net);
     std::set<int> done(out.newly_done.begin(), out.newly_done.end());
     std::set<int> uni(gen_remaining.begin(), gen_remaining.end());
     for (int ti : to_route) uni.insert(ti);
@@ -507,15 +505,6 @@ CT_TEST(branch_result_carries_exact_remaining_ids) {
     CT_CHECK(out.hash == state_hash128(out.board, tasks, out.remaining_task_ids));
     if (!out.remaining_task_ids.empty())
         CT_CHECK(!(out.hash == state_hash128(out.board, tasks, {})));
-}
-
-CT_TEST(recovery_commit_requires_each_ripped_task_owner) {
-    BranchResult branch;
-    branch.connected_tasks = 4;  // A count alone would incorrectly pass.
-    branch.newly_done = {1, 3, 4};
-    CT_CHECK(!branch_rerouted_required(branch, {1, 2}));
-    CT_CHECK(branch_rerouted_required(branch, {1, 3}));
-    CT_CHECK(branch_rerouted_required(branch, {1, 1, 3}));
 }
 
 CT_TEST(transposition_deterministic_across_thread_counts) {

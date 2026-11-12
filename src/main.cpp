@@ -49,17 +49,6 @@ constexpr int kViolation = 5;
 constexpr int kInternal = 6;
 constexpr int kBudget = 7;
 
-int process_exit_code(int status) {
-#ifdef _WIN32
-    return status;
-#else
-    if (status < 0) return status;
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
-    return status;
-#endif
-}
-
 struct Flags {
     bool json = false;
     bool quiet = false;
@@ -236,7 +225,8 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
                 err = "bad --memory-budget-mb value";
                 return false;
             }
-            if (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536) {
+            if (f.memory_budget_mb != 0 &&
+                (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536)) {
                 err = "--memory-budget-mb must be 64..65536";
                 return false;
             }
@@ -1200,7 +1190,17 @@ int cmd_route_external(const Flags& f) {
     }
 
     const std::string cmd = f.route_router + " \"" + dofile + "\"";
-    const int rc = process_exit_code(std::system(cmd.c_str()));
+    // std::system returns the exit code on Windows but a wait(2) status on
+    // POSIX (exit 7 -> 1792); report the external router's real exit code.
+    int rc = std::system(cmd.c_str());
+#ifndef _WIN32
+    if (rc != -1) {
+        if (WIFEXITED(rc))
+            rc = WEXITSTATUS(rc);
+        else if (WIFSIGNALED(rc))
+            rc = 128 + WTERMSIG(rc);
+    }
+#endif
     JsonValue rj = JsonValue::object();
     rj["schema"] = "copperline/external-route-report/1";
     rj["router"] = f.route_router;

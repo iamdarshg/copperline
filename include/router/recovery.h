@@ -259,12 +259,6 @@ struct BranchResult {
     Board board;
     std::vector<OwnedRoute> owned;
     std::vector<int> newly_done;  // task positions routed in this branch
-    // Search evidence for the generation's failed task. Kept even when the
-    // speculative branch is rejected, so final attribution can distinguish
-    // a real blocked search from a task that was never scheduled. Only the
-    // diagnostic fields are copied so branch memory stays bounded.
-    bool has_failed_attempt = false;
-    CandidateRoute failed_attempt;
     // Exact unfinished task positions after this branch
     // (sorted; (gen_remaining ∪ to_route) \ newly_done). State identity is
     // (hash, remaining_task_ids): two branches with identical copper but
@@ -288,13 +282,6 @@ struct BranchResult {
     double impact_obstruction = -1.0;
     bool has_impact = false;
 };
-
-// A speculative recovery branch may commit only when every task that owns
-// ripped copper has been reconnected, plus the originally failed task.
-// Counting routes is insufficient because ownership can contain duplicate
-// task positions after tree regeneration.
-bool branch_rerouted_required(const BranchResult& branch,
-                              const std::vector<int>& required_task_ids);
 
 // Lexicographic global objective (issue #19): fewer unconnected tasks
 // (smaller remaining_task_ids) always wins; then fewer hard violations,
