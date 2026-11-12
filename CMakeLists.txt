@@ -78,6 +78,11 @@ if(PYTHON3_EXECUTABLE)
                    "${CMAKE_SOURCE_DIR}/tests/test_thermal.py")
   set_tests_properties(test_thermal PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  add_test(NAME test_harness_fail_closed
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_harness_fail_closed.py")
+  set_tests_properties(test_harness_fail_closed PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   add_test(NAME test_relief_research
            COMMAND "${PYTHON3_EXECUTABLE}"
                    "${CMAKE_SOURCE_DIR}/tests/test_relief_research.py")

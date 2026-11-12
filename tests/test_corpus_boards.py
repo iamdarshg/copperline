@@ -212,6 +212,8 @@ def main():
                     help="write each board's report JSON here (debugging)")
     ap.add_argument("--cache", metavar="DIR",
                     help="reuse reports when board+budget+router are unchanged")
+    ap.add_argument("--manifest", metavar="PATH", default=MANIFEST,
+                    help="campaign manifest (default tests/corpus_manifest.json)")
     args = ap.parse_args()
 
     router = find_router(args.router)
@@ -219,7 +221,8 @@ def main():
         print(f"router not found: {router}", file=sys.stderr)
         return 2
 
-    manifest = json.load(open(MANIFEST))
+    manifest_path = os.path.abspath(args.manifest)
+    manifest = json.load(open(manifest_path))
     budget = manifest["budget"]
     only = set(args.only or [])
     legal_failures = []
@@ -306,9 +309,9 @@ def main():
         for entry in manifest["boards"]:
             if entry["name"] in updates:
                 entry.update(updates[entry["name"]])
-        json.dump(manifest, open(MANIFEST, "w"), indent=1)
+        json.dump(manifest, open(manifest_path, "w"), indent=1)
         print(f"\nrecorded {len(updates)} boards into "
-              f"{os.path.relpath(MANIFEST, ROOT)}")
+              f"{os.path.relpath(manifest_path, ROOT)}")
         print("note: --record only refreshes the progress ratchet; the COMPLETE "
               "gate is unchanged")
 
