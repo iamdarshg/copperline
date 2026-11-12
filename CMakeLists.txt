@@ -83,6 +83,11 @@ if(PYTHON3_EXECUTABLE)
                    "${CMAKE_SOURCE_DIR}/tests/test_harness_fail_closed.py")
   set_tests_properties(test_harness_fail_closed PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  add_test(NAME test_build_corpus_dedupe
+           COMMAND "${PYTHON3_EXECUTABLE}"
+                   "${CMAKE_SOURCE_DIR}/tests/test_build_corpus_dedupe.py")
+  set_tests_properties(test_build_corpus_dedupe PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   add_test(NAME test_relief_research
            COMMAND "${PYTHON3_EXECUTABLE}"
                    "${CMAKE_SOURCE_DIR}/tests/test_relief_research.py")

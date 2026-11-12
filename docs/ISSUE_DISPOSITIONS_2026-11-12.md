@@ -15,7 +15,7 @@ get one first.
 | 40 | Fine-pitch escape commits conflicting stubs without board-level legality gate | **Open — not addressed** | no reference |
 | 41 | Synthetic corpus generator overlapping different-net pads | Closed upstream | — |
 | 42 | Epoch commits can introduce DRC violations despite clean input | **Open — not addressed**. Note: the short and long tier legality gates are 4/4 and 10/10 with 0 violations on this host, which is consistent with but does not prove the absence of the defect | `tests/test_corpus_boards.py --gate legal` |
-| 43 | Corpus builder drops distinct legal boards on signature collisions | **Code present, no regression test** | `tools/build_corpus.py:122` signature recorded only for legal boards |
+| 43 | Corpus builder drops distinct legal boards on signature collisions | **Fixed in branch; regression test added** | `tests/test_build_corpus_dedupe.py` (ctest): on origin/main the later legal revision is dropped as `duplicate_signature` (red); on this branch it is kept |
 | 44 | Long-run harness reuses stale reports / basename collisions | **Code present per handoff (stale-report cleanup), no `Issue #44` marker found, no test** | needs a marker and a test before it can be dispositioned as fixed |
 | 45 | Thermal Joule model underestimates resistance on variable-width traces | **Open — not addressed** | no reference |
 | 46 | verify_rules reports missing checks as zero violations | **Fixed in branch; regression test added** | `tests/test_harness_fail_closed.py` (ctest): exits 0 on origin/main (red), 1 on this branch |
@@ -29,5 +29,5 @@ get one first.
 
 ## Suggested next tickets
 
-1. Regression tests for #38 and #43 (#46/#47 done in b387e24).
+1. Regression test for #38 (#43/#46/#47 have tests).
 2. #42 and #40 are legality defects; they deserve targeted reproductions before any completion work (C-G1).
