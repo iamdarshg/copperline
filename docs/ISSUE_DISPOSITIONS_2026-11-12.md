@@ -18,8 +18,8 @@ get one first.
 | 43 | Corpus builder drops distinct legal boards on signature collisions | **Code present, no regression test** | `tools/build_corpus.py:122` signature recorded only for legal boards |
 | 44 | Long-run harness reuses stale reports / basename collisions | **Code present per handoff (stale-report cleanup), no `Issue #44` marker found, no test** | needs a marker and a test before it can be dispositioned as fixed |
 | 45 | Thermal Joule model underestimates resistance on variable-width traces | **Open — not addressed** | no reference |
-| 46 | verify_rules reports missing checks as zero violations | **Code present, no regression test** | `tools/verify_rules.py:44` collects failures and fails the run |
-| 47 | Campaign passes when required inputs missing / router exits | **Code present, no regression test** | `tests/test_corpus_boards.py:239` missing input fails both gates |
+| 46 | verify_rules reports missing checks as zero violations | **Fixed in branch; regression test added** | `tests/test_harness_fail_closed.py` (ctest): exits 0 on origin/main (red), 1 on this branch |
+| 47 | Campaign passes when required inputs missing / router exits | **Missing-input path fixed and tested; router-exit path untested** | `tests/test_harness_fail_closed.py` drives the harness with a manifest whose input is missing (new `--manifest` option) |
 | 48 | Gate cache reuses reports from a different router binary | **Code present; behaviour observed** | `tests/test_corpus_boards.py:65` cache key hashes the router binary. After rebuilding `build/router` with commit 9f3bc10 the long-tier campaign recomputed every board (real 487 s) instead of reusing cached reports |
 
 ## Additional defects found and fixed in this PR (not in #27–#48)
@@ -29,5 +29,5 @@ get one first.
 
 ## Suggested next tickets
 
-1. Regression tests for #38, #43, #46, #47 (each can be a small fixture-driven test).
+1. Regression tests for #38 and #43 (#46/#47 done in b387e24).
 2. #42 and #40 are legality defects; they deserve targeted reproductions before any completion work (C-G1).
