@@ -26,8 +26,7 @@ using namespace copperline;
 namespace {
 
 // cmd.exe cannot execute a quoted program path with forward slashes, so every
-// path baked into a system() command is normalized to backslashes on Windows.
-// POSIX shells need the forward slashes untouched.
+// path baked into a system() command is normalized to backslashes.
 std::string win_path(std::string p) {
 #ifdef _WIN32
     for (char& c : p)
@@ -36,18 +35,10 @@ std::string win_path(std::string p) {
     return p;
 }
 
-// std::system returns the child's exit code on Windows but a wait(2) status on
-// POSIX; decode it so exit-code assertions mean the same thing on both.
-int decode_system_rc(int status) {
-#ifdef _WIN32
-    return status;
-#else
-    if (status == -1) return -1;
-    if (WIFEXITED(status)) return WEXITSTATUS(status);
-    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
-    return status;
-#endif
-}
+// Quote a path for a system() command line: workspace paths may contain spaces
+// (C:\Users\First Last\..., CI worktrees), and an unquoted path there splits
+// into two arguments. File I/O keeps using the raw path.
+std::string q(const std::string& path) { return "\"" + win_path(path) + "\""; }
 
 struct CliResult {
     int rc = 0;
@@ -65,16 +56,20 @@ CliResult run_cli_full(const std::string& args) {
     if (prog.find(' ') == std::string::npos && prog.find('&') == std::string::npos) {
         cmd = prog + " " + args + redir;
     } else {
-#ifndef _WIN32
-        cmd = "\"" + prog + "\" " + args + redir;
-#else
         // msvcrt system() mangles a leading quoted program path (cmd strips
         // the outer quotes), so use the documented cmd /c ""exe" args" form.
         cmd = "cmd /c \"\"" + prog + "\" " + args + redir + "\"";
-#endif
     }
     CliResult r;
-    r.rc = decode_system_rc(std::system(cmd.c_str()));
+    int status = std::system(cmd.c_str());
+#ifdef _WIN32
+    r.rc = status;
+#else
+    r.rc = status >= 0 && WIFEXITED(status) ? WEXITSTATUS(status)
+                                           : (status >= 0 && WIFSIGNALED(status)
+                                                  ? 128 + WTERMSIG(status)
+                                                  : status);
+#endif
     {
         std::ifstream f(tmp, std::ios::binary);
         std::ostringstream ss;
@@ -96,15 +91,12 @@ std::string run_cli(const std::string& args, int& rc) {
     return r.out;
 }
 
-// Quote a path for embedding into a cmd /c command line: the workspace path
-// frequently contains spaces ("C:\Users\John Doe\...") and cmd splits
-// unquoted arguments at spaces, corrupting the router's argv.
-std::string q(const std::string& p) { return "\"" + p + "\""; }
-
 std::string fixture(const std::string& name) {
-    // Self-quote: the workspace path may contain spaces, and cmd /c splits
-    // unquoted arguments at spaces.
-    return q(win_path(std::string(FIXTURE_DIR) + "/" + name));
+    // Quoted: fixture paths are spliced into system() command strings, and a
+    // workspace path containing a space (C:\Users\First Last\..., or any
+    // clone under a directory with spaces) would otherwise split into two
+    // arguments and fail every CLI test.
+    return "\"" + win_path(std::string(FIXTURE_DIR) + "/" + name) + "\"";
 }
 
 JsonValue must_parse(const std::string& text) {
@@ -1002,14 +994,16 @@ CT_TEST(cli_fanout_pattern_selection) {
 // Specctra router prefix and imports its SES. The happy path needs a real
 // router; the guards and the failure path are covered here. (No DSN exporter
 // exists, so only .dsn inputs are accepted.)
-#ifdef _WIN32
-#define FAKE_ROUTER_EXIT(n) "\"cmd /c exit " #n "\""
-#else
-#define FAKE_ROUTER_EXIT(n) "\"sh -c 'exit " #n "'\""
-#endif
 CT_TEST(cli_route_external_guards) {
+#ifdef _WIN32
+    const std::string external_ok = "cmd /c exit 0";
+    const std::string external_fail = "cmd /c exit 7";
+#else
+    const std::string external_ok = "sh -c 'exit 0'";
+    const std::string external_fail = "sh -c 'exit 7'";
+#endif
     CliResult json_board = run_cli_full("route-external " + fixture("open_2layer.json") +
-                                        " --router " FAKE_ROUTER_EXIT(0) " --json");
+                                        " --router \"" + external_ok + "\" --json");
     CT_CHECK(json_board.rc == 2);
     CT_CHECK(json_board.out.find("needs a .dsn input") != std::string::npos);
 
@@ -1019,7 +1013,7 @@ CT_TEST(cli_route_external_guards) {
     CT_CHECK(no_router.out.find("requires --router") != std::string::npos);
 
     CliResult failed = run_cli_full("route-external " + fixture("golden_demo.dsn") +
-                                    " --router " FAKE_ROUTER_EXIT(7) " --json");
+                                    " --router \"" + external_fail + "\" --json");
     CT_CHECK(failed.rc == 6);  // internal failure: external router failed
     JsonValue v = must_parse(failed.out);
     CT_CHECK(v.get_string("schema") == "copperline/external-route-report/1");

@@ -15,7 +15,7 @@ get one first.
 | 40 | Fine-pitch escape commits conflicting stubs without board-level legality gate | **Open — not addressed** | no reference |
 | 41 | Synthetic corpus generator overlapping different-net pads | Closed upstream | — |
 | 42 | Epoch commits can introduce DRC violations despite clean input | **Open — not addressed**. Note: the short and long tier legality gates are 4/4 and 10/10 with 0 violations on this host, which is consistent with but does not prove the absence of the defect | `tests/test_corpus_boards.py --gate legal` |
-| 43 | Corpus builder drops distinct legal boards on signature collisions | **Fixed in branch; regression test added** | `tests/test_build_corpus_dedupe.py` (ctest): on origin/main the later legal revision is dropped as `duplicate_signature` (red); on this branch it is kept |
+| 43 | Corpus builder drops distinct legal boards on signature collisions | **Fixed in branch; regression test added** | `tests/test_build_corpus_dedupe.py` (ctest): case 1 (the report) and case 2 (5-board sequence: full kept list and every per-board reason, including a true duplicate still dropped). Both red on origin/main, green here |
 | 44 | Long-run harness reuses stale reports / basename collisions | **Code present per handoff (stale-report cleanup), no `Issue #44` marker found, no test** | needs a marker and a test before it can be dispositioned as fixed |
 | 45 | Thermal Joule model underestimates resistance on variable-width traces | **Open — not addressed** | no reference |
 | 46 | verify_rules reports missing checks as zero violations | **Fixed in branch; regression test added** | `tests/test_harness_fail_closed.py` (ctest): exits 0 on origin/main (red), 1 on this branch |
@@ -24,7 +24,7 @@ get one first.
 
 ## Additional defects found and fixed in this PR (not in #27–#48)
 
-- `route-external` reported POSIX wait statuses as exit codes (7 → 1792); `test_cli` Windows-only assumptions (commit 07e8856).
+- ~~`route-external` reported POSIX wait statuses as exit codes~~ **Withdrawn (2026-11-15).** `main` already decodes them (`process_exit_code`, `src/main.cpp:52`) and its `test_cli` is already POSIX-portable; commit 07e8856 re-inlined equivalent logic over the older 2026-11-10 working-tree copy, a no-op relative to `main`. Reverted to `main`'s code; the only remaining diff in these two files is the imported `--memory-budget-mb 0` (= engine default) behaviour and its test. Caught by dsh-lead's verifier on PR #52.
 - Data race in `HierarchyCache::snapshot_for` aborting the router on OpenJBOD-RP2040 (commit 9f3bc10; stress test red 2/3 → green 20/20).
 
 ## Suggested next tickets
