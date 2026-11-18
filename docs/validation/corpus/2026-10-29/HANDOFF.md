@@ -84,7 +84,9 @@ slots are filled with non-interfering tasks of nets already in the batch
 (`BatchSchedOptions::same_net_fill`, `--no-same-net-fill` to disable).
 `rp2040_game_con` 79/152 -> 124/152 (unattempted 34 -> 2); the other three
 boards are byte-identical (their backlog keeps >= 9 nets, so the fill never
-triggers). pico-radio is limited by batch width (8 once fewer than 128 tasks
+triggers). Long tier: Pico WH 247 -> 252, OpenJBOD 366 -> 357 (GND failures
+192 -> 84 but `/PWR_BTN` loses completion: a regression, inside the ratchet),
+the other boards byte-identical; legality 10/10 throughout. pico-radio is limited by batch width (8 once fewer than 128 tasks
 remain) against the 12-epoch budget, not by the per-net gate. Filling
 unconditionally (whenever a batch is short) was measured and rejected: game_con
 128, pico 228, nema 91, but KiCAD_Board_3 fell 94 -> 78 because early
