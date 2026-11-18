@@ -12,7 +12,7 @@ import os
 import subprocess
 import time
 
-ROOT = r"D:\CodeProjects\reverse\copperline"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROUTER = os.path.join(ROOT, "build", "router.exe")
 
 
