@@ -1075,6 +1075,23 @@ CT_TEST(cli_memory_budget_flag) {
     CliResult bad = run_cli_full("route " + fixture("open_2layer.json") +
                                  " --memory-budget-mb 10 --json");
     CT_CHECK(bad.rc == 2);
+    // 0 = engine default (600 MB) — same as an absent flag.
+    CliResult zero = run_cli_full("route " + fixture("open_2layer.json") +
+                                  " --json --no-board-echo --seed 42"
+                                  " --memory-budget-mb 0");
+    CT_CHECK(zero.rc == 0);
+    JsonValue pz = must_parse(zero.out);
+    CT_CHECK(pz.find("params")->get_number("memory_budget_mb", -1) ==
+             static_cast<double>(kRouterMemoryBudgetBytes / (1024ULL * 1024ULL)));
+    // Out-of-range explicit values are still rejected with the same message.
+    CliResult over = run_cli_full("route " + fixture("open_2layer.json") +
+                                  " --memory-budget-mb 70000 --json");
+    CT_CHECK(over.rc == 2);
+    CT_CHECK(over.out.find("--memory-budget-mb must be 64..65536") != std::string::npos);
+    CliResult under = run_cli_full("route " + fixture("open_2layer.json") +
+                                   " --memory-budget-mb 1 --json");
+    CT_CHECK(under.rc == 2);
+    CT_CHECK(under.out.find("--memory-budget-mb must be 64..65536") != std::string::npos);
 }
 
 int main() { return copperline::test::run_all_tests(); }

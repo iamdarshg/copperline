@@ -1,0 +1,33 @@
+# Issue dispositions #27–#48 (C-G5), 2026-11-12
+
+Branch `audit/copperline` (PR #52). Host: macOS 26.5 arm64. "Code present" means the
+fix is in this branch with an `Issue #N` comment at the cited location. "Verified" means
+behaviour was observed on this host with the command given. Nothing here is closed:
+fixes land when the owner merges PR #52, and the ones without a regression test should
+get one first.
+
+| # | Title (short) | Disposition | Evidence |
+|---|---|---|---|
+| 27–36 | Release readiness (CI matrix, real-board qualification, FreeRouting benchmark, round-trip torture, install/packaging, CLI contract, fuzzing, timeout/cancel, license/changelog, release automation) | **Open — process epics**, not addressed in this PR | — |
+| 37 | Cleanup optimizer retries rejected first candidate | Closed upstream before this audit | `tests/test_golden.cpp`, `src/optimizer.cpp` reference it |
+| 38 | Hug/spread optimizer stops after first rejected window | **Fixed + regression test (2026-11-18)** | The imported cursor advanced by candidate count and kept the 8-window guard; the test `optimizer_spread_skips_rejected_prefix_issue38` (40 blocked, 1 legal) was red on `main` and on that code. Replaced with an index cursor + 8-accepted-move bound (da09121); green. Not closed: owner's call. |
+| 39 | Pad-to-pad gap asymmetric for vertical oval (B rotated twice) | **Fixed in branch; regression test added (2026-11-18)** | Reproduced on `origin/main` (`include/router/pad_geometry.h:183` applied a second -90° to B's oval core): issue geometry read 0.9 mm one way, 0.5 mm the other; two vertical ovals side by side read 0.5 mm both ways (true 0.9). Only `src/` consumer is the diff-pair pad floor check (`src/verifier.cpp:660`). Tests `pad_gap_vertical_oval_is_order_independent_issue39` and `pad_gap_swap_symmetry_sweep_issue39` (`tests/test_geometry.cpp`): red against main's header, green with 089d26f. Not closed: owner's call |
+| 40 | Fine-pitch escape commits conflicting stubs without board-level legality gate | **Does not reproduce on `origin/main`; open for the owner's remaining gates** | Main already gates every escape candidate against the live board and falls through to the next candidate (`src/engine.cpp:493-545` at 4ce0908). Main's router with escape on: 0 final violations on 5 synthetic dense-BGA boards and on Pico 2 C, where the gate rejected 20 conflicting candidates (126/327 connected). Not rerun: the Pi-class board (no generator in repo), independent KiCad DRC. No test or code change |
+| 41 | Synthetic corpus generator overlapping different-net pads | Closed upstream | — |
+| 42 | Epoch commits can introduce DRC violations despite clean input | **Original defect does not reproduce on `origin/main`; open for the owner's remaining gates** | Main gates epoch commits one candidate at a time and gates pair materialization atomically (`src/engine.cpp:1403-1490`, `2405-2452`). Owner follow-up 1 (the `ambiguous` fast path skips the verifier for a sole candidate, `src/engine.cpp:1441-1471`) is real in source; the arbiter is the backstop. New test `arbiter_sole_candidate_vs_existing_copper_issue42` (`tests/test_parallel.cpp`): green on main and here, and a mutation shows it is not vacuous. Follow-up 2 (a vias-only materialization skipping the gate) cannot happen: `src/diffpair.cpp:1058` fails it. `mat_area` still leaves out via extents (one-line hardening, owner's call). Main's router with escape, optimizer, tuning and recovery off: 0 final violations on all 15 frozen 2026-10-29 corpus boards (1 and 40 epochs; the epoch gate never fired) and on 4 diff-pair fixtures (all MATERIALIZED). `dev_board.kicad_pcb` is not in the repo |
+| 43 | Corpus builder drops distinct legal boards on signature collisions | **Fixed in branch; regression test added** | `tests/test_build_corpus_dedupe.py` (ctest): case 1 (the report) and case 2 (5-board sequence: full kept list and every per-board reason, including a true duplicate still dropped). Both red on origin/main, green here |
+| 44 | Long-run harness reuses stale reports / basename collisions | **Code present per handoff (stale-report cleanup), no `Issue #44` marker found, no test** | needs a marker and a test before it can be dispositioned as fixed |
+| 45 | Thermal Joule model underestimates resistance on variable-width traces | **Fixed in branch; regression test added (2026-11-18)** | Reproduced on `origin/main` (`em/validate_thermal.py:100-116`: total length × widest width, floored at 0.2 mm). Resistance is now summed per segment (254906c); non-positive widths raise. 7 new checks in `tests/test_thermal.py`: 6 red on main, all green here. The lumped thermal area still uses the widest segment (hot-spot model tracked separately by the issue). Not closed |
+| 46 | verify_rules reports missing checks as zero violations | **Fixed in branch; regression test added** | `tests/test_harness_fail_closed.py` (ctest): exits 0 on origin/main (red), 1 on this branch |
+| 47 | Campaign passes when required inputs missing / router exits | **Missing-input path fixed and tested; router-exit path untested** | `tests/test_harness_fail_closed.py` drives the harness with a manifest whose input is missing (new `--manifest` option) |
+| 48 | Gate cache reuses reports from a different router binary | **Code present; behaviour observed** | `tests/test_corpus_boards.py:65` cache key hashes the router binary. After rebuilding `build/router` with commit 9f3bc10 the long-tier campaign recomputed every board (real 487 s) instead of reusing cached reports |
+
+## Additional defects found and fixed in this PR (not in #27–#48)
+
+- ~~`route-external` reported POSIX wait statuses as exit codes~~ **Withdrawn (2026-11-15).** `main` already decodes them (`process_exit_code`, `src/main.cpp:52`) and its `test_cli` is already POSIX-portable; commit 07e8856 re-inlined equivalent logic over the older 2026-11-10 working-tree copy, a no-op relative to `main`. Reverted to `main`'s code; the only remaining diff in these two files is the imported `--memory-budget-mb 0` (= engine default) behaviour and its test. Caught by dsh-lead's verifier on PR #52.
+- Data race in `HierarchyCache::snapshot_for` aborting the router on OpenJBOD-RP2040 (commit 9f3bc10; stress test red 2/3 → green 20/20).
+
+## Suggested next tickets
+
+1. ~~Regression test for #38~~ done (da09121).
+2. ~~#42 and #40 targeted reproductions~~ checked against `origin/main` (2026-11-18): neither reproduces as filed; evidence in `evidence/copperline/C-G5/issue40`, `issue42` of the audit workspace. Remaining owner gates: Pi-class and `dev_board` reruns, independent KiCad DRC, and whether the epoch gate should be unconditional.

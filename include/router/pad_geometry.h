@@ -171,16 +171,18 @@ inline Coord pad_gap_nm(const Terminal& a, const Terminal& b) {
         rel -= kPi / 2.0;
     }
 
-    auto core_points = [](const PadCore& c, double cx, double cy, double ang,
-                          bool a_vertical) {
+    // `ang` is the core's rotation in the normalised frame. For B it is
+    // `rel`, which already includes A's -90 degree normalisation, so it must
+    // not be applied again here (issue #39: doing so rotated B's oval core
+    // twice and made the gap depend on argument order).
+    auto core_points = [](const PadCore& c, double cx, double cy, double ang) {
         std::vector<std::pair<double, double>> pts;
         switch (c.kind) {
             case PadCore::Kind::kPoint:
                 pts.emplace_back(cx, cy);
                 break;
             case PadCore::Kind::kSegment: {
-                double dir = ang + (c.vertical ? kPi / 2.0 : 0.0);
-                if (a_vertical) dir -= kPi / 2.0;
+                const double dir = ang + (c.vertical ? kPi / 2.0 : 0.0);
                 for (double s : {-1.0, 1.0})
                     pts.emplace_back(cx + s * c.hx * std::cos(dir),
                                      cy + s * c.hx * std::sin(dir));
@@ -203,8 +205,8 @@ inline Coord pad_gap_nm(const Terminal& a, const Terminal& b) {
     // folded into the scene rotation above, so it must not be applied twice.
     PadCore ca_pts = ca;
     ca_pts.vertical = false;
-    const auto pa = core_points(ca_pts, 0.0, 0.0, 0.0, false);
-    const auto pb = core_points(cb, bx, by, rel, ca.vertical);
+    const auto pa = core_points(ca_pts, 0.0, 0.0, 0.0);
+    const auto pb = core_points(cb, bx, by, rel);
 
     double dist = 1e18;
     if (pa.size() == 1 && pb.size() == 1) {

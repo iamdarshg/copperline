@@ -60,6 +60,7 @@ JsonValue EscapeStageInfo::to_json() const {
     r["unresolved_terminals"] = json_int_array(
         std::vector<int>(unresolved_terminals.begin(), unresolved_terminals.end()));
     r["unresolved_reasons"] = json_string_array(unresolved_reasons);
+    r["timed_out"] = timed_out;
     return r;
 }
 
@@ -443,6 +444,22 @@ RouteReport RouterEngine::run() {
     {
         EscapeOptions escape_options;
         escape_options.deadline = deadline;
+        // Corpus-harness regime: a short wall budget must not be consumed
+        // entirely by escape preprocessing (dense BGA boards reached 0/200
+        // because escape ate the whole --timeout and the engine then aborted,
+        // discarding the partial escape work). Bound escape's share of a
+        // short wall budget so the global worker pool always gets a real
+        // slice. Work-based campaign gates use --timeout 1800 only as a
+        // pathological guard: they keep the full deadline, so their escape
+        // behavior and determinism are unchanged.
+        if (options_.timeout_s > 0 && options_.timeout_s <= 60) {
+            const double slice_s =
+                std::max(3.0, std::min(0.5 * options_.timeout_s, 15.0));
+            const auto escape_dl =
+                t0 + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                         std::chrono::duration<double>(slice_s));
+            escape_options.deadline = std::min(deadline, escape_dl);
+        }
         // S1 escape parallelism: footprints plan on the worker pool and each
         // pad's fallback portal attempts fan out on it (deterministic merge,
         // same commit path below). Explicit --threads wins, 0 = auto.
@@ -614,36 +631,22 @@ RouteReport RouterEngine::run() {
         }
         resolver_.rebind(&board_);
         if (esc.timed_out) {
-            report.status = "TIMEOUT";
-            report.result_category = result_category(report.status);
-            report.stats.nets_total = static_cast<int>(board_.nets.size());
-            report.stats.time_ms =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now() - t0)
-                    .count();
-            report.board_hash = geometry_hash(board_);
-            RouteFailure f;
-            f.reason = "timeout";
-            f.blockers.push_back("escape preprocessing deadline reached");
-            f.category = report.result_category;
-            report.failures.push_back(std::move(f));
-            BoardVerifier verifier;
-            apply_verifier_gate(report, verifier.verify(board_, resolver_, ctx));
+            // Escape preprocessing hit its (bounded) wall share. The stubs it
+            // finished planning were already committed above, each gated by
+            // the verifier, so they stand. Do NOT abort the run with zero
+            // global progress: continue to the global epochs, which honour
+            // the same overall deadline and will stop when the wall is spent.
+            // The report records the escape shortfall honestly; the remaining
+            // unconnected terminals get real per-task failures (or complete).
+            report.escape_stage.timed_out = true;
             if (options_.progress) {
                 JsonValue ev = JsonValue::object();
-                ev["event"] = "preprocessing_timeout";
+                ev["event"] = "escape_shortfall";
                 ev["phase"] = "escape";
-                ev["status"] = report.status;
+                ev["detail"] = "escape preprocessing deadline reached; "
+                               "global epochs continue with partial escape";
                 options_.progress(ev);
-                JsonValue done = JsonValue::object();
-                done["event"] = "done";
-                done["status"] = report.status;
-                done["connected_terminals"] =
-                    static_cast<double>(report.connected_terminals);
-                done["total_terminals"] = static_cast<double>(report.total_terminals);
-                options_.progress(done);
             }
-            return report;
         }
     }
 

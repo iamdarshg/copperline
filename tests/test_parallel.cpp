@@ -5,9 +5,11 @@
 #include <thread>
 
 #include "helpers.h"
+#include "router/board_stats.h"
 #include "router/density.h"
 #include "router/engine.h"
 #include "router/parallel.h"
+#include "router/simplify.h"
 #include "router/verifier.h"
 
 using namespace copperline;
@@ -505,6 +507,107 @@ CT_TEST(arbiter_rejects_illegal_overlap) {
     ArbiterResult arb = arbitrate({cand}, blocked, r, ctx);
     CT_CHECK(arb.accepted.empty());
     CT_CHECK(arb.rejected.size() == 1);
+}
+
+// Issue #42 (owner follow-up): the engine's per-epoch commit gate re-probes
+// a candidate with BoardVerifier only when its box meets another accepted
+// candidate's box (engine.cpp, `ambiguous`). A sole candidate is therefore
+// guarded by arbitrate() alone. Pin that arbitrate() rejects a sole candidate
+// against pre-existing foreign copper (crossing trace; via just inside
+// clearance), and that the independent verifier agrees on the same copper.
+CT_TEST(arbiter_sole_candidate_vs_existing_copper_issue42) {
+    Board b = base_2layer();
+    NetInfo n0 = make_net(0, "N0");
+    n0.has_current = true;
+    n0.current_a = 0.1;
+    b.nets.push_back(n0);
+    b.nets.push_back(make_net(1, "N1"));  // foreign net, copper added below
+    TermId a = add_terminal(b, 0, 2.0, 10.0);
+    TermId c = add_terminal(b, 0, 18.0, 10.0);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    std::vector<double> lm = {1.0, 1.0};
+    CongestionMap cg;
+    cg.init(b);
+    ConnectionTask task{0, a, c, 0, 1.0};
+    Corridor corr = probable_corridor(b, r, task, ctx);
+    ReservationSet rs;
+    rs.build({task}, {corr}, {1.0});
+    CandidateRoute cand =
+        route_candidate_task(b, r, task, 0, 1.0, ctx, lm, AStarConfig{}, cg, rs);
+    CT_CHECK(cand.found);
+    CT_CHECK(!cand.traces.empty());
+    std::string why;
+    CT_CHECK(candidate_legal_vs_board(cand, b, r, ctx, why));
+
+    auto expect_rejected_and_verifier_agrees = [&](const Board& committed) {
+        BoardVerifier v;
+        CT_CHECK(v.verify(committed, r, ctx).legal);  // pre-existing copper legal
+        ArbiterResult arb = arbitrate({cand}, committed, r, ctx);
+        CT_CHECK(arb.accepted.empty());
+        CT_CHECK(arb.rejected.size() == 1);
+        Board after = committed;
+        Rect area{};
+        bool first = true;
+        for (const auto& s : cand.traces) {
+            after.traces.push_back(s);
+            const Rect sb = s.segment().bounds().expanded(s.width_nm / 2);
+            area = first ? sb : rect_union(area, sb);
+            first = false;
+        }
+        for (const auto& vv : cand.vias) {
+            after.vias.push_back(vv);
+            const Rect vb = Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm);
+            area = first ? vb : rect_union(area, vb);
+            first = false;
+        }
+        CT_CHECK(v.has_local_violation(after, r, ctx, 0, area));
+        CT_CHECK(!v.verify(after, r, ctx).legal);
+    };
+
+    // Case 1: foreign trace crossing the whole route corridor on both layers.
+    {
+        Board committed = b;
+        for (LayerId l : {LayerId{0}, LayerId{1}}) {
+            TraceSeg t;
+            t.net = 1;
+            t.layer = l;
+            t.a = {mm_to_nm(10.0), mm_to_nm(1.0)};
+            t.b = {mm_to_nm(10.0), mm_to_nm(19.0)};
+            t.width_nm = mm_to_nm(0.2);
+            committed.traces.push_back(t);
+        }
+        expect_rejected_and_verifier_agrees(committed);
+    }
+    // Case 2: no overlap, only a clearance shortfall. A through via beside
+    // the midpoint of the candidate's longest segment, edge gap = half the
+    // required clearance.
+    {
+        const TraceSeg* longest = &cand.traces.front();
+        for (const auto& s : cand.traces)
+            if (euclid_len_nm(s.a, s.b) > euclid_len_nm(longest->a, longest->b))
+                longest = &s;
+        const double ax = (double)longest->a.x, ay = (double)longest->a.y;
+        const double bx = (double)longest->b.x, by = (double)longest->b.y;
+        const double len = std::hypot(bx - ax, by - ay);
+        CT_CHECK(len > (double)mm_to_nm(2.0));
+        std::string src;
+        const Coord need = r.requiredClearance(0, 1, longest->layer, ctx, &src);
+        CT_CHECK(need > 0);
+        Via via;
+        via.net = 1;
+        via.top_layer = 0;
+        via.bottom_layer = 1;
+        via.outer_d_nm = mm_to_nm(0.6);
+        via.hole_d_nm = mm_to_nm(0.3);
+        const double off = longest->width_nm / 2.0 + via.outer_d_nm / 2.0 + need / 2.0;
+        const double nx = -(by - ay) / len, ny = (bx - ax) / len;
+        via.pos = {(Coord)std::llround((ax + bx) / 2.0 + nx * off),
+                   (Coord)std::llround((ay + by) / 2.0 + ny * off)};
+        Board committed = b;
+        committed.vias.push_back(via);
+        expect_rejected_and_verifier_agrees(committed);
+    }
 }
 
 CT_TEST(conflict_same_net_never_conflicts) {

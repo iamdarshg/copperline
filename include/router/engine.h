@@ -152,6 +152,9 @@ struct EscapeStageInfo {
     // Per-terminal infeasibility reasons for unresolved pads, parallel to
     // unresolved_terminals.
     std::vector<std::string> unresolved_reasons;
+    // True when the route's bounded escape preprocessing share expired and
+    // global routing continued with the partial, legality-gated stubs.
+    bool timed_out = false;
     JsonValue to_json() const;
 };
 
