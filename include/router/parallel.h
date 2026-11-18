@@ -137,6 +137,10 @@ struct BatchSchedOptions {
     int max_relax_steps = kBatchMaxRelaxSteps;
     std::size_t memory_budget_bytes = kRouterMemoryBudgetBytes;
     std::size_t per_task_bytes = kPerCandidateBytes;
+    // C-G1: fill free batch slots with non-interfering tasks of nets already
+    // in the batch (see select_interference_batch). false = legacy strict
+    // one-task-per-net.
+    bool same_net_fill = true;
 };
 
 struct BatchSelection {
@@ -151,6 +155,7 @@ struct BatchSelection {
     int effective_width = kParallelBatchSize;
     std::size_t pairs_stored = 0;
     std::size_t pairs_capped = 0;  // pairs dropped by the sparse cap (0 for batches)
+    int same_net_filled = 0;       // C-G1: slots filled by the same-net pass
 };
 
 // Memory-bounded batch width: min(requested, floor(budget/per_task)), >= 1.
@@ -421,6 +426,7 @@ struct EpochInfo {
     double interference_max = 0;
     double interference_mean = 0;
     int effective_batch_width = kParallelBatchSize;
+    int same_net_filled = 0;  // C-G1: batch slots from the same-net fill pass
     // Issue #14: maturity phase + effective budget snapshot for this epoch.
     // phase is one of OPEN_BOARD/MID_ROUTE/DENSE_ROUTE/CLOSURE; maturity and
     // budget are the to_json() objects of BoardMaturityState /

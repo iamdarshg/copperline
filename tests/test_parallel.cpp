@@ -881,4 +881,52 @@ CT_TEST(interference_memory_bounds_and_thread_default) {
     CT_CHECK(sel.relax_steps >= 1);
 }
 
+// C-G1: a power net with many star tasks used to get one batch slot per epoch
+// even when the backlog had fewer nets than slots, so most of it was never
+// searched inside the epoch budget. The same-net fill admits further
+// non-interfering same-net tasks only in that case; with more nets than
+// slots, or with the fill disabled, the schedule is the legacy one.
+CT_TEST(same_net_fill_only_when_nets_fewer_than_slots_cg1) {
+    auto box = [](double x) {
+        Corridor c{{mm_to_nm(x), 0, mm_to_nm(x + 1), mm_to_nm(1)}, mm_to_nm(0.2),
+                   mm_to_nm(0.2)};
+        c.electrical_weight = 1.0;
+        return c;
+    };
+    // Net 7 has four tasks with disjoint corridors (x = 0, 10, 20, 30);
+    // task 4 (net 7) overlaps task 0 and must never join it.
+    std::vector<ConnectionTask> tasks;
+    std::vector<Corridor> corr;
+    for (int i = 0; i < 4; ++i) {
+        tasks.push_back(ConnectionTask{7, 2 * i, 2 * i + 1, i, 5.0});
+        corr.push_back(box(10.0 * i));
+    }
+    tasks.push_back(ConnectionTask{7, 8, 9, 4, 5.0});
+    corr.push_back(box(0.0));
+    BatchSchedOptions opt;
+    opt.batch_width = 8;
+    opt.memory_budget_bytes = 0;
+    BatchSelection on = select_interference_batch({0, 1, 2, 3, 4}, tasks, corr, opt);
+    CT_CHECK(on.selected.size() == 4);  // 0,1,2,3; 4 interferes with 0
+    CT_CHECK(on.same_net_filled == 3);
+    for (int s : on.selected) CT_CHECK(s != 4);
+    opt.same_net_fill = false;
+    BatchSelection off = select_interference_batch({0, 1, 2, 3, 4}, tasks, corr, opt);
+    CT_CHECK(off.selected.size() == 1);  // legacy: one task per net
+    CT_CHECK(off.same_net_filled == 0);
+    // More distinct nets than slots: legacy schedule, no fill.
+    opt.same_net_fill = true;
+    opt.batch_width = 2;
+    std::vector<ConnectionTask> t2 = tasks;
+    std::vector<Corridor> c2 = corr;
+    t2.push_back(ConnectionTask{8, 20, 21, 5, 1.0});
+    c2.push_back(box(50.0));
+    t2.push_back(ConnectionTask{9, 22, 23, 6, 1.0});
+    c2.push_back(box(60.0));
+    BatchSelection many = select_interference_batch({0, 1, 2, 3, 4, 5, 6}, t2, c2, opt);
+    CT_CHECK(many.same_net_filled == 0);
+    CT_CHECK(many.selected.size() == 2);
+    CT_CHECK(many.selected[0] == 0 && many.selected[1] == 5);
+}
+
 int main() { return copperline::test::run_all_tests(); }

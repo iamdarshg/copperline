@@ -261,6 +261,9 @@ struct EngineOptions {
     double batch_interference_threshold = kDefaultInterferenceThreshold;
     double batch_relax_factor = kInterferenceRelaxFactor;
     int batch_max_relax_steps = kBatchMaxRelaxSteps;
+    // C-G1: fill short batches with non-interfering same-net tasks
+    // (--no-same-net-fill restores strict one-task-per-net).
+    bool batch_same_net_fill = true;
     // Router memory bound (default 2048MB dev cap). Batch width is
     // min(kParallelBatchSize, floor(budget/per_task)); interference stays
     // sparse/streamed (no dense N^2 doubles).

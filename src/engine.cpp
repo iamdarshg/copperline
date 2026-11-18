@@ -1238,6 +1238,7 @@ RouteReport RouterEngine::run() {
         bsched.interference_threshold = options_.batch_interference_threshold;
         bsched.relax_factor = options_.batch_relax_factor;
         bsched.max_relax_steps = options_.batch_max_relax_steps;
+        bsched.same_net_fill = options_.batch_same_net_fill;
         bsched.memory_budget_bytes = options_.memory_budget_bytes;
         bsched.per_task_bytes = options_.per_task_bytes;
         BatchSelection bsel =
@@ -1603,6 +1604,7 @@ RouteReport RouterEngine::run() {
         info.interference_max = bsel.max_interference;
         info.interference_mean = bsel.mean_interference;
         info.effective_batch_width = bsel.effective_width;
+        info.same_net_filled = bsel.same_net_filled;
         // Issue #14: phase + maturity metrics + effective hyperparams.
         info.maturity_phase = maturity_phase_name(maturity_state.phase);
         info.maturity = maturity_state.to_json();
