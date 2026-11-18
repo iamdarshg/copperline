@@ -13,7 +13,10 @@
 //   no_grid_staircase         - open diagonal: committed copper is one exact
 //                               diagonal segment (#17 simplifier
 //                               authoritative; no grid steps leak in).
+#include <atomic>
 #include <chrono>
+#include <thread>
+#include <vector>
 #include <cstdio>
 
 #include "helpers.h"
@@ -316,3 +319,84 @@ CT_TEST(no_grid_staircase) {
 }
 
 int main() { return copperline::test::run_all_tests(); }
+
+// Regression (2026-11-12 audit): HierarchyCache::snapshot_for returned a
+// reference to the shared cached_ snapshot and released its mutex on return.
+// multiply_beam_search workers route *different* branch boards through one
+// shared cache, so a second worker could overwrite cached_ while the first
+// was still iterating it. The first worker then read another board's
+// obstacles and asked its own RuleResolver about a net that board does not
+// have: "requiredClearance: unknown net" thrown on a worker thread, std::terminate,
+// router exit 134. Measured: 1 abort in 7 identical 4-thread runs of the
+// corpus board OpenJBOD-RP2040 (seed 42). Board A below has 2 nets; board B
+// has 10 nets with copper, so reading B's snapshot while routing A throws.
+CT_TEST(shared_cache_is_safe_across_boards_and_threads) {
+    auto make_board = [](int nets) {
+        Board b = base_2layer(40.0, 20.0);
+        for (int i = 0; i < nets; ++i) {
+            b.nets.push_back(make_net(i, "N" + std::to_string(i)));
+            add_terminal(b, i, 2.0, 1.0 + 1.8 * i);
+            add_terminal(b, i, 38.0, 1.0 + 1.8 * i);
+        }
+        for (int i = 2; i < nets; ++i) {
+            TraceSeg t;
+            t.net = i;
+            t.layer = 0;
+            t.a = {mm_to_nm(10.0), mm_to_nm(1.0 + 1.8 * i)};
+            t.b = {mm_to_nm(30.0), mm_to_nm(1.0 + 1.8 * i)};
+            t.width_nm = mm_to_nm(0.2);
+            b.traces.push_back(t);
+        }
+        return b;
+    };
+    Board boards[2] = {make_board(2), make_board(10)};
+    RuleResolver resolvers[2] = {RuleResolver::defaults_for(boards[0]),
+                                 RuleResolver::defaults_for(boards[1])};
+    ElectricalContext ctx;
+    auto request_for = [&](int k) {
+        const Board& b = boards[k];
+        const Terminal* ta = b.find_terminal(b.nets[0].terminals[0]);
+        const Terminal* tb = b.find_terminal(b.nets[0].terminals[1]);
+        HierarchyRequest req;
+        req.net = 0;
+        req.src = ta->pos;
+        req.src_layer = ta->layer;
+        req.dsts.push_back({tb->pos, tb->layer});
+        req.width_nm = resolvers[k].requiredTraceWidth(0, 0, ctx);
+        std::string cs;
+        req.clearance_nm = resolvers[k].requiredClearance(0, 0, 0, ctx, &cs);
+        req.layer_mult = {1.0, 1.0};
+        req.astar_cfg = AStarConfig{};
+        return req;
+    };
+    HierarchyConfig cfg;
+    cfg.level_pitch_nm = {800000, 400000};
+    std::size_t ref_paths[2];
+    for (int k = 0; k < 2; ++k) {
+        HierarchyCache solo;
+        GuidanceResult g = solo.build_guidance(boards[k], resolvers[k], ctx, request_for(k), cfg);
+        ref_paths[k] = g.level_paths.empty() ? 0 : g.level_paths.back().size();
+    }
+    HierarchyCache shared;
+    std::atomic<int> failures{0}, throws{0};
+    std::vector<std::thread> workers;
+    for (int w = 0; w < 4; ++w) {
+        workers.emplace_back([&, w] {
+            for (int it = 0; it < 150; ++it) {
+                int k = (w + it) % 2;
+                try {
+                    GuidanceResult g =
+                        shared.build_guidance(boards[k], resolvers[k], ctx, request_for(k), cfg);
+                    std::size_t n = g.level_paths.empty() ? 0 : g.level_paths.back().size();
+                    if (n != ref_paths[k]) failures.fetch_add(1);
+                } catch (...) {
+                    throws.fetch_add(1);
+                }
+            }
+        });
+    }
+    for (auto& t : workers) t.join();
+    std::printf("  [hier] shared-cache stress: throws=%d mismatches=%d\n", throws.load(), failures.load());
+    CT_CHECK(throws.load() == 0);
+    CT_CHECK(failures.load() == 0);
+}

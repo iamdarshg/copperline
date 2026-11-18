@@ -462,6 +462,44 @@ BatchSelection select_interference_batch(const std::vector<int>& ordered_global_
         }
         out.threshold_used = threshold;
     }
+    // C-G1 same-net fill. The one-task-per-net rule above exists so that
+    // same-net tasks see each other's copper (route-tree growth). On
+    // multi-terminal power nets (27 GND tasks on rp2040_game_con) it caps the
+    // net at one attempt per epoch, so under a 12-epoch work budget most of
+    // the net is never searched ("unattempted", expansions=0) while workers
+    // sit idle. When the distinct-net passes leave the batch short, fill the
+    // free slots with further tasks of already-picked nets, in scheduler
+    // order, whose corridor does not interfere with any selected task (same
+    // threshold as the first pass). Non-interfering same-net corridors cannot
+    // share copper, so the reason for the rule does not apply to them.
+    // Selection stays a pure function of order + corridors (deterministic at
+    // any --threads); legality is still decided by the arbiter and the
+    // verifier-backed epoch gate, unchanged.
+    // Only when the backlog itself has fewer distinct nets than the batch
+    // width: then the one-per-net cap, not interference, is what idles the
+    // workers. While nets outnumber slots the legacy schedule is unchanged
+    // (routing a power net's star early can wall in signal escapes).
+    std::size_t backlog_nets = 0;
+    if (opts.same_net_fill && (int)out.selected.size() < out.effective_width) {
+        std::set<NetId> nets;
+        for (int gi : ordered_global_idx)
+            if (gi >= 0 && gi < (int)tasks.size()) nets.insert(tasks[gi].net);
+        backlog_nets = nets.size();
+    }
+    if (opts.same_net_fill && backlog_nets > 0 &&
+        backlog_nets < static_cast<std::size_t>(out.effective_width) &&
+        (int)out.selected.size() < out.effective_width) {
+        for (int gi : ordered_global_idx) {
+            if ((int)out.selected.size() >= out.effective_width) break;
+            if (gi < 0 || gi >= (int)tasks.size() || taken[gi]) continue;
+            if (!picked_nets.count(tasks[gi].net)) continue;  // distinct nets handled above
+            if (max_vs_selected(gi) < opts.interference_threshold) {
+                out.selected.push_back(gi);
+                taken[gi] = 1;
+                out.same_net_filled++;
+            }
+        }
+    }
     // Bounded pairwise diagnostics among selected only (<= width^2).
     for (std::size_t i = 0; i < out.selected.size(); ++i) {
         for (std::size_t j = i + 1; j < out.selected.size(); ++j) {
@@ -1765,6 +1803,7 @@ JsonValue EpochInfo::to_json() const {
     o["interference_max"] = interference_max;
     o["interference_mean"] = interference_mean;
     o["effective_batch_width"] = static_cast<double>(effective_batch_width);
+    o["same_net_filled"] = static_cast<double>(same_net_filled);
     // Issue #14: maturity phase + effective budget snapshot for this epoch.
     o["maturity_phase"] = maturity_phase;
     o["maturity"] = maturity;

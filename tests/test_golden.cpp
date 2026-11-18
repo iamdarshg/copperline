@@ -620,6 +620,70 @@ CT_TEST(optimizer_spread_equalizes_gaps) {
     CT_CHECK(v.verify(b, r, ctx).ok);
 }
 
+// Issue #38: a hug/spread window whose candidates are all rejected must not
+// end the pass. 40 spread candidates are blocked by a wire keepout at their
+// target offset; only the 41st (last in trace order) is legal. Its index is
+// far past any single window (opt_workers <= 8) and past what 8 windows reach
+// when the scan cursor advances by candidate count instead of by trace index.
+CT_TEST(optimizer_spread_skips_rejected_prefix_issue38) {
+    test::term_id_counter() = 0;
+    constexpr int kBlocked = 40;
+    constexpr int kTriples = kBlocked + 1;
+    Board b = test::base_2layer(5.0 * kTriples + 5.0, 20.0);
+    const Coord w = mm_to_nm(0.2);
+    for (int t = 0; t < kTriples; ++t) {
+        const double x0 = 2.0 + 5.0 * t, x1 = x0 + 4.0;
+        const double ys[3] = {5.0, 5.5, 7.0};
+        for (int k = 0; k < 3; ++k) {
+            const NetId n = 3 * t + k;
+            b.nets.push_back(test::make_net(n, "N" + std::to_string(n)));
+            test::add_terminal(b, n, x0, ys[k], 0, 0.2);
+            test::add_terminal(b, n, x1, ys[k], 0, 0.2);
+            b.traces.push_back({n, 0, {mm_to_nm(x0), mm_to_nm(ys[k])},
+                                {mm_to_nm(x1), mm_to_nm(ys[k])}, w});
+        }
+        if (t < kBlocked) {
+            // Wire wall across the middle run's spread target (y = 6.0).
+            Keepout ko;
+            ko.rect = Rect::from_points({mm_to_nm(x0 - 0.5), mm_to_nm(5.85)},
+                                        {mm_to_nm(x1 + 0.5), mm_to_nm(6.15)});
+            ko.kind = KeepoutKind::kWire;
+            ko.reason = "issue38-block";
+            b.keepouts.push_back(ko);
+        }
+    }
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    BoardVerifier v;
+    CT_CHECK(v.verify(b, r, ctx).ok);
+
+    OptimizerOptions opt;
+    opt.collinear_merge = false;
+    opt.bend_removal = false;
+    opt.via_elimination = false;
+    opt.preferred_layer = false;
+    opt.spread = true;
+    CleanupOptimizer oz(&b, &r, ctx, opt);
+    OptimizerReport rep = oz.run();
+    CT_CHECK(rep.spread_ran);
+    CT_CHECK(rep.applied == 1);
+    // The legal (last) middle run moved off 5.5; every blocked one stayed.
+    const NetId legal = 3 * kBlocked + 1;
+    bool legal_moved = false;
+    int blocked_moved = 0;
+    for (const auto& s : b.traces) {
+        if (s.a.y != s.b.y || s.net % 3 != 1) continue;
+        if (manhattan(s.a, s.b) < mm_to_nm(1.0)) continue;
+        if (s.a.y != mm_to_nm(5.5)) {
+            if (s.net == legal) legal_moved = true;
+            else ++blocked_moved;
+        }
+    }
+    CT_CHECK(legal_moved);
+    CT_CHECK(blocked_moved == 0);
+    CT_CHECK(v.verify(b, r, ctx).ok);
+}
+
 // DSN import preserves net names/pads/layers/classes/widths; SES export
 // round-trips copper back through verify.
 CT_TEST(adapter_dsn_ses_roundtrip) {

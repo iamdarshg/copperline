@@ -119,7 +119,9 @@ def main():
         if not legal:
             meta.append(dict(path=path, reason="input_illegal",
                              signature=sig, violations=viol))
-            seen_sig[sig] = path
+            # Issue #43: an illegal board must never shadow a later legal
+            # board with the same coarse signature. Record the signature only
+            # for legal boards so a legal revision still gets kept.
             continue
         seen_sig[sig] = path
         # Collapse revisions that differ only in net count: keep one board per

@@ -41,16 +41,27 @@ def main():
     args = ap.parse_args()
     os.makedirs(WORK, exist_ok=True)
 
+    # Issue #46: a board whose checks were not run (missing input, import
+    # failure, route failure, EM/thermal timeout) must fail the run, not exit
+    # 0 with the checks silently counted as zero violations.
+    failures = []
+
+    def fail(msg):
+        failures.append(msg)
+        print(f"  FAIL {msg}")
+
     for idx, board in enumerate(args.boards):
         paths = board if os.path.exists(board) else (glob.glob(board) or [None])[0]
         if not paths:
             print(f"{board}: not found")
+            fail(f"{board}: not found")
             continue
         print(f"\n=== {os.path.basename(paths)}")
         raw = os.path.join(WORK, f"r{idx}_raw.json")
         p, to = run([ROUTER, "import", paths, "--output", raw, "--json"], 600)
         if to or not os.path.exists(raw):
             print("  import failed")
+            fail(f"{board}: import failed")
             continue
         b = json.load(open(raw))
         defaults = b.get("defaults") or {}
@@ -83,9 +94,13 @@ def main():
                       "--report", rep], args.timeout + 90)
         if to or not os.path.exists(rep):
             print("  route: no report (timeout)")
+            fail(f"{board}: route produced no report (timeout)")
             continue
         d = json.load(open(rep))
         v = d.get("verification") or {}
+        if not v.get("legal"):
+            fail(f"{board}: routed output illegal "
+                 f"({len(v.get('violations', []))} violations)")
         names = {n["id"]: n["name"] for n in b["nets"]}
         widths = {}
         if os.path.exists(routed):
@@ -121,23 +136,61 @@ def main():
             for x in bad[:3]:
                 print(f"    UNMATERIALIZED {x.get('name')}: {x.get('status')}")
 
+        if thin:
+            fail(f"{board}: {len(thin)} traces below required width")
+        if not widths:
+            fail(f"{board}: no routed traces to check width compliance")
+
+        pairs = d.get("diffpairs") or []
+        if pairs:
+            bad = [x for x in pairs if x.get("status") != "MATERIALIZED"]
+            worst = max((abs(x.get("worst_gap_err_mm") or 0) for x in pairs),
+                        default=0.0)
+            print(f"  diff pairs: {len(pairs)} declared, "
+                  f"{len(pairs) - len(bad)} materialized, "
+                  f"worst gap error {worst:.4f}mm")
+            for x in bad[:3]:
+                print(f"    UNMATERIALIZED {x.get('name')}: {x.get('status')}")
+            if bad:
+                fail(f"{board}: {len(bad)} diff pairs not materialized")
+
         if not args.no_em and os.path.exists(routed):
             prf, to = run(["python", os.path.join(ROOT, "em", "validate_rf.py"),
                            routed, "--json"], 900)
-            if not to and prf and prf.stdout.strip().startswith("{"):
+            if to or not (prf and prf.stdout.strip().startswith("{")):
+                print("  RF: check did not run")
+                fail(f"{board}: RF validation did not run (timeout or error)")
+            else:
                 rf = json.loads(prf.stdout)
                 print(f"  RF: {rf.get('nets_pass')}/{rf.get('nets_checked')} "
                       f"nets pass (quasi-static)")
+                if rf.get("nets_pass") != rf.get("nets_checked"):
+                    fail(f"{board}: {rf.get('nets_checked', 0) - rf.get('nets_pass', 0)} "
+                         f"RF nets failed")
             pth, to = run(["python", os.path.join(ROOT, "em", "validate_thermal.py"),
                            routed, "--json"], 900)
-            if not to and pth and pth.stdout.strip().startswith("{"):
+            if to or not (pth and pth.stdout.strip().startswith("{")):
+                print("  thermal: check did not run")
+                fail(f"{board}: thermal validation did not run (timeout or error)")
+            else:
                 th = json.loads(pth.stdout)
                 worst = 0.0
                 for n in th.get("nets", []):
                     worst = max(worst, n.get("junction_c") or 0.0)
                 print(f"  thermal: {th.get('nets_pass')}/{th.get('nets_checked')} "
                       f"nets pass, worst junction {worst:.1f}C")
+                if th.get("nets_pass") != th.get("nets_checked"):
+                    fail(f"{board}: {th.get('nets_checked', 0) - th.get('nets_pass', 0)} "
+                         f"thermal nets failed")
+        elif not args.no_em:
+            print("  RF/thermal: routed output missing; checks did not run")
+            fail(f"{board}: routed output missing; EM checks did not run")
+
+    print(f"\n{'PASS' if not failures else 'FAIL'}: {len(failures)} failures")
+    for f in failures:
+        print(f"  - {f}")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

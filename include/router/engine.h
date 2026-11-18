@@ -152,6 +152,9 @@ struct EscapeStageInfo {
     // Per-terminal infeasibility reasons for unresolved pads, parallel to
     // unresolved_terminals.
     std::vector<std::string> unresolved_reasons;
+    // True when the route's bounded escape preprocessing share expired and
+    // global routing continued with the partial, legality-gated stubs.
+    bool timed_out = false;
     JsonValue to_json() const;
 };
 
@@ -258,6 +261,9 @@ struct EngineOptions {
     double batch_interference_threshold = kDefaultInterferenceThreshold;
     double batch_relax_factor = kInterferenceRelaxFactor;
     int batch_max_relax_steps = kBatchMaxRelaxSteps;
+    // C-G1: fill short batches with non-interfering same-net tasks
+    // (--no-same-net-fill restores strict one-task-per-net).
+    bool batch_same_net_fill = true;
     // Router memory bound (default 2048MB dev cap). Batch width is
     // min(kParallelBatchSize, floor(budget/per_task)); interference stays
     // sparse/streamed (no dense N^2 doubles).

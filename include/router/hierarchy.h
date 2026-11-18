@@ -24,6 +24,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -130,11 +131,14 @@ class HierarchyCache {
         Rect bounds{};
         std::vector<RawObs> obstacles;
     };
+    // The cache hands out shared ownership: a caller keeps its snapshot alive
+    // and unchanged even if another worker (routing a different branch board)
+    // replaces the cached entry meanwhile. Returning a reference to a single
+    // mutable member raced exactly that way (2026-11-12 audit).
     mutable std::mutex mutex_;
-    mutable Snapshot cached_;
-    mutable std::string cached_key_;
+    mutable std::shared_ptr<const Snapshot> cached_;
 
-    const Snapshot& snapshot_for(const Board& board) const;
+    std::shared_ptr<const Snapshot> snapshot_for(const Board& board) const;
 };
 
 }  // namespace copperline

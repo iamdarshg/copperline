@@ -62,8 +62,16 @@ def safe_name(name):
 def cache_key(board_path, budget, router):
     h = hashlib.sha256(open(board_path, "rb").read()).hexdigest()
     st = os.stat(router)
+    # Issue #48: a size+mtime pair can collide across different router
+    # binaries (rebuilt at the same second, identical size). Hash the binary
+    # itself so a stale report can never be reused by a different router.
+    try:
+        with open(router, "rb") as fh:
+            rh = hashlib.sha256(fh.read()).hexdigest()[:16]
+    except OSError:
+        rh = "?"
     return (f"{h}:{budget['max_epochs']}:{budget['max_search_nodes']}:"
-            f"{SEED}:{st.st_size}:{int(st.st_mtime)}")
+            f"{SEED}:{st.st_size}:{int(st.st_mtime)}:{rh}")
 
 
 def cache_load(cache_dir, name, key):
@@ -204,6 +212,8 @@ def main():
                     help="write each board's report JSON here (debugging)")
     ap.add_argument("--cache", metavar="DIR",
                     help="reuse reports when board+budget+router are unchanged")
+    ap.add_argument("--manifest", metavar="PATH", default=MANIFEST,
+                    help="campaign manifest (default tests/corpus_manifest.json)")
     args = ap.parse_args()
 
     router = find_router(args.router)
@@ -211,7 +221,8 @@ def main():
         print(f"router not found: {router}", file=sys.stderr)
         return 2
 
-    manifest = json.load(open(MANIFEST))
+    manifest_path = os.path.abspath(args.manifest)
+    manifest = json.load(open(manifest_path))
     budget = manifest["budget"]
     only = set(args.only or [])
     legal_failures = []
@@ -228,7 +239,13 @@ def main():
             continue
         board = os.path.join(ROOT, entry["input"])
         if not os.path.exists(board):
-            print(f"SKIP {name}: missing input {entry['input']}")
+            # Issue #47: a missing required board must fail the campaign, not
+            # silently shrink the denominator into a pass.
+            msg = f"{name}: missing required input {entry['input']}"
+            print(f"FAIL {msg}")
+            legal_failures.append(msg)
+            complete_failures.append(msg)
+            rows.append((name, "MISSING-INPUT", "-", "-", "-", msg))
             continue
 
         key = cache_key(board, budget, router)
@@ -292,9 +309,9 @@ def main():
         for entry in manifest["boards"]:
             if entry["name"] in updates:
                 entry.update(updates[entry["name"]])
-        json.dump(manifest, open(MANIFEST, "w"), indent=1)
+        json.dump(manifest, open(manifest_path, "w"), indent=1)
         print(f"\nrecorded {len(updates)} boards into "
-              f"{os.path.relpath(MANIFEST, ROOT)}")
+              f"{os.path.relpath(manifest_path, ROOT)}")
         print("note: --record only refreshes the progress ratchet; the COMPLETE "
               "gate is unchanged")
 

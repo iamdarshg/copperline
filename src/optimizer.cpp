@@ -754,14 +754,23 @@ OptimizerReport CleanupOptimizer::run() {
         rep.spread_ran = opt_.spread;
         const Coord max_shift = mm_to_nm(0.5);   // bound per segment
         const Coord min_shift = mm_to_nm(0.01);  // ignore noise
-        bool changed = true;
-        int guard = 0;
-        while (changed && guard++ < 8 &&
+        // Issue #38: windowed trace-order scan with a cursor. A window whose
+        // candidates are all rejected advances the cursor past the trace
+        // indices it scanned (not by its candidate count), so later legal
+        // runs are still reached; only an accepted move (which changes the
+        // geometry) restarts the scan at 0. At most 8 moves are accepted,
+        // the same bound the old window guard gave, so boards that never
+        // hit a fully rejected window behave exactly as before. Coverage no
+        // longer depends on opt_workers; max_candidates bounds the work.
+        int accepted_moves = 0;
+        std::size_t scan = 0;
+        while (accepted_moves < 8 &&
                rep.candidates < static_cast<int>(opt_.max_candidates)) {
-            changed = false;
             const std::size_t ntr = board_->traces.size();
+            if (scan >= ntr) break;
             std::vector<OptBatchCandidate> window;
-            for (std::size_t i = 0; i < ntr && (int)window.size() < opt_workers; ++i) {
+            std::size_t i = scan;
+            for (; i < ntr && (int)window.size() < opt_workers; ++i) {
                 const TraceSeg s = board_->traces[i];
                 if (is_protected(s.net)) continue;
                 const bool horiz = (s.a.y == s.b.y);
@@ -867,10 +876,19 @@ OptimizerReport CleanupOptimizer::run() {
                 };
                 window.push_back(std::move(c));
             }
+            const std::size_t scan_end = i;  // first index not yet scanned
             if (window.empty()) break;
             std::vector<char> keep;
             eval_window(window, keep);
-            if (commit_until_accept(window, keep) >= 0) changed = true;
+            const int hit = commit_until_accept(window, keep);
+            if (hit >= 0) {
+                ++accepted_moves;
+                scan = 0;  // copper moved: re-enumerate from fresh state
+            } else if (hit == -1) {
+                scan = scan_end;  // all rejected: continue past the window
+            } else {
+                break;  // candidate-cap exhaustion: report counts as-is
+            }
         }
     }
 

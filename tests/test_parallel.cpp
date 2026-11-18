@@ -5,9 +5,11 @@
 #include <thread>
 
 #include "helpers.h"
+#include "router/board_stats.h"
 #include "router/density.h"
 #include "router/engine.h"
 #include "router/parallel.h"
+#include "router/simplify.h"
 #include "router/verifier.h"
 
 using namespace copperline;
@@ -507,6 +509,107 @@ CT_TEST(arbiter_rejects_illegal_overlap) {
     CT_CHECK(arb.rejected.size() == 1);
 }
 
+// Issue #42 (owner follow-up): the engine's per-epoch commit gate re-probes
+// a candidate with BoardVerifier only when its box meets another accepted
+// candidate's box (engine.cpp, `ambiguous`). A sole candidate is therefore
+// guarded by arbitrate() alone. Pin that arbitrate() rejects a sole candidate
+// against pre-existing foreign copper (crossing trace; via just inside
+// clearance), and that the independent verifier agrees on the same copper.
+CT_TEST(arbiter_sole_candidate_vs_existing_copper_issue42) {
+    Board b = base_2layer();
+    NetInfo n0 = make_net(0, "N0");
+    n0.has_current = true;
+    n0.current_a = 0.1;
+    b.nets.push_back(n0);
+    b.nets.push_back(make_net(1, "N1"));  // foreign net, copper added below
+    TermId a = add_terminal(b, 0, 2.0, 10.0);
+    TermId c = add_terminal(b, 0, 18.0, 10.0);
+    RuleResolver r = RuleResolver::defaults_for(b);
+    ElectricalContext ctx;
+    std::vector<double> lm = {1.0, 1.0};
+    CongestionMap cg;
+    cg.init(b);
+    ConnectionTask task{0, a, c, 0, 1.0};
+    Corridor corr = probable_corridor(b, r, task, ctx);
+    ReservationSet rs;
+    rs.build({task}, {corr}, {1.0});
+    CandidateRoute cand =
+        route_candidate_task(b, r, task, 0, 1.0, ctx, lm, AStarConfig{}, cg, rs);
+    CT_CHECK(cand.found);
+    CT_CHECK(!cand.traces.empty());
+    std::string why;
+    CT_CHECK(candidate_legal_vs_board(cand, b, r, ctx, why));
+
+    auto expect_rejected_and_verifier_agrees = [&](const Board& committed) {
+        BoardVerifier v;
+        CT_CHECK(v.verify(committed, r, ctx).legal);  // pre-existing copper legal
+        ArbiterResult arb = arbitrate({cand}, committed, r, ctx);
+        CT_CHECK(arb.accepted.empty());
+        CT_CHECK(arb.rejected.size() == 1);
+        Board after = committed;
+        Rect area{};
+        bool first = true;
+        for (const auto& s : cand.traces) {
+            after.traces.push_back(s);
+            const Rect sb = s.segment().bounds().expanded(s.width_nm / 2);
+            area = first ? sb : rect_union(area, sb);
+            first = false;
+        }
+        for (const auto& vv : cand.vias) {
+            after.vias.push_back(vv);
+            const Rect vb = Rect::from_center_size(vv.pos, vv.outer_d_nm, vv.outer_d_nm);
+            area = first ? vb : rect_union(area, vb);
+            first = false;
+        }
+        CT_CHECK(v.has_local_violation(after, r, ctx, 0, area));
+        CT_CHECK(!v.verify(after, r, ctx).legal);
+    };
+
+    // Case 1: foreign trace crossing the whole route corridor on both layers.
+    {
+        Board committed = b;
+        for (LayerId l : {LayerId{0}, LayerId{1}}) {
+            TraceSeg t;
+            t.net = 1;
+            t.layer = l;
+            t.a = {mm_to_nm(10.0), mm_to_nm(1.0)};
+            t.b = {mm_to_nm(10.0), mm_to_nm(19.0)};
+            t.width_nm = mm_to_nm(0.2);
+            committed.traces.push_back(t);
+        }
+        expect_rejected_and_verifier_agrees(committed);
+    }
+    // Case 2: no overlap, only a clearance shortfall. A through via beside
+    // the midpoint of the candidate's longest segment, edge gap = half the
+    // required clearance.
+    {
+        const TraceSeg* longest = &cand.traces.front();
+        for (const auto& s : cand.traces)
+            if (euclid_len_nm(s.a, s.b) > euclid_len_nm(longest->a, longest->b))
+                longest = &s;
+        const double ax = (double)longest->a.x, ay = (double)longest->a.y;
+        const double bx = (double)longest->b.x, by = (double)longest->b.y;
+        const double len = std::hypot(bx - ax, by - ay);
+        CT_CHECK(len > (double)mm_to_nm(2.0));
+        std::string src;
+        const Coord need = r.requiredClearance(0, 1, longest->layer, ctx, &src);
+        CT_CHECK(need > 0);
+        Via via;
+        via.net = 1;
+        via.top_layer = 0;
+        via.bottom_layer = 1;
+        via.outer_d_nm = mm_to_nm(0.6);
+        via.hole_d_nm = mm_to_nm(0.3);
+        const double off = longest->width_nm / 2.0 + via.outer_d_nm / 2.0 + need / 2.0;
+        const double nx = -(by - ay) / len, ny = (bx - ax) / len;
+        via.pos = {(Coord)std::llround((ax + bx) / 2.0 + nx * off),
+                   (Coord)std::llround((ay + by) / 2.0 + ny * off)};
+        Board committed = b;
+        committed.vias.push_back(via);
+        expect_rejected_and_verifier_agrees(committed);
+    }
+}
+
 CT_TEST(conflict_same_net_never_conflicts) {
     Board b = open_nets(1);
     RuleResolver r = RuleResolver::defaults_for(b);
@@ -776,6 +879,54 @@ CT_TEST(interference_memory_bounds_and_thread_default) {
         select_interference_batch({0, 1, 2}, {t0, t1, t2}, {c, c, c}, opt);
     CT_CHECK(sel.selected.size() == 3);  // relaxed to full width
     CT_CHECK(sel.relax_steps >= 1);
+}
+
+// C-G1: a power net with many star tasks used to get one batch slot per epoch
+// even when the backlog had fewer nets than slots, so most of it was never
+// searched inside the epoch budget. The same-net fill admits further
+// non-interfering same-net tasks only in that case; with more nets than
+// slots, or with the fill disabled, the schedule is the legacy one.
+CT_TEST(same_net_fill_only_when_nets_fewer_than_slots_cg1) {
+    auto box = [](double x) {
+        Corridor c{{mm_to_nm(x), 0, mm_to_nm(x + 1), mm_to_nm(1)}, mm_to_nm(0.2),
+                   mm_to_nm(0.2)};
+        c.electrical_weight = 1.0;
+        return c;
+    };
+    // Net 7 has four tasks with disjoint corridors (x = 0, 10, 20, 30);
+    // task 4 (net 7) overlaps task 0 and must never join it.
+    std::vector<ConnectionTask> tasks;
+    std::vector<Corridor> corr;
+    for (int i = 0; i < 4; ++i) {
+        tasks.push_back(ConnectionTask{7, 2 * i, 2 * i + 1, i, 5.0});
+        corr.push_back(box(10.0 * i));
+    }
+    tasks.push_back(ConnectionTask{7, 8, 9, 4, 5.0});
+    corr.push_back(box(0.0));
+    BatchSchedOptions opt;
+    opt.batch_width = 8;
+    opt.memory_budget_bytes = 0;
+    BatchSelection on = select_interference_batch({0, 1, 2, 3, 4}, tasks, corr, opt);
+    CT_CHECK(on.selected.size() == 4);  // 0,1,2,3; 4 interferes with 0
+    CT_CHECK(on.same_net_filled == 3);
+    for (int s : on.selected) CT_CHECK(s != 4);
+    opt.same_net_fill = false;
+    BatchSelection off = select_interference_batch({0, 1, 2, 3, 4}, tasks, corr, opt);
+    CT_CHECK(off.selected.size() == 1);  // legacy: one task per net
+    CT_CHECK(off.same_net_filled == 0);
+    // More distinct nets than slots: legacy schedule, no fill.
+    opt.same_net_fill = true;
+    opt.batch_width = 2;
+    std::vector<ConnectionTask> t2 = tasks;
+    std::vector<Corridor> c2 = corr;
+    t2.push_back(ConnectionTask{8, 20, 21, 5, 1.0});
+    c2.push_back(box(50.0));
+    t2.push_back(ConnectionTask{9, 22, 23, 6, 1.0});
+    c2.push_back(box(60.0));
+    BatchSelection many = select_interference_batch({0, 1, 2, 3, 4, 5, 6}, t2, c2, opt);
+    CT_CHECK(many.same_net_filled == 0);
+    CT_CHECK(many.selected.size() == 2);
+    CT_CHECK(many.selected[0] == 0 && many.selected[1] == 5);
 }
 
 int main() { return copperline::test::run_all_tests(); }

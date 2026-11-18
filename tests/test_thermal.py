@@ -95,6 +95,60 @@ def main() -> int:
           f"got {cmp['relief_current_derating']}")
     check("verdict string", cmp["verified"] == "relief_worse")
 
+    print("== Joule DC resistance on variable-width nets (issue #45) ==")
+    # Series DC resistance is the sum of rho*L/(w*t) per segment. The old
+    # model used total length with the widest segment's width (floored at
+    # 0.2 mm), erasing narrow neckdowns and under-reporting I^2R.
+    cfg = vt.default_config()
+    t_cu = vt.rf.copper_thickness_mm(cfg["em"].get("copper_weight_oz", 1.0))
+    rho = th.copper_resistivity(20.0)
+
+    def seg(x1, x2, w):
+        return {"x1_mm": x1, "y1_mm": 0.0, "x2_mm": x2, "y2_mm": 0.0,
+                "width_mm": w}
+
+    def r_expect(parts):  # [(length_mm, width_mm)]
+        return sum(rho * (l * 1e-3) / (w * t_cu * 1e-6) for l, w in parts)
+
+    def rel_err(got, want):
+        return abs(got - want) / want
+
+    net2 = {"name": "NECK", "current_a": 2.0}
+    mixed = vt.net_joule_w(net2, [seg(0, 1, 1.0), seg(1, 10, 0.2)], cfg)
+    want = r_expect([(1, 1.0), (9, 0.2)])
+    check("mixed width: R = sum of segment R", rel_err(mixed["r_ohm"], want)
+          < 1e-3, f"got {mixed['r_ohm']} want {want:.6f}")
+    check("mixed width: I^2R uses series R",
+          rel_err(mixed["joule_w"], 4.0 * want) < 1e-2,
+          f"got {mixed['joule_w']} want {4.0 * want:.4f}")
+    wide = vt.net_joule_w(net2, [seg(0, 10, 1.0)], cfg)
+    check("neckdown is 4.6x a uniform 1.0 mm trace",
+          abs(mixed["r_ohm"] / wide["r_ohm"] - 4.6) < 0.01,
+          f"ratio {mixed['r_ohm'] / wide['r_ohm']:.3f}")
+    uni = vt.net_joule_w(net2, [seg(0, 4, 0.5), seg(4, 10, 0.5)], cfg)
+    check("uniform-width control unchanged",
+          rel_err(uni["r_ohm"], r_expect([(10, 0.5)])) < 1e-3,
+          f"got {uni['r_ohm']}")
+    narrow = vt.net_joule_w(net2, [seg(0, 10, 0.1)], cfg)
+    check("width below 0.2 mm is not clamped up",
+          rel_err(narrow["r_ohm"], r_expect([(10, 0.1)])) < 1e-3,
+          f"got {narrow['r_ohm']} want {r_expect([(10, 0.1)]):.6f}")
+    try:
+        vt.net_joule_w(net2, [seg(0, 1, 1.0), seg(1, 2, 0.0)], cfg)
+        check("zero width rejected", False, "no error raised")
+    except ValueError:
+        check("zero width rejected", True)
+    # Thermal gate: the same bottleneck must not pass a limit that only the
+    # widest-segment model would pass.
+    gate_cfg = vt.default_config()
+    neck_net = {"name": "NECK", "current_a": 3.0}
+    neck = [seg(0, 2, 2.0), seg(2, 22, 0.15)]
+    hot = vt.solve_net(neck_net, neck, gate_cfg)
+    as_wide = vt.solve_net(neck_net, [seg(0, 22, 2.0)], gate_cfg)
+    check("bottleneck runs hotter than its widest segment",
+          hot["junction_c"] > as_wide["junction_c"] + 5.0,
+          f"{hot['junction_c']} vs {as_wide['junction_c']}")
+
     print("== end-to-end validate_thermal.py ==")
     proc = subprocess.run(
         [sys.executable, os.path.join(EM_DIR, "validate_thermal.py"),

@@ -86,9 +86,12 @@ def load_config(path: str | None) -> dict:
 def net_joule_w(net: dict, traces: list, cfg: dict) -> dict:
     """EM-tier Joule heating per net.
 
-    P = I^2 * R, R = rho(T0) * length / (width*thickness) with skin
-    derating at frequency (rf_models).  Uses the net's current_a
-    (explicit or config default); reports defaults honestly.
+    P = I^2 * R, R = sum over segments of rho(T0) * L_i / (w_i*thickness)
+    (series DC resistance, each segment at its own width), with skin
+    derating at frequency (rf_models) kept as an RF reference.  Uses the
+    net's current_a (explicit or config default); reports defaults honestly.
+    A segment without width_mm uses the 0.2 mm default; a non-positive
+    width is invalid input and raises ValueError.
     """
     em = cfg["em"]
     freq = em.get("freq_ghz", 2.45)
@@ -97,24 +100,39 @@ def net_joule_w(net: dict, traces: list, cfg: dict) -> dict:
     delta = rf.skin_depth_mm(freq)
     current = net.get("current_a") or em.get("current_a_default", 0.0)
 
-    length = 0.0
-    width = 0.2
-    for tr in traces:
-        length += ((tr["x2_mm"] - tr["x1_mm"]) ** 2 +
-                   (tr["y2_mm"] - tr["y1_mm"]) ** 2) ** 0.5
-        width = max(width, tr.get("width_mm", 0.2))
-
-    rho = th.copper_resistivity(20.0)
-    a_dc = width * t_cu
-    a_ac = rf.ac_area_mm2(width, t_cu, delta)
-    ratio = min(1.0, a_ac / a_dc) if a_dc > 0 else 0.0
     # Joule heating carries the net's *DC* current (ampacity current), so the
     # full copper cross-section conducts it. Applying the RF skin-depth ratio
     # here inflated the resistance ~12x at 2.45 GHz and produced junction
     # temperatures like 443 C for 2 A in a 0.5 mm trace (physically ~60 C).
     # The skin ratio stays as an RF reference (r_rf_ohm), not as the DC model.
-    r_ohm = rho * (length * 1e-3) / (a_dc * 1e-6) if a_dc > 0 else 0.0
-    r_rf = r_ohm / ratio if ratio > 0 else 0.0
+    #
+    # Issue #45: resistance is accumulated per segment. Using the total
+    # length with the widest segment's width (floored at 0.2 mm) erased
+    # narrow neckdowns: 1 mm @ 1.0 mm + 9 mm @ 0.2 mm read as 10 mm @ 1.0 mm,
+    # 4.6x too little resistance and I^2R heat.
+    rho = th.copper_resistivity(20.0)
+    length = 0.0
+    width = None  # widest segment; the lumped thermal model still uses it
+    r_ohm = 0.0
+    r_rf = 0.0
+    for tr in traces:
+        seg_len = ((tr["x2_mm"] - tr["x1_mm"]) ** 2 +
+                   (tr["y2_mm"] - tr["y1_mm"]) ** 2) ** 0.5
+        w = tr.get("width_mm", 0.2)
+        if not w > 0:
+            raise ValueError(
+                f"net {net.get('name', net.get('id'))}: trace width_mm must "
+                f"be > 0, got {w!r}")
+        length += seg_len
+        width = w if width is None else max(width, w)
+        a_dc_i = w * t_cu
+        r_i = rho * (seg_len * 1e-3) / (a_dc_i * 1e-6)
+        r_ohm += r_i
+        ratio_i = min(1.0, rf.ac_area_mm2(w, t_cu, delta) / a_dc_i)
+        r_rf += r_i / ratio_i if ratio_i > 0 else 0.0
+    if width is None:
+        width = 0.2
+    ratio = r_ohm / r_rf if r_rf > 0 else 0.0
     joule = current * current * r_ohm
     return {
         "length_mm": round(length, 3),

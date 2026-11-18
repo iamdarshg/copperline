@@ -73,6 +73,7 @@ struct Flags {
     int threads = 0;  // Prompt 5: 0 = auto (hardware_concurrency, bounded)
     int route_k = 0;  // issue #8: 0 = auto (maturity route-K), else 1..15 wins
     bool no_impact = false;  // issue #9: disable obstruction scoring
+    bool no_same_net_fill = false;  // C-G1: strict one-task-per-net batches
     bool impact_mlp = false;  // issue #9: tiny fixed-weight MLP scorer
     double timeout_s = 0;
     std::int64_t max_search_nodes = 200000;
@@ -236,7 +237,8 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
                 err = "bad --memory-budget-mb value";
                 return false;
             }
-            if (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536) {
+            if (f.memory_budget_mb != 0 &&
+                (f.memory_budget_mb < 64 || f.memory_budget_mb > 65536)) {
                 err = "--memory-budget-mb must be 64..65536";
                 return false;
             }
@@ -421,6 +423,8 @@ bool parse_flags(const std::vector<std::string>& args, std::size_t start, Flags&
             ++i;
         } else if (a == "--no-impact") {
             f.no_impact = true;
+        } else if (a == "--no-same-net-fill") {
+            f.no_same_net_fill = true;
         } else if (a == "--impact-mlp") {
             f.impact_mlp = true;
         } else if (a == "--output") {
@@ -1371,6 +1375,7 @@ int cmd_route(const Flags& f) {
     opt.astar.max_expansions = f.max_search_nodes;
     opt.hierarchy.enabled = !f.no_hierarchy;  // issue #10
     opt.impact.enabled = !f.no_impact;        // issue #9
+    opt.batch_same_net_fill = !f.no_same_net_fill;  // C-G1
     opt.impact.use_mlp = f.impact_mlp;        // issue #9: fixed MLP + fallback
     opt.recovery_depth = f.recovery_depth;    // issue #22
     opt.recovery_beam = f.recovery_beam;      // issue #22
@@ -1447,6 +1452,7 @@ int cmd_route(const Flags& f) {
     params["route_k_requested"] = static_cast<double>(f.route_k);  // issue #8: 0=auto
     params["route_k_cap"] = static_cast<double>(opt.maturity.caps.max_route_k);
     params["impact_enabled"] = !f.no_impact;  // issue #9
+    params["same_net_fill"] = !f.no_same_net_fill;  // C-G1
     params["impact_scorer"] = f.impact_mlp ? "mlp" : "weighted";  // issue #9
     params["recovery_depth"] = static_cast<double>(opt.recovery_depth);  // issue #22
     params["recovery_beam"] = static_cast<double>(opt.recovery_beam);    // issue #22
@@ -1776,6 +1782,7 @@ int run(const std::vector<std::string>& args) {
                       "                       [--route-k K]\n"
                       "                       [--output routed.ses] [--report report.json]\n"
                       "                       [--no-hierarchy] [--no-impact] [--impact-mlp]\n"
+                      "                       [--no-same-net-fill]\n"
                       "                       [--recovery-depth D] [--recovery-beam B]\n"
                       "                       [--max-multiply-nodes N] [--no-optimizer]\n"
                       "                       [--no-tuning] [--tuning-amplitude-mm A]\n"

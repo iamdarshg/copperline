@@ -377,13 +377,21 @@ CT_TEST(route_timeout_covers_escape_preprocessing) {
     RouteReport report = engine.run();
     CT_CHECK(report.status == "TIMEOUT");
     CT_CHECK(report.stats.threads_requested == 1);
+    // A near-zero wall budget trips the escape stage's bounded share; the
+    // run now records the shortfall honestly and continues (rather than
+    // aborting with zero global work), then the global loop stops at the
+    // overall deadline.
+    CT_CHECK(report.escape_stage.timed_out);
     CT_CHECK(!report.failures.empty());
     CT_CHECK(report.failures.front().reason == "timeout");
-    CT_CHECK(events.size() == 2);
-    CT_CHECK(events[0].get_string("event") == "preprocessing_timeout");
-    CT_CHECK(events[0].get_string("phase") == "escape");
-    CT_CHECK(events[1].get_string("event") == "done");
-    CT_CHECK(events[1].get_string("status") == "TIMEOUT");
+    bool saw_shortfall = false;
+    bool saw_done = false;
+    for (const auto& ev : events) {
+        if (ev.get_string("event") == "escape_shortfall") saw_shortfall = true;
+        if (ev.get_string("event") == "done") saw_done = true;
+    }
+    CT_CHECK(saw_shortfall);
+    CT_CHECK(saw_done);
 }
 
 CT_TEST(route_global_tasks_originate_at_escape_portals) {
@@ -586,6 +594,10 @@ CT_TEST(escape_never_commits_illegal_copper_on_dense_bga) {
     CT_CHECK(rep.verification.legal);
     CT_CHECK(rep.status != "VIOLATION");
     CT_CHECK(rep.result_category != "HARD_RULE_VIOLATION");
+    // Regression: a dense escape deadline must not abort before global work;
+    // partial, legal escape stubs are followed by at least one global epoch.
+    CT_CHECK(rep.escape_stage.timed_out);
+    CT_CHECK(rep.epochs.size() >= 1);
 }
 
 int main() { return copperline::test::run_all_tests(); }

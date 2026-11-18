@@ -124,4 +124,85 @@ CT_TEST(pad_gap_roundrect_uses_corner_radius) {
     CT_CHECK(oval_gap < mm_to_nm(0.25));
 }
 
+// Issue #39: with A a vertical oval, pad_gap_nm rotated B's oval core into
+// A's frame twice (once via `rel`, once more inside core_points), so a
+// horizontal B core stayed horizontal in the frame where it must be vertical.
+// A 0.5 mm edge gap then read as 0.9 mm in one argument order only, and the
+// diff-pair pad floor check (verifier.cpp, pads_p x pads_n) uses that order.
+namespace {
+Terminal oval_pad(double x_mm, double y_mm, double w_mm, double h_mm,
+                  double rot_deg = 0.0) {
+    Terminal t;
+    t.pos = {mm_to_nm(x_mm), mm_to_nm(y_mm)};
+    t.pad_w_nm = mm_to_nm(w_mm);
+    t.pad_h_nm = mm_to_nm(h_mm);
+    t.shape = PadShape::kOval;
+    t.rotation_deg = rot_deg;
+    return t;
+}
+Coord abs_diff(Coord a, Coord b) { return a > b ? a - b : b - a; }
+}  // namespace
+
+CT_TEST(pad_gap_vertical_oval_is_order_independent_issue39) {
+    // A: vertical capsule (r 0.8, core half 0.4 along Y). B: horizontal
+    // capsule 2.5 mm to the right. Edge gap = 2.5 - 0.4 - 0.8 - 0.8 = 0.5 mm.
+    const Terminal a = oval_pad(0.0, 0.0, 1.6, 2.4);
+    const Terminal b = oval_pad(2.5, 0.0, 2.4, 1.6);
+    const Coord ab = pad_gap_nm(a, b);
+    const Coord ba = pad_gap_nm(b, a);
+    CT_CHECK(abs_diff(ba, mm_to_nm(0.5)) <= 1000);
+    CT_CHECK(abs_diff(ab, mm_to_nm(0.5)) <= 1000);
+    CT_CHECK(abs_diff(ab, ba) <= 2);
+    // A clearance between the two readings (0.7 mm) must be violated in
+    // both orders: the real gap is 0.5 mm.
+    CT_CHECK(ab < mm_to_nm(0.7));
+    CT_CHECK(ba < mm_to_nm(0.7));
+    // Same physical A built as a horizontal oval rotated 90 degrees.
+    const Terminal a_rot = oval_pad(0.0, 0.0, 2.4, 1.6, 90.0);
+    CT_CHECK(abs_diff(pad_gap_nm(a_rot, b), mm_to_nm(0.5)) <= 1000);
+    // Both vertical: B's core must be vertical too (gap 2.5 - 1.6 = 0.9).
+    const Terminal bv = oval_pad(2.5, 0.0, 1.6, 2.4);
+    CT_CHECK(abs_diff(pad_gap_nm(a, bv), mm_to_nm(0.9)) <= 1000);
+    CT_CHECK(abs_diff(pad_gap_nm(bv, a), mm_to_nm(0.9)) <= 1000);
+}
+
+CT_TEST(pad_gap_swap_symmetry_sweep_issue39) {
+    // Non-overlapping placements (centre distance >= 3 mm, every pad fits
+    // in a 2.88 mm circle) so each gap is a true positive distance.
+    std::vector<Terminal> shapes;
+    auto mk = [](PadShape s, double w, double h, double rc, double rot) {
+        Terminal t;
+        t.pad_w_nm = mm_to_nm(w);
+        t.pad_h_nm = mm_to_nm(h);
+        t.shape = s;
+        t.corner_r_nm = mm_to_nm(rc);
+        t.rotation_deg = rot;
+        return t;
+    };
+    for (double rot : {0.0, 30.0, 90.0, 135.0}) {
+        shapes.push_back(mk(PadShape::kOval, 1.6, 2.4, 0.0, rot));
+        shapes.push_back(mk(PadShape::kOval, 2.4, 1.6, 0.0, rot));
+        shapes.push_back(mk(PadShape::kRect, 1.0, 2.0, 0.0, rot));
+        shapes.push_back(mk(PadShape::kRoundRect, 2.0, 1.2, 0.3, rot));
+    }
+    shapes.push_back(mk(PadShape::kCircle, 1.3, 1.3, 0.0, 0.0));
+    const double offs[][2] = {{3.0, 0.0}, {0.0, 3.1}, {2.2, 2.3}, {-2.6, 2.0}};
+    int checked = 0;
+    for (const auto& sa : shapes) {
+        for (const auto& sb : shapes) {
+            for (const auto& o : offs) {
+                Terminal a = sa, b = sb;
+                a.pos = {mm_to_nm(1.0), mm_to_nm(-0.5)};
+                b.pos = {a.pos.x + mm_to_nm(o[0]), a.pos.y + mm_to_nm(o[1])};
+                const Coord ab = pad_gap_nm(a, b);
+                const Coord ba = pad_gap_nm(b, a);
+                CT_CHECK(ab > 0);
+                CT_CHECK(abs_diff(ab, ba) <= 2);
+                ++checked;
+            }
+        }
+    }
+    CT_CHECK(checked == 17 * 17 * 4);
+}
+
 int main() { return copperline::test::run_all_tests(); }

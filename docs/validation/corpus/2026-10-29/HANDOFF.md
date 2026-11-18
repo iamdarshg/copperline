@@ -66,6 +66,33 @@ escape at all.
 
 ## Workstream 1 - "no candidate produced" (the dominant cause)
 
+**Update 2026-11-18 (C-G1, branch `audit/copperline-cg1`).** Instrumented
+(per-epoch backlog nets / batch / tasks skipped by the per-net gate, and the
+greedy-loop exit reason). On all four short-tier boards the greedy loop ends on
+the epoch cap (`--max-epochs 12`, which the harness passes explicitly), never on
+the 4-epoch stall detector, and every greedy epoch accepted at least one route.
+The "unattempted, expansions=0" tasks were never placed in a batch
+(`last_epoch == -1`): `select_interference_batch` allows one task per net per
+epoch (`src/parallel.cpp`, the `picked_nets` guards), and the power nets carry
+most of the backlog (never scheduled at greedy exit: game_con GND 27 + +3.3V 7
+of 34; nema GND 31 + +3.3V 10 of 51; KiCAD GND 21 + +3.3V 14 of 46; pico GND
+45 of 61). On `rp2040_game_con` the backlog falls to 3-6 nets by epoch 5, so
+batches shrink to 2-3 of 8 slots while 34-50 same-net tasks wait.
+
+Fix: when the backlog has fewer distinct nets than the batch width, the free
+slots are filled with non-interfering tasks of nets already in the batch
+(`BatchSchedOptions::same_net_fill`, `--no-same-net-fill` to disable).
+`rp2040_game_con` 79/152 -> 124/152 (unattempted 34 -> 2); the other three
+boards are byte-identical (their backlog keeps >= 9 nets, so the fill never
+triggers). Long tier: Pico WH 247 -> 252, OpenJBOD 366 -> 357 (GND failures
+192 -> 84 but `/PWR_BTN` loses completion: a regression, inside the ratchet),
+the other boards byte-identical; legality 10/10 throughout. pico-radio is limited by batch width (8 once fewer than 128 tasks
+remain) against the 12-epoch budget, not by the per-net gate. Filling
+unconditionally (whenever a batch is short) was measured and rejected: game_con
+128, pico 228, nema 91, but KiCAD_Board_3 fell 94 -> 78 because early
+power-star routes walled in signal escapes. Evidence:
+`evidence/copperline/C-G1/` in the audit workspace; summary in the C-G1 PR.
+
 At the gate budget this is 86-92 % of all failed task-routes; at 180 s it is
 51 %. The engine records `best_partial = "unattempted: no worker candidate
 produced"` when the worker returns no `CandidateRoute` for a scheduled task
