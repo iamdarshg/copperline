@@ -10,7 +10,7 @@ get one first.
 |---|---|---|---|
 | 27–36 | Release readiness (CI matrix, real-board qualification, FreeRouting benchmark, round-trip torture, install/packaging, CLI contract, fuzzing, timeout/cancel, license/changelog, release automation) | **Open — process epics**, not addressed in this PR | — |
 | 37 | Cleanup optimizer retries rejected first candidate | Closed upstream before this audit | `tests/test_golden.cpp`, `src/optimizer.cpp` reference it |
-| 38 | Hug/spread optimizer stops after first rejected window | **Code present, no regression test** | `src/optimizer.cpp:759-889` cursor advances past a fully rejected window instead of ending the pass |
+| 38 | Hug/spread optimizer stops after first rejected window | **Fixed + regression test (2026-11-18)** | The imported cursor advanced by candidate count and kept the 8-window guard; the test `optimizer_spread_skips_rejected_prefix_issue38` (40 blocked, 1 legal) was red on `main` and on that code. Replaced with an index cursor + 8-accepted-move bound (da09121); green. Not closed: owner's call. |
 | 39 | Pad-to-pad gap asymmetric for vertical oval (B rotated twice) | **Open — not addressed** | no reference in code or tests |
 | 40 | Fine-pitch escape commits conflicting stubs without board-level legality gate | **Open — not addressed** | no reference |
 | 41 | Synthetic corpus generator overlapping different-net pads | Closed upstream | — |
@@ -29,5 +29,5 @@ get one first.
 
 ## Suggested next tickets
 
-1. Regression test for #38 (#43/#46/#47 have tests).
+1. ~~Regression test for #38~~ done (da09121).
 2. #42 and #40 are legality defects; they deserve targeted reproductions before any completion work (C-G1).
