@@ -23,6 +23,16 @@ std::string recovery_mode_name(RecoveryMode m) {
     return "FAST";
 }
 
+bool branch_rerouted_required(const BranchResult& branch,
+                              const std::vector<int>& required_task_ids) {
+    for (int required : required_task_ids) {
+        if (std::find(branch.newly_done.begin(), branch.newly_done.end(), required) ==
+            branch.newly_done.end())
+            return false;
+    }
+    return true;
+}
+
 RecoveryMode recovery_mode_for_generation(int generation) {
     if (generation <= 0) return RecoveryMode::FAST;
     if (generation <= 2) return RecoveryMode::RECOVERY;
@@ -770,6 +780,26 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         CandidateRoute cand = route_candidate_task(work, r, tasks[ti], pos, tasks[ti].difficulty,
                                                    ctx, layer_mult, astar_cfg, congestion,
                                                    reservations, hier_cfg, hier_cache);
+        if (ti == failed_ti) {
+            out.has_failed_attempt = true;
+            // Keep only attribution fields. BranchResult is copied for every
+            // speculative move, so candidate geometry must not escape with
+            // it or multiply peak memory by the branch width.
+            CandidateRoute& e = out.failed_attempt;
+            e.task = cand.task;
+            e.task_index = cand.task_index;
+            e.found = cand.found;
+            e.fail_reason = cand.fail_reason;
+            e.expansions = cand.expansions;
+            e.closest_node = cand.closest_node;
+            e.closest_goal_dist_nm = cand.closest_goal_dist_nm;
+            e.frontier_blockers = cand.frontier_blockers;
+            e.required_current_a = cand.required_current_a;
+            e.via_style = cand.via_style;
+            e.vias_required = cand.vias_required;
+            e.via_reason = cand.via_reason;
+            e.hierarchy = cand.hierarchy;
+        }
         expansions += cand.expansions;
         if (!cand.found) continue;
         std::string why;
@@ -801,7 +831,12 @@ BranchResult reroute_branch(const Board& base_template, const std::vector<TraceS
         new_owned.push_back(o);
         done.push_back(ti);
         branch_cands.push_back(cand);
-        for (const auto& t : cand.traces) congestion.add_history_segment(t.segment(), 0.25);
+        // Route the failed task first. Give its newly claimed corridor stronger
+        // negotiated history so ripped victims are encouraged to detour when
+        // they are re-placed later in this same branch.
+        const double history = ti == failed_ti ? 4.0 : 0.25;
+        for (const auto& t : cand.traces)
+            congestion.add_history_segment(t.segment(), history);
     }
     out.connected_tasks = (int)done.size();
     out.total_tasks = (int)order.size();
